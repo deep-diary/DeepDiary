@@ -1,0 +1,75 @@
+# DeepToy
+DeepToy/**/*.o
+DeepToy/**/*.obj
+DeepToy/**/*.exe
+DeepToy/**/*.dll
+DeepToy/**/*.so
+DeepToy/**/*.dylib
+DeepToy/**/*.a
+DeepToy/**/*.lib
+DeepToy/**/*.out
+DeepToy/**/*.app
+
+# DeepWeb
+DeepWeb/
+DeepWeb/**/node_modules/
+DeepWeb/**/dist
+DeepWeb/**/npm-debug.log*
+DeepWeb/**/yarn-debug.log*
+DeepWeb/**/yarn-error.log*
+DeepWeb/**/.env.local
+DeepWeb/**/.env.*.local
+DeepWeb/**/
+
+# DeepServer
+DeepServer/
+DeepServer/**/*.log
+DeepServer/**/local_settings.py
+DeepServer/**/db.sqlite3
+DeepServer/**/db.sqlite3-journal
+DeepServer/**/media
+DeepServer/**/
+DeepServer/wechat/time_slot.csv
+DeepServer/utilities/diaryai.py
+
+# DeepWin
+DeepWin/**/__pycache__/
+DeepWin/**/*.py[cod]
+DeepWin/**/*$py.class
+DeepWin/**/*.so
+DeepWin/**/.Python
+DeepWin/**/env/
+DeepWin/**/build/
+DeepWin/**/develop-eggs/
+DeepWin/**/dist/
+DeepWin/**/downloads/
+DeepWin/**/eggs/
+DeepWin/**/.eggs/
+DeepWin/**/lib/
+DeepWin/**/lib64/
+DeepWin/**/parts/
+DeepWin/**/sdist/
+DeepWin/**/var/
+DeepWin/**/*.egg-info/
+DeepWin/**/.installed.cfg
+DeepWin/**/*.egg
+
+# DeepMotor
+DeepMotor/**/*.o
+DeepMotor/**/*.obj
+DeepMotor/**/*.exe
+DeepMotor/**/*.dll
+DeepMotor/**/*.so
+DeepMotor/**/*.dylib
+DeepMotor/**/*.a
+DeepMotor/**/*.lib
+DeepMotor/**/*.out
+DeepMotor/**/*.app
+
+# root
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
