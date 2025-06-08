@@ -15,6 +15,7 @@ from src.app_logic.agents.agent_manager import AgentManager               # 智�
 from src.services.cloud_communication.api_client import CloudApiClient      # 云端API客户端示例
 from src.data_management.local_database import LocalDatabaseManager       # 本地数据库管理器
 from src.data_management.log_manager import LogManager # 日志管理器
+from src.ui.gui_manager import GuiManager # 图形界面管理器
 
 
 class WorkerRunnable(QRunnable):
@@ -36,7 +37,9 @@ class WorkerRunnable(QRunnable):
         """
         try:
             result = self.func(*self.args, **self.kwargs)
+            print(f"WorkerRunnable: 任务完成，结果：{result}")
             self.signals.finished.emit(result)
+
         except Exception as e:
             self.signals.error.emit(str(e))
 
@@ -86,29 +89,44 @@ class Coordinator(QObject):
         self.agent_manager = AgentManager(log_manager=log_manager) # 智能体管理器也需要协调器引用
         self.agent_manager.set_coordinator(self)
 
+        # 初始化gui管理器
+        self.gui_manager = GuiManager(log_manager=log_manager)
+
         # 初始化服务层和数据管理层
         self.cloud_api_client = CloudApiClient(log_manager=log_manager)
         self.local_database_manager = LocalDatabaseManager(log_manager=log_manager)
 
-        self._connect_internal_signals() # 连接内部模块的信号
+        self._connect_gui_signals() # 连接GUI管理器发出的信号
+        self._connect_processor_signals() # 连接图像处理器发出的信号
+        self._connect_coordinator_signals() # 连接协调器发出的信号
 
         self.logger.info("Coordinator: 初始化完成。")
 
-    def _connect_internal_signals(self):
+    
+    def _connect_gui_signals(self):
         """
-        连接内部模块发出的信号到协调器的方法，
-        或将协调器的方法连接到其他模块。
+        连接 GUI 管理器发出的信号到协调器的方法。
         """
-        # 示例：连接图像处理器完成信号到协调器的方法
+        self.gui_manager.window.memoryInterface.process_image_request.connect(self.handle_process_image_request)
+
+
+    def _connect_processor_signals(self):
+        """
+        连接图像处理器发出的信号到协调器的方法。
+        """
         self.image_video_processor.processing_finished.connect(self._on_image_processing_done)
         self.image_video_processor.processing_error.connect(self._on_image_processing_error)
-        # 可以有更多内部信号连接，例如设备状态变化由 device_logic_manager 发出，由协调器接收并转发
-        # self.device_logic_manager.status_changed.connect(self.device_status_updated.emit)
 
-        # 示例：连接智能体层需要获取数据的信号
-        self.agent_manager.request_memory_data.connect(self.local_database_manager.get_memories)
-        self.agent_manager.trigger_device_action.connect(self.device_logic_manager.send_command_to_device)
-        self.agent_manager.request_cloud_ai.connect(self.ai_coordinator.request_cloud_ai_service)
+    def _connect_coordinator_signals(self):
+        """
+        将协调器的方法连接到GUI管理器。
+        """
+
+        self.image_processing_started.connect(self.gui_manager.window.memoryInterface._on_image_processing_started)
+        self.image_processing_finished.connect(self.gui_manager.window.memoryInterface._on_image_processing_finished)
+        self.image_processing_error.connect(self.gui_manager.window.memoryInterface._on_image_processing_error)
+
+    
 
 
     @Slot(str)
@@ -117,6 +135,7 @@ class Coordinator(QObject):
         槽函数：处理来自 UI 的图像处理请求。
         将耗时的图像处理任务提交到线程池执行，不阻塞 UI。
         """
+        print(f"Coordinator: 收到图像处理请求：{image_path}")
         self.logger.info(f"Coordinator: 收到图像处理请求：{image_path}")
         self.app_status_message.emit(f"正在处理图片：{image_path}...")
         self.image_processing_started.emit(image_path)
@@ -165,7 +184,7 @@ class Coordinator(QObject):
         内部槽函数：处理图像处理任务完成的信号。
         由 ImageVideoProcessor 发出。
         """
-        self.logger.info(f"Coordinator: 图像处理任务完成：{result}")
+        self.logger.info(f"Coordinator: 图像处理任务完成666：{result}")
         self.app_status_message.emit(f"图像处理完成！结果：{result}")
         # 这里可以触发 UI 更新，但因为 signal 已经连接到 self.image_processing_finished.emit，所以实际在主窗口处理
 

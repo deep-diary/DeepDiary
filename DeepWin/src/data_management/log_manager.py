@@ -19,7 +19,7 @@ class LogManager:
             cls._instance = super(LogManager, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, log_dir="logs", log_file_name="deepwin.log"):
+    def __init__(self, log_dir="logs", log_file_name="deepwin"):
         if self._initialized:
             return
 

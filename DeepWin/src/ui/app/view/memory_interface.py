@@ -4,8 +4,11 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushBu
 from qfluentwidgets import (ScrollArea, FlowLayout, CardWidget, PrimaryPushButton, 
                           SearchLineEdit, ComboBox, DateEdit, FluentIcon as FIF)
 from qfluentwidgets import FluentStyleSheet
-
+from PySide6.QtCore import Signal
 from ..common.translator import Translator
+import os
+from PySide6.QtCore import Slot
+from src.data_management.log_manager import LogManager
 
 
 class MemoryCard(CardWidget):
@@ -46,8 +49,12 @@ class MemoryCard(CardWidget):
 class MemoryInterface(ScrollArea):
     """ 记忆管理界面 """
 
+    process_image_request = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent=parent)
+        self.log_manager = LogManager(log_file_name="memory_interface")
+        self.logger = self.log_manager.get_logger(__name__)
         self.translator = Translator()
         self.setObjectName('memoryInterface')
         self.setup_ui()
@@ -99,6 +106,20 @@ class MemoryInterface(ScrollArea):
 
         self.vBoxLayout.addWidget(search_widget)
 
+        # 绑定信号
+        add_button.clicked.connect(self.add_memory)
+
+
+    def add_memory(self):
+        """ 添加记忆 """
+        project_root = 'd:/BlueDoc/DeepDiary'
+        image_path = os.path.join(project_root, 'DeepWin', 'media', 'images', 'IMG_20210905_163757.jpg')
+        print(f"MemoryInterface: 添加记忆，路径：{image_path}")
+        self.process_image_request.emit(image_path)
+
+
+        
+
     def create_memory_list(self):
         """ 创建记忆列表 """
         # 创建流式布局
@@ -119,3 +140,27 @@ class MemoryInterface(ScrollArea):
         container = QWidget()
         container.setLayout(self.flow_layout)
         self.vBoxLayout.addWidget(container) 
+
+
+    @Slot(str)
+    def _on_image_processing_started(self, image_path: str):
+        """
+        槽函数：当图像处理任务开始时，更新 UI 状态。
+        """
+        self.logger.info(f"UI收到图像处理开始：{image_path}")
+
+
+    @Slot(str, str)
+    def _on_image_processing_finished(self, image_path: str, result: str):
+        """
+        槽函数：当图像处理任务完成时，更新 UI 结果。
+        """
+        self.logger.info(f"UI收到图像处理完成：{image_path}，结果：{result}")
+
+
+    @Slot(str, str)
+    def _on_image_processing_error(self, image_path: str, error_msg: str):
+        """
+        槽函数：当图像处理任务出错时，更新 UI 错误信息。
+        """
+        self.logger.error(f"UI收到图像处理失败：{image_path}，错误：{error_msg}")

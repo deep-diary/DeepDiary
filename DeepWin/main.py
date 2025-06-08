@@ -7,7 +7,6 @@ from PySide6.QtCore import QThreadPool # 用于管理后台任务
 
 # 导入 DeepWin 核心组件
 from src.app_logic.core_manager.coordinator import Coordinator
-from src.ui.main_window import MainWindowManager
 from src.data_management.log_manager import LogManager # 导入日志管理器
 
 
@@ -28,10 +27,6 @@ def main():
     # 协调器是应用逻辑层的核心，负责业务逻辑的调度和模块间的通信
     coordinator = Coordinator(log_manager=log_manager)
 
-    # 3. 初始化主窗口 (U类)，并将协调器传递给它
-    # UI 不直接处理复杂业务逻辑，而是通过协调器来触发
-    main_window = MainWindowManager(coordinator=coordinator, log_manager=log_manager)
-    main_window.window.show()
 
     # 4. 启动后台任务线程池（PySide6 自动管理）
     # QThreadPool 默认在 QApplication 启动时自动启动，这里只是明确指出其存在
@@ -42,7 +37,8 @@ def main():
 
     # 5. 启动应用程序事件循环
     # 应用程序会在此处等待用户交互，直到窗口关闭
-    exit_code = main_window.app.exec()
+    coordinator.gui_manager.window.show()
+    exit_code = coordinator.gui_manager.app.exec()
 
     # 6. 应用程序退出前的清理工作
     coordinator.cleanup()

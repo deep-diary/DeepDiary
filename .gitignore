@@ -53,6 +53,8 @@ DeepWin/**/var/
 DeepWin/**/*.egg-info/
 DeepWin/**/.installed.cfg
 DeepWin/**/*.egg
+DeepWin/**/logs/
+DeepWin/**/media/
 
 # DeepMotor
 DeepMotor/**/*.o
