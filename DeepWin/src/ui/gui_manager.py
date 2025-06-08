@@ -21,10 +21,6 @@ from PySide6.QtCore import QObject, Signal, Slot
 
 
 
-# enable dpi scale
-if cfg.get(cfg.dpiScale) != "Auto":
-    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
-    os.environ["QT_SCALE_FACTOR"] = str(cfg.get(cfg.dpiScale))
 
 
 class GuiManager(): 
@@ -43,6 +39,12 @@ class GuiManager():
         self.logger = log_manager.get_logger(__name__)
         self.logger.info("GuiManager: 初始化中...")
 
+
+        # enable dpi scale
+        if cfg.get(cfg.dpiScale) != "Auto":
+            os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
+            os.environ["QT_SCALE_FACTOR"] = str(cfg.get(cfg.dpiScale))
+        
         self.app = QApplication(sys.argv)
         self.app.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings)
         self.window = self.init_ui()
@@ -69,28 +71,11 @@ class GuiManager():
         return window
 
 
-    # def _connect_signals(self):
-    #     """
-    #     连接 UI 信号到协调器 (T类) 的槽函数，以及连接协调器信号到 UI 槽函数。
-    #     """
-    #     # UI -> Coordinator 信号
-    #     # self.window.process_image_button.clicked.connect(
-    #     #     lambda: self.process_image_request.emit(self.image_path_input.text())
-    #     # )
-    #     # self.window.send_command_button.clicked.connect(
-    #     #     lambda: self.device_control_request.emit(self.device_id_input.text(), self.command_input.text())
-    #     # )
-    #     # 可以连接更多 UI 信号，例如资源匹配界面的按钮点击
-
-
-    #     # Coordinator -> UI 信号 (用于更新 UI)
-    #     self.coordinator.image_processing_started.connect(self._on_image_processing_started)
-    #     self.coordinator.image_processing_finished.connect(self._on_image_processing_finished)
-    #     self.coordinator.image_processing_error.connect(self._on_image_processing_error)
-    #     self.coordinator.device_status_updated.connect(self._on_device_status_updated) # 假设设备状态由Coordinator转发
-    #     self.coordinator.resource_matched.connect(self._on_resource_matched) # 假设资源匹配结果由Coordinator转发
-
-
+    def exec(self):
+        """
+        启动应用程序事件循环
+        """
+        return self.app.exec() 
 
     def closeEvent(self, event):
         """
@@ -99,3 +84,13 @@ class GuiManager():
         self.logger.info("MainWindow: 窗口关闭事件。")
         # 这里可以放置额外的确认逻辑或直接允许关闭
         event.accept()
+
+
+    def cleanup(self):
+        """
+        清理资源。
+        """
+        self.logger.info("GuiManager: 清理中...")
+        # self.window.close()
+        # self.app.quit()
+        self.logger.info("GuiManager: 清理完成。")

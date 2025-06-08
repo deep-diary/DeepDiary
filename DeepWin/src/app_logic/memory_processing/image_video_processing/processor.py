@@ -20,7 +20,8 @@ class ImageVideoProcessor(QObject):
     processing_started = Signal(str)    # 处理开始
     processing_finished = Signal(str)   # 处理完成，传递结果字符串
     processing_error = Signal(str)      # 处理出错，传递错误信息
-    # processing_progress = Signal(int) # 进度更新 (可选)
+    processing_progress = Signal(int) # 进度更新 (可选)
+    
 
 
     def __init__(self, log_manager: LogManager, parent=None):

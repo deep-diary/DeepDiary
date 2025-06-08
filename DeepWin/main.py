@@ -38,7 +38,7 @@ def main():
     # 5. 启动应用程序事件循环
     # 应用程序会在此处等待用户交互，直到窗口关闭
     coordinator.gui_manager.window.show()
-    exit_code = coordinator.gui_manager.app.exec()
+    exit_code = coordinator.gui_manager.exec()
 
     # 6. 应用程序退出前的清理工作
     coordinator.cleanup()

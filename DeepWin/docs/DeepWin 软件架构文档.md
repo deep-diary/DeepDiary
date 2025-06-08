@@ -1361,3 +1361,8 @@ note on link: 更新状态栏信息
 @enduml
 ```
 
+
+
+
+
+![DiaryWin软件流程图](C:\Users\Blue\Desktop\DiaryWin软件流程图.png)

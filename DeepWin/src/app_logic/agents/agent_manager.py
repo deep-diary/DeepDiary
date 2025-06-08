@@ -5,6 +5,7 @@ class AgentManager(QObject):
     request_memory_data = Signal(str)
     trigger_device_action = Signal(str, str)
     request_cloud_ai = Signal(str)
+    send_app_message = Signal(str)
 
     def __init__(self, log_manager: LogManager, parent=None):
         super().__init__(parent)
