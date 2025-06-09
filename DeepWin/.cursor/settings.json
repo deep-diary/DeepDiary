@@ -1,0 +1,16 @@
+{
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "terminal.integrated.profiles.windows": {
+    "PowerShell": {
+      "source": "PowerShell",
+      "args": [
+        "-NoExit",
+        "-Command",
+        "& {Set-Location -Path 'D:/BlueDoc/DeepDiary/DeepWin/src/app_logic/device_logic_manager'}"
+      ],
+      "icon": "terminal-powershell"
+    }
+  },
+  "python.terminal.activateEnvironment": true,
+  "python.terminal.activateEnvInCurrentTerminal": true
+}
