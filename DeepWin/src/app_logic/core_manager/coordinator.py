@@ -84,16 +84,30 @@ class Coordinator(QObject):
         self.local_database_manager = LocalDatabaseManager(log_manager=log_manager)
         self.gui_manager = GuiManager(log_manager=log_manager) # GUI 管理器用于管理 UI 视图
 
+
+        # 实例化服务层组件 (真正的服务层实现)
+        self.serial_communicator = SerialCommunicator(log_manager=log_manager)
+        self.can_bus_communicator = CanBusCommunicator(log_manager=log_manager)
+        self.device_protocol_parser = DeviceProtocolParser(log_manager=log_manager)
+        self.cloud_api_client = CloudApiClient(log_manager=log_manager) # 云端 API 客户端
+
+        # 实例化设备逻辑管理器 (现在它将接收来自服务层的数据)
+        self.device_logic_manager = DeviceLogicManager(log_manager=log_manager)
+
+
         # ----------------------------------------------------------------------
         # 3. 建立信号和槽连接
         # 实现模块协调和事件分发逻辑的关键部分
         # ----------------------------------------------------------------------
+        self.logger.info("Coordinator: 正在设置信号和槽连接...")
         self._connect_gui_signals()      # 连接来自 GUI 的请求信号
         self._connect_processor_signals()# 连接业务处理器内部的信号
         self._connect_service_signals()  # 连接服务层的信号
         self._connect_agent_signals()    # 连接智能体层的信号
         self._connect_coordinator_output_signals() # 连接协调器自身的输出信号到GUI
-
+        self._connect_device_logic_signals() # 连接设备逻辑管理器发出的信号
+        self._connect_ai_coordinator_signals() # 连接 AI 协调器发出的信号
+        self.logger.info("Coordinator: 信号和槽连接设置完成。")
 
         # ----------------------------------------------------------------------
         # 4. 启动定时任务 (例如：数据同步) TODO: 暂时不启动, 目前代码启动后会异常退出
@@ -102,12 +116,39 @@ class Coordinator(QObject):
 
         self.logger.info("Coordinator: 初始化完成。")
 
+    def _connect_ai_coordinator_signals(self):
+        """
+        连接 AI 协调器发出的信号到协调器的方法。
+        这些信号通常表示 AI 任务完成、错误或进度更新。
+        """
+        self.logger.debug("Coordinator: 连接 AI 协调器信号...")
+        # AI 协调器
+        self.ai_coordinator.ai_service_response.connect(lambda result: self.app_status_message.emit(f"AI 服务响应: {result}"))
+        self.ai_coordinator.ai_service_error.connect(lambda error_msg: self.app_status_message.emit(f"AI 服务错误: {error_msg}"))  
+        self.logger.debug("Coordinator: AI 协调器信号连接完成。")
+
+    def _connect_device_logic_signals(self):
+        """
+        连接设备逻辑管理器发出的信号到协调器的方法。
+        这些信号通常表示设备状态更新、命令执行结果等。
+        """
+        self.logger.debug("Coordinator: 连接设备逻辑信号...")
+        # --- 设备逻辑管理器 -> Coordinator -> 服务层的命令下发 ---
+        # 设备逻辑管理器请求发送抽象命令
+        self.device_logic_manager.send_device_abstract_command_requested.connect(self._on_device_abstract_command_requested)
+        self.device_logic_manager.device_command_response.connect(lambda res: self.app_status_message.emit(f"设备命令响应: {res}"))
+        self.device_logic_manager.device_error.connect(lambda err: self.app_status_message.emit(f"设备操作错误: {err}"))
+        self.device_logic_manager.device_status_updated.connect(lambda data: self.app_status_message.emit(f"设备状态更新: {data.get('device_id')}")) # 简化消息
+        self.logger.debug("Coordinator: 设备逻辑信号连接完成。")
+
     def _connect_gui_signals(self):
         """
         连接来自 GUI 管理器中各个 UI 视图的请求信号到协调器对应的槽函数。
         这是 UI 层向应用逻辑层发起操作的主要途径。
         """
         self.logger.debug("Coordinator: 连接 GUI 信号...")
+        # --- 通用应用状态消息 ---
+        self.app_status_message.connect(self.gui_manager.update_status_bar)
         # 记忆管理界面 (memory_manager_view.py)
         # 假设 MainWindow 的 memoryInterface 是一个独立的 QWidget 或 FluentWidget
         self.gui_manager.window.memoryInterface.process_image_request.connect(self.handle_process_image_request)
@@ -167,6 +208,22 @@ class Coordinator(QObject):
         # 任务调度器 (任务完成/失败通知)
         self.task_scheduler.task_completed.connect(self._on_scheduled_task_completed)
         self.task_scheduler.task_failed.connect(self._on_scheduled_task_failed)
+        # --- 服务层 -> Coordinator -> 设备逻辑管理器的数据流 ---
+        # 1. SerialCommunicator 发射解析后的 CAN 帧组件
+        self.serial_communicator.can_frame_components_received.connect(self.can_bus_communicator.process_serial_can_frame)
+        self.serial_communicator.serial_error.connect(lambda p, msg: self.app_status_message.emit(f"串口错误 [{p}]: {msg}"))
+        self.serial_communicator.connection_status_changed.connect(lambda p, s: self.app_status_message.emit(f"串口 '{p}' 连接状态: {'已连接' if s else '已断开'}"))
+
+        # 2. CanBusCommunicator 发射 DBC 解析后的 CAN 信号数据
+        self.can_bus_communicator.can_parsed_data_received.connect(self.device_protocol_parser.parse_low_level_data)
+        self.can_bus_communicator.can_error.connect(lambda ch, msg: self.app_status_message.emit(f"CAN 错误 [{ch}]: {msg}"))
+        self.can_bus_communicator.connection_status_changed.connect(lambda ch, s: self.app_status_message.emit(f"CAN 总线 '{ch}' 连接状态: {'已连接' if s else '已断开'}"))
+
+        # 3. DeviceProtocolParser 发射业务语义数据
+        self.device_protocol_parser.device_semantic_data_ready.connect(self.device_logic_manager.handle_device_semantic_data)
+        self.device_protocol_parser.protocol_conversion_error.connect(lambda dev_id, msg: self.app_status_message.emit(f"协议转换错误 [{dev_id}]: {msg}"))
+
+        
 
         self.logger.debug("Coordinator: 服务层信号连接完成。")
 
@@ -180,7 +237,9 @@ class Coordinator(QObject):
         self.agent_manager.trigger_device_action.connect(self.device_logic_manager.send_command_to_device)
         self.agent_manager.request_cloud_ai.connect(self.ai_coordinator_module.request_cloud_ai_service)
         self.agent_manager.send_app_message.connect(self.app_status_message.emit) # 智能体也可能向状态栏发送消息
-
+        # 智能体管理器
+        self.agent_manager.agent_status_update.connect(lambda status: self.app_status_message.emit(f"智能体状态: {status}"))
+        self.agent_manager.agent_action_requested.connect(self._on_agent_action_requested)
         # TODO: 连接更多智能体发出的特定动作或状态信号
         # self.agent_manager.memory_curation_suggestion.connect(self.gui_manager.window.memoryInterface.display_curation_suggestion)
 
@@ -232,7 +291,67 @@ class Coordinator(QObject):
         # 示例：启动智能体管理器
         # self.agent_manager.start_agents()
         self.logger.info("Coordinator: 初始任务设置完成。")
+        
+    def start_application(self):
+        """
+        启动应用程序的核心服务和初始任务。
+        """
+        self.logger.info("Coordinator: 设置初始任务...")
+        # 示例：添加一个周期性任务
+        # self.task_scheduler.add_periodic_task(
+        #     "daily_data_sync",
+        #     self._perform_daily_data_sync,
+        #     5000 # 5秒钟模拟同步
+        # )
+        self.logger.info("Coordinator: 初始任务设置完成。")
 
+        self.agent_manager.start_agents()
+        self.logger.info("Coordinator: 应用程序启动完成。")
+        self.app_status_message.emit("DeepWin 应用程序启动成功！")
+
+        # 示例：连接串口和 CAN 接口，用于演示数据流
+        self.logger.info("Coordinator: 模拟连接 DeepArm 串口和 CAN 接口...")
+        # 使用 COM1 作为串口名称，同时也是 CAN 通道名，以便can_bus_communicator找到其dbc文件
+        self.serial_communicator.open_port("COM1", 9600)
+        # 假设 deeparm.dbc 文件存在于运行脚本的当前目录下
+        self.can_bus_communicator.connect_can_interface("COM1", "virtual", "deeparm.dbc")
+
+
+    @Slot(str, str)
+    def handle_device_control_request(self, device_id: str, command: str):
+        """
+        处理来自 UI 的设备控制请求，分发给 DeviceLogicManager。
+        :param device_id: 目标设备的唯一标识符。
+        :param command: 要发送的控制命令。
+        """
+        self.logger.info(f"Coordinator: 收到设备控制请求 - 设备: {device_id}, 命令: {command}")
+        # 将抽象命令转发给 DeviceLogicManager
+        # DeviceLogicManager 会进一步通过信号请求 Coordinator 发送底层命令
+        self.device_logic_manager.send_command_to_device(device_id, command)
+        self.app_status_message.emit(f"命令已发送至设备逻辑管理器: {device_id} - {command}")
+
+    @Slot(str, str, list)
+    def _on_device_abstract_command_requested(self, device_id: str, abstract_command_name: str, args: list):
+        """
+        槽函数：处理 DeviceLogicManager 发出的抽象命令发送请求。
+        将抽象命令转换为底层协议命令并通过硬件通信服务发送。
+        """
+        self.logger.info(f"Coordinator: 收到抽象命令发送请求 - 设备: {device_id}, 命令: {abstract_command_name}, 参数: {args}")
+        try:
+            # 使用 DeviceProtocolParser 将抽象命令转换为底层字节命令（包含 AT 头等）
+            low_level_command_bytes = self.device_protocol_parser.generate_low_level_command(
+                device_id, abstract_command_name, *args
+            )
+            self.logger.debug(f"Coordinator: 抽象命令 '{abstract_command_name}' 转换为底层命令: {low_level_command_bytes.hex()}")
+
+            # 假设 DeepArm 的底层命令都是通过串口发送的
+            self.serial_communicator.send_bytes(device_id, low_level_command_bytes)
+            self.app_status_message.emit(f"已将底层命令发送到串口: {device_id}")
+        except Exception as e:
+            error_msg = f"处理设备抽象命令 '{abstract_command_name}' 失败: {e}"
+            self.logger.error(f"Coordinator: {error_msg}")
+            self.app_status_message.emit(f"命令发送失败: {error_msg}")
+            self.device_logic_manager.device_error.emit(error_msg) # 通知 DeviceLogicManager 错误
 
     # ----------------------------------------------------------------------
     # UI 请求的槽函数 (Coordinator 接收来自 UI 的请求)
