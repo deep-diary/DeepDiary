@@ -28,6 +28,7 @@ class BaseDevice(QObject):
         """
         super().__init__(parent)
         self.device_id = device_id
+        # self.logger = log_manager.get_logger(__name__)
         self.logger = log_manager.get_logger(f"{self.__class__.__name__}.{device_id}")
         self._state: BaseDeviceState = BaseDeviceState(device_id=device_id)
         self.logger.info(f"BaseDevice '{device_id}': 初始化完成。")

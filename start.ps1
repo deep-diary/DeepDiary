@@ -6,4 +6,4 @@ conda activate diarywin
 
 # Display the current directory and environment information
 Write-Host "Current directory: $(Get-Location)"
-Write-Host "Current conda environment: diarywin" 
+Write-Host "Current conda environment: DiaryWin" 

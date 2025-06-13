@@ -1,0 +1,27 @@
+{
+  "general": {
+    "theme": "light",
+    "language": "zh_CN",
+    "auto_sync_interval_minutes": 60,
+    "data_storage_path": "data/"
+  },
+  "device_settings": {
+    "deeparm_serial_port": "COM1",
+    "deeparm_baud_rate": 9600,
+    "deeparm_can_bustype": "virtual",
+    "deeparm_dbc_path": "src/services/hardware_communication/device_protocols/deep_arm_protocol/deeparm.dbc",
+    "deepmotor_serial_port": "COM2",
+    "deepmotor_baud_rate": 115200,
+    "deeparm_default_mode": "idle"
+  },
+  "network": {
+    "server_address": "localhost:8000",
+    "mqtt_broker_host": "localhost",
+    "mqtt_broker_port": 1883
+  },
+  "ai_settings": {
+    "image_recognition_enabled": true,
+    "voice_recognition_enabled": true,
+    "llm_api_key": "your_llm_api_key_here"
+  }
+}

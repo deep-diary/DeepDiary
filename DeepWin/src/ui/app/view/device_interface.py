@@ -1,5 +1,5 @@
 # coding: utf-8
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QComboBox, QSpinBox, QTextEdit
 from qfluentwidgets import (ScrollArea, FlowLayout, CardWidget, PrimaryPushButton, 
                           SearchLineEdit, ComboBox, SpinBox, TextEdit, FluentIcon as FIF)
@@ -47,6 +47,9 @@ class DeviceCard(CardWidget):
 
 class DeviceInterface(ScrollArea):
     """ 设备控制界面 """
+    ui_device_start_button = Signal(str, str)
+    ui_device_stop_button = Signal(str, str)
+    ui_device_reset_button = Signal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -71,6 +74,11 @@ class DeviceInterface(ScrollArea):
         
         # 创建控制面板
         self.create_control_panel()
+
+        # 创建状态栏
+        self.status_bar = QLabel()
+        self.status_bar.setObjectName('statusBar')
+        self.vBoxLayout.addWidget(self.status_bar)
 
     def create_device_list(self):
         """ 创建设备列表 """
@@ -160,3 +168,10 @@ class DeviceInterface(ScrollArea):
         control_layout.addWidget(console_group)
 
         self.vBoxLayout.addWidget(control_widget) 
+
+
+        start_button.clicked.connect(self.start_button_clicked)
+
+    def start_button_clicked(self):
+        # self.logger.info("DeviceInterface: 开始按钮被点击")
+        self.ui_device_start_button.emit("DeepMotor", "set_rpm(100)")

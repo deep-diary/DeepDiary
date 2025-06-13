@@ -33,13 +33,13 @@ class LogManager:
 
         # 配置根 logger
         self.root_logger = logging.getLogger()
-        self.root_logger.setLevel(logging.INFO) # 默认最低级别
+        self.root_logger.setLevel(logging.DEBUG) # 默认最低级别
 
         # 避免重复添加 handlers
         if not self.root_logger.handlers:
             # 文件处理器
             file_handler = logging.FileHandler(self.log_file_path, encoding='utf-8')
-            file_handler.setLevel(logging.INFO)
+            file_handler.setLevel(logging.DEBUG)
             file_formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
             )
@@ -48,7 +48,7 @@ class LogManager:
 
             # 控制台处理器
             console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setLevel(logging.INFO)
+            console_handler.setLevel(logging.DEBUG)
             console_formatter = logging.Formatter(
                 '%(asctime)s - %(levelname)s - %(message)s'
             )

@@ -17,10 +17,15 @@ from src.app_logic.device_logic_manager.manager import DeviceLogicManager
 from src.app_logic.ai_coordinator.coordinator import AICoordinator
 from src.app_logic.agents.agent_manager import AgentManager
 from src.app_logic.core_manager.task_scheduler import TaskScheduler # 导入新任务调度器
-from src.services.cloud_communication.api_client import CloudApiClient
+
 from src.data_management.local_database import LocalDatabaseManager
 from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 from src.ui.gui_manager import GuiManager
+from src.services.hardware_communication.serial_communicator import SerialCommunicator
+from src.services.hardware_communication.can_bus_communicator import CanBusCommunicator
+from src.services.hardware_communication.device_protocol_parser import DeviceProtocolParser
+from src.services.cloud_communication.api_client import CloudApiClient
 
 class Coordinator(QObject):
     """
@@ -64,6 +69,11 @@ class Coordinator(QObject):
         # self.thread_pool.setMaxThreadCount(QThreadPool.globalInstance().maxThreadCount() - 1) # Moved to main.py
         self.logger.info(f"Coordinator: QThreadPool max thread count: {self.thread_pool.maxThreadCount()}")
 
+        self.device_id_to_port = {} # 新增：设备ID到串口名的映射
+
+
+        # 实例化配置管理器
+        self.config_manager = ConfigManager(log_manager=log_manager)
 
         # ----------------------------------------------------------------------
         # 1. 初始化应用逻辑层的各个管理器/处理器 (I类)
@@ -71,8 +81,8 @@ class Coordinator(QObject):
         # ----------------------------------------------------------------------
         self.image_video_processor = ImageVideoProcessor(log_manager=log_manager)
         self.resource_demand_manager = ResourceDemandManager(log_manager=log_manager)
-        self.device_logic_manager = DeviceLogicManager(log_manager=log_manager)
-        self.ai_coordinator_module = AICoordinator(log_manager=log_manager) # 避免与 Coordinator 类名冲突
+        self.device_logic_manager = DeviceLogicManager(log_manager=log_manager, config_manager=self.config_manager)
+        self.ai_coordinator = AICoordinator(log_manager=log_manager) # 避免与 Coordinator 类名冲突
         self.agent_manager = AgentManager(log_manager=log_manager) # 智能体管理器需要协调器引用
         self.agent_manager.set_coordinator(self)
 
@@ -82,17 +92,17 @@ class Coordinator(QObject):
         self.task_scheduler = TaskScheduler(log_manager=log_manager, thread_pool=self.thread_pool)
         self.cloud_api_client = CloudApiClient(log_manager=log_manager)
         self.local_database_manager = LocalDatabaseManager(log_manager=log_manager)
-        self.gui_manager = GuiManager(log_manager=log_manager) # GUI 管理器用于管理 UI 视图
+        self.gui_manager = GuiManager(log_manager=log_manager, config_manager=self.config_manager) # GUI 管理器用于管理 UI 视图
 
 
         # 实例化服务层组件 (真正的服务层实现)
-        self.serial_communicator = SerialCommunicator(log_manager=log_manager)
-        self.can_bus_communicator = CanBusCommunicator(log_manager=log_manager)
-        self.device_protocol_parser = DeviceProtocolParser(log_manager=log_manager)
+        self.serial_communicator = SerialCommunicator(log_manager=log_manager, config_manager=self.config_manager)
+        self.can_bus_communicator = CanBusCommunicator(log_manager=log_manager, config_manager=self.config_manager)
+        self.device_protocol_parser = DeviceProtocolParser(log_manager=log_manager, config_manager=self.config_manager)
         self.cloud_api_client = CloudApiClient(log_manager=log_manager) # 云端 API 客户端
 
         # 实例化设备逻辑管理器 (现在它将接收来自服务层的数据)
-        self.device_logic_manager = DeviceLogicManager(log_manager=log_manager)
+        self.device_logic_manager = DeviceLogicManager(log_manager=log_manager, config_manager=self.config_manager)
 
 
         # ----------------------------------------------------------------------
@@ -101,7 +111,7 @@ class Coordinator(QObject):
         # ----------------------------------------------------------------------
         self.logger.info("Coordinator: 正在设置信号和槽连接...")
         self._connect_gui_signals()      # 连接来自 GUI 的请求信号
-        self._connect_processor_signals()# 连接业务处理器内部的信号
+        self._connect_memory_processing_signals()# 连接业务处理器内部的信号
         self._connect_service_signals()  # 连接服务层的信号
         self._connect_agent_signals()    # 连接智能体层的信号
         self._connect_coordinator_output_signals() # 连接协调器自身的输出信号到GUI
@@ -147,16 +157,14 @@ class Coordinator(QObject):
         这是 UI 层向应用逻辑层发起操作的主要途径。
         """
         self.logger.debug("Coordinator: 连接 GUI 信号...")
-        # --- 通用应用状态消息 ---
-        self.app_status_message.connect(self.gui_manager.update_status_bar)
         # 记忆管理界面 (memory_manager_view.py)
         # 假设 MainWindow 的 memoryInterface 是一个独立的 QWidget 或 FluentWidget
         self.gui_manager.window.memoryInterface.process_image_request.connect(self.handle_process_image_request)
         # TODO: 连接更多记忆管理相关的 UI 信号
         # self.gui_manager.window.memoryInterface.analyze_diary_request.connect(self.handle_analyze_diary_request)
 
-        # # 设备控制界面 (device_control_view.py)
-        # self.gui_manager.window.devicesInterface.device_control_request.connect(self.handle_device_control_request)
+        # 设备控制界面 (device_control_view.py)
+        self.gui_manager.window.deviceInterface.ui_device_start_button.connect(self.handle_device_control_request)
         # # TODO: 连接更多设备控制相关的 UI 信号
         # # self.gui_manager.window.devicesInterface.start_realtime_stream_request.connect(self.handle_start_device_stream_request)
 
@@ -169,9 +177,12 @@ class Coordinator(QObject):
         # self.gui_manager.window.settingsInterface.data_sync_setting_changed.connect(self.handle_data_sync_setting_change)
         # # TODO: 连接更多设置相关的 UI 信号
 
+        # --- 通用应用状态消息 ---
+        self.app_status_message.connect(self.gui_manager.window.deviceInterface.status_bar.setText)
+
         self.logger.debug("Coordinator: GUI 信号连接完成。")
 
-    def _connect_processor_signals(self):
+    def _connect_memory_processing_signals(self):
         """
         连接业务逻辑处理器内部发出的信号到协调器的方法。
         这些信号通常表示业务逻辑任务的完成、错误或进度更新。
@@ -216,14 +227,13 @@ class Coordinator(QObject):
 
         # 2. CanBusCommunicator 发射 DBC 解析后的 CAN 信号数据
         self.can_bus_communicator.can_parsed_data_received.connect(self.device_protocol_parser.parse_low_level_data)
+        # self.can_bus_communicator.can_raw_frame_received.connect(self.device_protocol_parser.parse_low_level_data)
         self.can_bus_communicator.can_error.connect(lambda ch, msg: self.app_status_message.emit(f"CAN 错误 [{ch}]: {msg}"))
         self.can_bus_communicator.connection_status_changed.connect(lambda ch, s: self.app_status_message.emit(f"CAN 总线 '{ch}' 连接状态: {'已连接' if s else '已断开'}"))
 
         # 3. DeviceProtocolParser 发射业务语义数据
         self.device_protocol_parser.device_semantic_data_ready.connect(self.device_logic_manager.handle_device_semantic_data)
-        self.device_protocol_parser.protocol_conversion_error.connect(lambda dev_id, msg: self.app_status_message.emit(f"协议转换错误 [{dev_id}]: {msg}"))
-
-        
+        self.device_protocol_parser.protocol_conversion_error.connect(lambda dev_id, msg: self.app_status_message.emit(f"协议转换错误 [{dev_id}]: {msg}"))      
 
         self.logger.debug("Coordinator: 服务层信号连接完成。")
 
@@ -235,7 +245,7 @@ class Coordinator(QObject):
         # 智能体管理器请求数据
         self.agent_manager.request_memory_data.connect(self.local_database_manager.get_memories)
         self.agent_manager.trigger_device_action.connect(self.device_logic_manager.send_command_to_device)
-        self.agent_manager.request_cloud_ai.connect(self.ai_coordinator_module.request_cloud_ai_service)
+        self.agent_manager.request_cloud_ai.connect(self.ai_coordinator.request_cloud_ai_service)
         self.agent_manager.send_app_message.connect(self.app_status_message.emit) # 智能体也可能向状态栏发送消息
         # 智能体管理器
         self.agent_manager.agent_status_update.connect(lambda status: self.app_status_message.emit(f"智能体状态: {status}"))
@@ -252,6 +262,8 @@ class Coordinator(QObject):
         """
         self.logger.debug("Coordinator: 连接协调器输出信号到 GUI...")
         # 图像处理结果连接到记忆管理界面
+        # --- 通用应用状态消息 ---
+        self.app_status_message.connect(self.gui_manager.window.deviceInterface.status_bar.setText)
         self.image_processing_started.connect(self.gui_manager.window.memoryInterface._on_image_processing_started)
         self.image_processing_finished.connect(self.gui_manager.window.memoryInterface._on_image_processing_finished)
         self.image_processing_error.connect(self.gui_manager.window.memoryInterface._on_image_processing_error)
@@ -309,13 +321,36 @@ class Coordinator(QObject):
         self.logger.info("Coordinator: 应用程序启动完成。")
         self.app_status_message.emit("DeepWin 应用程序启动成功！")
 
-        # 示例：连接串口和 CAN 接口，用于演示数据流
+                # 示例：连接串口和 CAN 接口，用于演示数据流
         self.logger.info("Coordinator: 模拟连接 DeepArm 串口和 CAN 接口...")
-        # 使用 COM1 作为串口名称，同时也是 CAN 通道名，以便can_bus_communicator找到其dbc文件
-        self.serial_communicator.open_port("COM1", 9600)
-        # 假设 deeparm.dbc 文件存在于运行脚本的当前目录下
-        self.can_bus_communicator.connect_can_interface("COM1", "virtual", "deeparm.dbc")
+        
+        # 从配置中获取 DeepArm 的串口名、波特率和 DBC 路径
+        deeparm_port = self.config_manager.get('device_settings.deeparm_serial_port')
+        deeparm_baud = self.config_manager.get('device_settings.deeparm_baud_rate')
+        # 将 bustype 设置为 CanBusCommunicator.SERIAL_BRIDGE_BUSTYPE，明确指示这是串口桥接的 CAN
+        deeparm_can_bustype = CanBusCommunicator.SERIAL_BRIDGE_BUSTYPE 
+        
+        # 注意：DBC 文件的路径现在在 config.json 中指向了新的位置：
+        # src/services/hardware_communication/device_protocols/deep_arm_protocol/deeparm.dbc
+        deeparm_dbc_path = self.config_manager.get('device_settings.deeparm_dbc_path')
+        
+        # 确保 DBC 路径是相对于当前工作目录的正确路径
+        # 在实际部署中，DBC 文件应放在程序可访问的路径，通常是应用程序根目录或其子目录
+        # 这里为了演示，我们假设 config.json 中的路径已经正确
+        
+        self.serial_communicator.open_port(deeparm_port, deeparm_baud)
+        self.can_bus_communicator.connect_can_interface(deeparm_port, deeparm_can_bustype, deeparm_dbc_path)
 
+        self.serial_communicator.sim_read_serial_data()
+
+    @Slot(str, str)
+    def _on_agent_action_requested(self, device_id: str, command: str):
+        """
+        处理来自智能体层的设备控制请求。
+        """
+        self.logger.info(f"Coordinator: 收到智能体层的设备控制请求 - 设备: {device_id}, 命令: {command}")
+        self.device_logic_manager.send_command_to_device(device_id, command)
+        self.app_status_message.emit(f"命令已发送至设备逻辑管理器: {device_id} - {command}")
 
     @Slot(str, str)
     def handle_device_control_request(self, device_id: str, command: str):
@@ -344,9 +379,10 @@ class Coordinator(QObject):
             )
             self.logger.debug(f"Coordinator: 抽象命令 '{abstract_command_name}' 转换为底层命令: {low_level_command_bytes.hex()}")
 
-            # 假设 DeepArm 的底层命令都是通过串口发送的
-            self.serial_communicator.send_bytes(device_id, low_level_command_bytes)
-            self.app_status_message.emit(f"已将底层命令发送到串口: {device_id}")
+            # 新增：根据映射获取串口名，若无则默认用 device_id
+            port_name = self.device_id_to_port.get(device_id, device_id)
+            self.serial_communicator.send_bytes(port_name, low_level_command_bytes)
+            self.app_status_message.emit(f"已将底层命令发送到串口: {port_name}")
         except Exception as e:
             error_msg = f"处理设备抽象命令 '{abstract_command_name}' 失败: {e}"
             self.logger.error(f"Coordinator: {error_msg}")
@@ -567,22 +603,25 @@ class Coordinator(QObject):
         self.logger.info("Coordinator: 已停止所有任务调度器任务。")
 
         # 关闭所有子模块可能打开的资源
-        if hasattr(self, 'image_video_processor') and self.image_video_processor:
-            self.image_video_processor.cleanup()
-        if hasattr(self, 'resource_demand_manager') and self.resource_demand_manager:
-            self.resource_demand_manager.cleanup()
-        if hasattr(self, 'device_logic_manager') and self.device_logic_manager:
-            self.device_logic_manager.cleanup()
-        if hasattr(self, 'ai_coordinator_module') and self.ai_coordinator_module:
-            self.ai_coordinator_module.cleanup()
-        if hasattr(self, 'agent_manager') and self.agent_manager:
-            self.agent_manager.cleanup()
-        if hasattr(self, 'cloud_api_client') and self.cloud_api_client:
-            self.cloud_api_client.cleanup()
-        if hasattr(self, 'local_database_manager') and self.local_database_manager:
-            self.local_database_manager.cleanup()
-        if hasattr(self, 'gui_manager') and self.gui_manager:
-            self.gui_manager.cleanup() # 假设 GuiManager 有清理方法
+        # 定义需要清理的模块列表
+        modules_to_cleanup = [
+            'image_video_processor',
+            'resource_demand_manager', 
+            'device_logic_manager',
+            'ai_coordinator',
+            'agent_manager',
+            'cloud_api_client',
+            'local_database_manager',
+            'gui_manager',
+            'serial_communicator',
+            'can_bus_communicator',
+            'device_protocol_parser'
+        ]
+
+        # 循环清理每个模块
+        for module_name in modules_to_cleanup:
+            if hasattr(self, module_name) and getattr(self, module_name):
+                getattr(self, module_name).cleanup()
 
         self.logger.info("Coordinator: 所有子模块清理完成。")
 

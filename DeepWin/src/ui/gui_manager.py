@@ -5,6 +5,7 @@
 
 # 导入协调器（T类）以建立通信连接
 from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 import os
 import sys
@@ -35,8 +36,9 @@ class GuiManager():
     # device_control_request = Signal(str, str) # 请求控制设备，传递设备ID和命令
 
 
-    def __init__(self, log_manager: LogManager):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager):
         self.logger = log_manager.get_logger(__name__)
+        self.config_manager = config_manager
         self.logger.info("GuiManager: 初始化中...")
 
 

@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 from typing import Dict, Any, Optional, Union, List
 
 from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 from src.app_logic.device_logic_manager.device_models import BaseDeviceState, DeepArmState, DeepToyState, DeepMotorState, DeviceStatus
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
 from src.app_logic.device_logic_manager.devices.deep_motor.deep_motor import DeepMotor
@@ -46,13 +47,15 @@ class DeviceLogicManager(QObject):
     trajectory_playback_error = Signal(str, str)
 
 
-    def __init__(self, log_manager: LogManager, parent: Optional[QObject] = None):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         """
         初始化设备逻辑管理器。
         :param log_manager: 全局日志管理器实例。
         :param parent: QObject 父对象。
         """
         super().__init__(parent)
+        self.logger_instance = log_manager
+        self.config_manager = config_manager
         self.logger = log_manager.get_logger(__name__)
         self.logger.info("DeviceLogicManager: 初始化中...")
 
@@ -77,14 +80,14 @@ class DeviceLogicManager(QObject):
             # 根据 device_id 或 device_type 推断并创建具体的设备逻辑实例
             # 这里是简化的逻辑，实际可能需要更复杂的设备注册/发现机制
             if device_type == "DeepArm" or device_id.startswith("DeepArm"):
-                self.managed_devices[device_id] = DeepArm(device_id, self.logger)
+                self.managed_devices[device_id] = DeepArm(device_id, self.logger_instance)
             elif device_type == "DeepMotor" or device_id.startswith("DeepMotor"):
-                self.managed_devices[device_id] = DeepMotor(device_id, self.logger)
+                self.managed_devices[device_id] = DeepMotor(device_id, self.logger_instance)
             elif device_type == "DeepToy" or device_id.startswith("DeepToy"):
                 # 假设 DeepToy 也有自己的逻辑类
                 # self.managed_devices[device_id] = DeepToy(device_id, self.logger)
                 self.logger.warning(f"DeviceLogicManager: DeepToy 逻辑类未实现，使用 BaseDevice 占位 for {device_id}")
-                self.managed_devices[device_id] = BaseDevice(device_id, self.logger) # Placeholder
+                self.managed_devices[device_id] = BaseDevice(device_id, self.logger_instance) # Placeholder
             else:
                 self.logger.error(f"DeviceLogicManager: 无法识别的设备类型或 ID 前缀: {device_id}")
                 return None
@@ -153,6 +156,7 @@ class DeviceLogicManager(QObject):
         :param parsed_semantic_data: 已解析的业务语义数据字典。
         """
         self.logger.debug(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
+        self.logger.info(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
         device_instance = self._get_or_create_device_instance(
             device_id,
             device_type=parsed_semantic_data.get('device_type') # 从数据中尝试获取类型

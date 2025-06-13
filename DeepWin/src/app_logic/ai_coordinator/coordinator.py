@@ -1,9 +1,15 @@
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, Signal
 from src.data_management.log_manager import LogManager
 import time
 
 
+
 class AICoordinator(QObject):
+    ai_service_response = Signal(str, str)
+    ai_service_error = Signal(str, str)
+    ai_service_status = Signal(str, str)
+    ai_service_request = Signal(str, str)
+
     def __init__(self, log_manager: LogManager, parent=None):
         super().__init__(parent)
         self.logger = log_manager.get_logger(__name__)

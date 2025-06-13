@@ -7,6 +7,7 @@ from src.data_management.log_manager import LogManager
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
 from src.app_logic.device_logic_manager.device_models import DeepArmState, DeviceStatus
 from src.app_logic.device_logic_manager.devices.deep_motor.deep_motor import DeepMotor # 导入 DeepMotor 逻辑类
+from PySide6.QtCore import QObject, Signal, Slot
 
 
 class DeepArm(BaseDevice):

@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Callable, Optional
 from src.data_management.log_manager import LogManager
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
 from src.app_logic.device_logic_manager.device_models import DeepMotorState, DeviceStatus
+from PySide6.QtCore import QObject, Signal, Slot
 
 class DeepMotor(BaseDevice):
     """
@@ -47,12 +48,12 @@ class DeepMotor(BaseDevice):
     def execute_abstract_command(self,
                                  command_name: str,
                                  args: List[Any],
-                                 send_request_signal: Callable[[str, str, List[Any]], Any]):
+                                 send_request_signal: Signal):
         """
         执行 DeepMotor 特定的抽象命令。
         :param command_name: 抽象命令的名称 (如 "set_rpm", "get_status")。
         :param args: 命令的参数列表。
-        :param send_request_signal: 用于请求 Coordinator 发送底层命令的信号发射器。
+        :param send_request_signal: 用于请求 Coordinator 发送底层命令的信号。
         """
         self.logger.info(f"DeepMotor '{self.device_id}': 收到命令 '{command_name}' with args {args}")
         if command_name == "set_rpm":
@@ -60,7 +61,7 @@ class DeepMotor(BaseDevice):
                 rpm = int(args[0])
                 self.logger.debug(f"DeepMotor '{self.device_id}': 请求设置 RPM 到 {rpm}")
                 # 请求 Coordinator 通过服务层发送底层命令
-                send_request_signal(self.device_id, "set_motor_rpm", [rpm])
+                send_request_signal.emit(self.device_id, "set_motor_rpm", [rpm])
                 self.logger.info(f"DeepMotor '{self.device_id}': 已请求设置 RPM 为 {rpm}")
             else:
                 self.device_error.emit(self.device_id, "设置 RPM 命令需要一个数字参数。")

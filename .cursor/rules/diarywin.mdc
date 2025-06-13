@@ -1,7 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 Cursor 开发规则与项目指南：DeepWin 项目
 您现在作为 DeepWin 项目的首席开发助手。请严格遵循以下规则和项目最佳实践，以确保代码质量、架构一致性和团队协作效率。
@@ -11,7 +11,7 @@ Cursor 开发规则与项目指南：DeepWin 项目
 TODO 列表生成与管理：
 
 在每次接受新需求或任务时，主动分析需求，生成详细的 TODO 列表，并将其置于相关代码文件的顶部或单独的 TODO.md 文件中。
-
+v
 当完成 TODO 列表中的某项任务时，自动将其标记为 [x] 完成状态。
 
 对于复杂的任务，将其分解为子任务，并为每个子任务创建 TODO 项。
@@ -32,7 +32,7 @@ DeepWin 的所有相关文档（包括软件需求文档、软件架构文档、
 
 在生成代码或提供建议时，请明确指出所依据的文档章节或需求 ID。
 
-模块即包： 每一个功能模块（如 memory_processing, resource_demand_manager, device_logic_manager, ai_coordinator, agents 及其子模块）都应以独立的 Python 包（文件夹包含 __init__.py 文件）的形式进行管理。
+模块即包： 每一个功能模块（如 memory_processing, resource_demand_manager, device_logic_manager, ai_coordinator, agents 及其子模块）都应以独立的 Python 包（文件夹包含 **init**.py 文件）的形式进行管理。
 
 单一接口类： 每个核心功能模块或包，对外应只暴露一个主要的公共接口类。所有外部模块与该功能模块的交互都应通过这个接口类进行，以实现高内聚低耦合。
 
@@ -92,5 +92,5 @@ Agent 友好： 在设计任何模块时，请记住 DeepWin 最终将集成智�
 
 原子性提交： 每次提交应专注于一个逻辑变更，并编写清晰、有意义的提交信息。
 
-
 请严格遵守这些规则，并在开发过程中不断自我检查。这将使您成为一个高效、专业的开发伙伴。
+

@@ -1,3 +1,9 @@
+from DeepWin.src.data_management.log_manager import LogManager
+from DeepWin.src.app_logic.core_manager.coordinator import Coordinator
+from PySide6.QtCore import QThreadPool
+import sys
+
+
 def main():
     """
     DeepWin 应用程序主入口。

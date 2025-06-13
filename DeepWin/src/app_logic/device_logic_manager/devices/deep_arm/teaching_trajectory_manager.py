@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Callable, Optional
 from src.data_management.log_manager import LogManager
 
 
+
 class TeachingTrajectoryManager(QObject):
     """
     管理 DeepArm 示教轨迹的录制、存储和播放逻辑。
@@ -50,15 +51,12 @@ class TeachingTrajectoryManager(QObject):
             self._trajectory_recorded.emit(device_id, trajectory_name, recorded_points)
         return recorded_points
 
-    @Slot(str, str, Callable[[str, str, List[Any]], Any])
-    def play_trajectory(self, device_id: str, trajectory_name: str,
-                        send_command_callback: Callable[[str, str, List[Any]], Any]):
+    @Slot(str, str)
+    def play_trajectory(self, device_id: str, trajectory_name: str):
         """
         播放指定设备的示教轨迹。
         :param device_id: 播放轨迹的设备ID。
         :param trajectory_name: 要播放的轨迹名称。
-        :param send_command_callback: 回调函数，用于发送抽象命令给 Coordinator。
-                                      签名应为: (device_id, abstract_command_name, args)
         """
         self.logger.info(f"TeachingTrajectoryManager: 播放轨迹 '{trajectory_name}' for device '{device_id}' (逻辑暂时跳过)")
         if trajectory_name not in self._stored_trajectories or device_id not in self._stored_trajectories[trajectory_name]:
