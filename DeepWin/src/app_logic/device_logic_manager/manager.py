@@ -1,5 +1,3 @@
-
-
 # src/app_logic/device_logic_manager/manager.py
 # 设备逻辑管理器核心实现
 
@@ -68,31 +66,29 @@ class DeviceLogicManager(QObject):
 
         self.logger.info("DeviceLogicManager: 初始化完成。")
 
-    def _get_or_create_device_instance(self, device_id: str, device_type: Optional[str] = None) -> Optional[BaseDevice]:
+    def _get_or_create_device_instance(self, device_id: str) -> Optional[BaseDevice]:
         """
-        根据设备ID获取或创建对应的设备逻辑实例。
-        这是一个内部辅助方法。
+        获取或创建设备逻辑实例。
         :param device_id: 设备的唯一标识符。
-        :param device_type: 可选，明确指定设备类型，用于首次创建。
-        :return: 对应的 BaseDevice 实例。
+        :return: 设备逻辑实例，如果无法创建则返回 None。
         """
+        # 如果设备ID是命令而不是设备ID，则使用默认设备ID
+        if device_id in ["init_motor", "reset_motor", "enable_motor", "set_motor_mode", "set_motor_position", "set_motor_pos_speed"]:
+            device_id = "DeepMotor1"  # 使用默认的电机ID
+
         if device_id not in self.managed_devices:
-            # 根据 device_id 或 device_type 推断并创建具体的设备逻辑实例
-            # 这里是简化的逻辑，实际可能需要更复杂的设备注册/发现机制
-            if device_type == "DeepArm" or device_id.startswith("DeepArm"):
+            # 根据设备ID前缀创建对应的设备实例
+            if device_id.startswith("DeepArm"):
+                from .devices.deep_arm.deep_arm import DeepArm
                 self.managed_devices[device_id] = DeepArm(device_id, self.logger_instance)
-            elif device_type == "DeepMotor" or device_id.startswith("DeepMotor"):
+            elif device_id.startswith("DeepMotor"):
+                from .devices.deep_motor.deep_motor import DeepMotor
                 self.managed_devices[device_id] = DeepMotor(device_id, self.logger_instance)
-            elif device_type == "DeepToy" or device_id.startswith("DeepToy"):
-                # 假设 DeepToy 也有自己的逻辑类
-                # self.managed_devices[device_id] = DeepToy(device_id, self.logger)
-                self.logger.warning(f"DeviceLogicManager: DeepToy 逻辑类未实现，使用 BaseDevice 占位 for {device_id}")
-                self.managed_devices[device_id] = BaseDevice(device_id, self.logger_instance) # Placeholder
             else:
                 self.logger.error(f"DeviceLogicManager: 无法识别的设备类型或 ID 前缀: {device_id}")
                 return None
-            self.logger.info(f"DeviceLogicManager: 新设备实例 '{device_id}' 创建成功。")
-        return self.managed_devices.get(device_id)
+
+        return self.managed_devices[device_id]
 
     @Slot(str, str)
     def send_command_to_device(self, device_id: str, abstract_command: str) -> str:
@@ -157,10 +153,7 @@ class DeviceLogicManager(QObject):
         """
         self.logger.debug(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
         self.logger.info(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
-        device_instance = self._get_or_create_device_instance(
-            device_id,
-            device_type=parsed_semantic_data.get('device_type') # 从数据中尝试获取类型
-        )
+        device_instance = self._get_or_create_device_instance(device_id)
         if not device_instance:
             self.device_error.emit(f"无法找到或创建设备实例 '{device_id}' 来处理语义数据。")
             return

@@ -5,10 +5,12 @@ import time
 import can
 import json
 import os # Import os for path handling with DBC files
+import struct # 添加 struct 模块导入
 from can.listener import BufferedReader
 from can.message import Message
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from typing import Dict, Any, Optional, Union, List, Tuple
+import cantools
 
 from src.data_management.log_manager import LogManager
 from src.data_management.config_manager import ConfigManager
@@ -17,10 +19,8 @@ from src.data_management.config_manager import ConfigManager
 class CanBusCommunicator(QObject):
     """
     CAN 总线通信模块。
-    负责 CAN 报文的发送和接收，并根据 DBC 文件进行解析和编码。
-    支持直接连接 CAN 接口，也支持从串口接收封装的 CAN 帧。
+    负责 CAN 报文的 DBC 解析和编码。
     """
-    can_raw_frame_received = Signal(str, bytes)
     can_parsed_data_received = Signal(str, dict)
     connection_status_changed = Signal(str, bool)
     can_error = Signal(str, str)
@@ -43,10 +43,88 @@ class CanBusCommunicator(QObject):
         self._dbcs: Dict[str, Any] = {} # 存储加载的 DBC 数据库
         self._notifier: Dict[str, can.Notifier] = {} # 存储 can.Notifier 实例
         self._read_timers: Dict[str, QTimer] = {} # For polling BufferedReader (only for direct CAN bus)
+        # NEW: 存储通道名到具体设备实例 ID 的映射
+        self._channel_to_device_id_map: Dict[str, str] = {} # 存储通道名到具体设备实例 ID 的映射
         self.logger.info("CanBusCommunicator: 初始化完成。")
 
-    @Slot(str, str, str)
-    def connect_can_interface(self, channel: Optional[str] = None, bustype: Optional[str] = None, dbc_file_path: Optional[str] = None):
+    def _get_dbc_path(self, device_type: str) -> str:
+        """
+        获取DBC文件的路径。
+        :param device_type: 设备类型（如 'deepmotor'）
+        :return: DBC文件的完整路径
+        """
+        # 获取项目根目录
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        # 构建DBC文件路径
+        protocol_dir = f"{device_type}_protocol"  # 修正目录名格式
+        dbc_path = os.path.join(project_root, 'src', 'services', 'hardware_communication', 
+                               'device_protocols', protocol_dir, f'{device_type}.dbc')
+        return dbc_path
+    
+    def get_port_name(self, device_id: str) -> str:
+        """
+        根据设备ID获取对应的串口名。
+        :param device_id: 设备ID（如 'DeepArm1' 或 'DeepMotor1'）
+        :return: 对应的串口名（如 'COM1' 或 'COM2'）
+        """
+        for channel, id in self._channel_to_device_id_map.items():
+            if device_id in id:
+                self.logger.info(f"CanBusCommunicator: 设备ID '{device_id}' 映射到通道 '{channel}'。")
+                return channel
+            else:
+                self.logger.warning(f"CanBusCommunicator: 设备ID '{device_id}' 未映射到通道 '{channel}'。")
+        return device_id
+    
+    def remove_channel_mapping(self, channel: str):
+        """
+        移除通道到设备ID的映射关系。
+        :param channel: CAN通道名称。
+        """
+        if channel in self._channel_to_device_id_map:
+            self.logger.info(f"CanBusCommunicator: 移除通道 '{channel}' 到设备ID的映射关系。")
+            del self._channel_to_device_id_map[channel]
+            # 打印_channel_to_device_id_map
+            self.logger.info(f"CanBusCommunicator: _channel_to_device_id_map: {self._channel_to_device_id_map}")
+        else:
+            self.logger.warning(f"CanBusCommunicator: 通道 '{channel}' 未映射到设备ID。")
+        
+
+    @Slot(str, str)
+    def configure_channel(self, channel: str, device_type: str):
+        """
+        配置CAN通道。
+        :param channel: CAN通道名称（如 'COM1' 或 'can0'）
+        :param device_type: 设备类型（如 'deepmotor'）
+        """
+        if channel in self._can_buses:
+            self.logger.warning(f"CanBusCommunicator: CAN通道 '{channel}' 已配置。")
+            return
+
+        try:
+            # 加载DBC文件
+            dbc_path = self._get_dbc_path(device_type)
+            self.logger.info(f"CanBusCommunicator: 尝试配置 CAN 通道 '{channel}' (类型: {device_type}), 加载 DBC: {dbc_path}...")
+            
+            if not os.path.exists(dbc_path):
+                raise FileNotFoundError(f"DBC文件不存在: {dbc_path}")
+
+            self._dbcs[channel] = cantools.database.load_file(dbc_path)
+            
+            # 配置CAN总线
+            bus = can.Bus(channel=channel, bustype='serial_can_bridge')
+            self._can_buses[channel] = bus
+            self.connection_status_changed.emit(channel, True)
+            self.logger.info(f"CanBusCommunicator: CAN通道 '{channel}' 配置成功。")
+            
+        except Exception as e:
+            error_msg = f"配置CAN通道 '{channel}' 失败: {e}"
+            self.logger.error(f"CanBusCommunicator: {error_msg}")
+            self.can_error.emit(channel, error_msg)
+
+    
+
+    @Slot(str, str, str, str) # NEW: Added device_instance_id parameter
+    def connect_can_interface(self, channel: Optional[str] = None, bustype: Optional[str] = None, dbc_name: Optional[str] = None, device_instance_id: Optional[str] = None):
         """
         连接到 CAN 总线接口，并加载 DBC 文件。
         如果未指定 channel, bustype 或 dbc_file_path，将尝试从配置管理器中获取。
@@ -54,14 +132,25 @@ class CanBusCommunicator(QObject):
                         对于串口桥接模式，此参数应为串口名（如 'COM1'）。
         :param bustype: CAN 接口类型 (如 'socketcan', 'pcan', 'kvaser', 'virtual' 或 'serial_can_bridge')。
         :param dbc_file_path: 可选的 DBC 文件路径，用于解析 CAN 报文。
+        :param device_instance_id: 可选参数，指定此 CAN 通道所对应的具体设备实例 ID (例如 "DeepArm1")。
         """
         # 从配置中获取默认值
         if channel is None:
             channel = self.config_manager.get('device_settings.deeparm_serial_port', 'COM1') # 默认用串口名作为CAN通道名
         if bustype is None:
             bustype = self.config_manager.get('device_settings.deeparm_can_bustype', self.SERIAL_BRIDGE_BUSTYPE) # 默认使用串口桥接
-        if dbc_file_path is None:
-            dbc_file_path = self.config_manager.get('device_settings.deeparm_dbc_path', 'deeparm.dbc')
+        if dbc_name is None:
+            dbc_name = self.config_manager.get('device_settings.deeparm_dbc_name', 'deeparm')
+
+        # NEW: 存储通道到设备实例ID的映射
+        if device_instance_id:
+            self._channel_to_device_id_map[channel] = device_instance_id
+            self.logger.info(f"CanBusCommunicator: 映射通道 '{channel}' 到设备实例 ID '{device_instance_id}'。")
+        elif channel not in self._channel_to_device_id_map:
+            # 如果没有明确的 device_instance_id 且之前未映射，则默认使用通道名作为设备ID（fallback）
+            # 在Coordinator中应该总是显式传入device_instance_id以避免模糊性
+            self._channel_to_device_id_map[channel] = channel 
+            self.logger.warning(f"CanBusCommunicator: 未为通道 '{channel}' 提供明确的设备实例 ID。将使用通道名作为设备 ID。")
 
         if channel in self._dbcs: # 检查 DBC 是否已加载，以此判断是否已配置该通道
             self.logger.warning(f"CanBusCommunicator: CAN 通道 '{channel}' 的 DBC 已加载或已配置。")
@@ -70,9 +159,10 @@ class CanBusCommunicator(QObject):
                  self.logger.warning(f"CanBusCommunicator: 实际 CAN Bus '{channel}' 已连接。")
             return
 
-        self.logger.info(f"CanBusCommunicator: 尝试配置 CAN 通道 '{channel}' (类型: {bustype}), 加载 DBC: {dbc_file_path}...")
+        self.logger.info(f"CanBusCommunicator: 尝试配置 CAN 通道 '{channel}' (类型: {bustype}), 加载 DBC: {dbc_name}...")
 
         # 1. 加载 DBC 文件 (无论是否是实际 CAN Bus，都需要 DBC 来解析)
+        dbc_file_path = self._get_dbc_path(dbc_name)
         if dbc_file_path:
             try:
                 import cantools
@@ -113,7 +203,6 @@ class CanBusCommunicator(QObject):
             self.logger.info(f"CanBusCommunicator: 通道 '{channel}' 使用串口桥接模式，不创建实际 CAN Bus。DBC 已加载。")
             # 在这种模式下，连接状态视为已就绪，因为 DBC 已加载
             self.connection_status_changed.emit(channel, True)
-
 
     @Slot(str)
     def disconnect_can_interface(self, channel: str):
@@ -224,6 +313,9 @@ class CanBusCommunicator(QObject):
             is_extended_id=is_extended_id,
             dlc=len(data)
         )
+        # 需要将端口号转换成设备名
+
+        # port_name="DeepMotor"  # 临时测试
         self._on_can_message_received(port_name, msg)
 
     def _check_for_can_messages(self, channel: str, reader: BufferedReader):
@@ -240,37 +332,32 @@ class CanBusCommunicator(QObject):
     def _on_can_message_received(self, channel: str, msg: Message):
         """
         内部方法：处理接收到的 CAN 消息。
-        如果加载了 DBC 文件，将进行解析。
+        使用 DBC 文件进行解析。
         :param channel: 接收消息的 CAN 通道。
         :param msg: can.Message 对象。
         """
-        self.logger.debug(f"CanBusCommunicator: 收到原始 CAN 帧 (通道 '{channel}'): {msg}")
-        self.can_raw_frame_received.emit(channel, msg.data)
+        self.logger.debug(f"CanBusCommunicator: 收到 CAN 帧 (通道 '{channel}'): {msg}")
+        
+        # 获取与该通道关联的设备实例ID
+        actual_device_id = self._channel_to_device_id_map.get(channel, channel)
+        if actual_device_id == channel:
+            self.logger.warning(f"CanBusCommunicator: 通道 '{channel}' 未映射到具体的设备实例ID。将使用通道名作为设备ID。")
 
+        # 使用 DBC 解析
         if channel in self._dbcs:
-            db = self._dbcs[channel]
             try:
+                db = self._dbcs[channel]
                 message_definition = db.get_message_by_frame_id(msg.arbitration_id)
                 decoded_signals = message_definition.decode(msg.data)
-                self.logger.info(f"CanBusCommunicator: 解码后的 CAN 信号 (通道 '{channel}', ID 0x{msg.arbitration_id:X}): {decoded_signals}")
-                self.can_parsed_data_received.emit(channel, decoded_signals)
+                self.logger.info(f"CanBusCommunicator: DBC解析后的 CAN 信号 (通道 '{channel}', 映射设备 '{actual_device_id}', ID 0x{msg.arbitration_id:X}): {decoded_signals}")
+                self.can_parsed_data_received.emit(actual_device_id, decoded_signals)
             except KeyError:
                 self.logger.debug(f"CanBusCommunicator: CAN ID 0x{msg.arbitration_id:X} 在 DBC 中未定义 (通道 '{channel}')。")
             except Exception as e:
-                self.logger.warning(f"CanBusCommunicator: 解码 CAN 消息 (ID 0x{msg.arbitration_id:X}) 失败: {e}")
-                self.can_error.emit(channel, f"解码CAN消息失败: {e}")
+                self.logger.warning(f"CanBusCommunicator: DBC解析 CAN 消息 (ID 0x{msg.arbitration_id:X}) 失败: {e}")
+                self.can_error.emit(channel, f"DBC解析CAN消息失败: {e}")
         else:
-            self.logger.warning(f"CanBusCommunicator: 未加载 DBC 文件，无法解析 CAN 消息 (ID 0x{msg.arbitration_id:X}) (通道 '{channel}')。")
-            # 模拟已经正常解析了信号
-
-            decoded_signals = {
-                "position": 6.28,
-                "velocity": 200,
-                "torque": 10,
-                "temperature": 35,
-            }
-            self.logger.info(f"CanBusCommunicator: 解码后的 CAN 信号 (通道 '{channel}', ID 0x{msg.arbitration_id:X}): {decoded_signals}")
-            self.can_parsed_data_received.emit("DeepMotor", decoded_signals) # 发送解析后的信号数据
+            self.logger.warning(f"CanBusCommunicator: 通道 '{channel}' 未加载 DBC 文件，无法解析 CAN 消息。")
 
     def cleanup(self):
         """

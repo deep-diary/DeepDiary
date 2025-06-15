@@ -113,6 +113,10 @@ class MainWindow(FluentWindow):
         )
         self.addSubInterface(
             self.settingInterface, FIF.SETTING, self.tr('Settings'), NavigationItemPosition.BOTTOM)
+            
+        # 设置设备页面为默认页面
+        self.stackedWidget.setCurrentWidget(self.deviceInterface)
+        self.navigationInterface.setCurrentItem(self.deviceInterface.objectName())
 
     def initWindow(self):
         self.resize(960, 780)

@@ -2,3 +2,5 @@
 # DeepMotor 协议实现包
 
 from .deep_motor_parser import DeepMotorProtocolParser
+from .protocol import DeepMotorProtocol
+

@@ -1,5 +1,5 @@
 # coding:utf-8
-from PySide6.QtCore import Qt, QSize, QUrl
+from PySide6.QtCore import Qt, QSize, QUrl, Signal
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QButtonGroup
 from qfluentwidgets import (Action, DropDownPushButton, DropDownToolButton, PushButton, ToolButton, PrimaryPushButton,
                             HyperlinkButton, ComboBox, RadioButton, CheckBox, Slider, SwitchButton, EditableComboBox,
@@ -16,6 +16,9 @@ from ..common.translator import Translator
 class BasicInputInterface(GalleryInterface):
     """ Basic input interface """
 
+    # 添加一个测试信号
+    test_button_clicked = Signal(str)
+
     def __init__(self, parent=None):
         translator = Translator()
         super().__init__(
@@ -26,9 +29,11 @@ class BasicInputInterface(GalleryInterface):
         self.setObjectName('basicInputInterface')
 
         # simple push button
+        test_button = PushButton(self.tr('Standard push button'))
+        test_button.clicked.connect(lambda: self.test_button_clicked.emit("测试按钮被点击"))
         self.addExampleCard(
             self.tr('A simple button with text content'),
-            PushButton(self.tr('Standard push button')),
+            test_button,
             'https://github.com/zhiyiYo/PyQt-Fluent-Widgets/blob/PySide6/examples/basic_input/button/demo.py'
         )
 

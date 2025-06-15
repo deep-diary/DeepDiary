@@ -2,8 +2,8 @@
 Set-Location -Path ".\DeepWin\src"
 
 # Activate the conda environment
-conda activate diarywin
+conda activate deepwin
 
 # Display the current directory and environment information
 Write-Host "Current directory: $(Get-Location)"
-Write-Host "Current conda environment: DiaryWin" 
+Write-Host "Current conda environment: deepwin" 

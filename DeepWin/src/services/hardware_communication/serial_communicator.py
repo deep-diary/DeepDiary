@@ -18,6 +18,7 @@ class SerialCommunicator(QObject):
     处理串口数据的编解码。
     """
     # 修改信号，使其直接发出解析后的 CAN 帧组件
+    raw_frame_received = Signal(str, bytes) # 收到原始帧: (port_name, data_bytes)
     can_frame_components_received = Signal(str, int, bytes, bool) # 收到 CAN 帧组件: (port_name, arbitration_id, data_bytes, is_extended_id)
     connection_status_changed = Signal(str, bool) # 串口连接状态变更: (port_name, is_connected)
     serial_error = Signal(str, str) # 串口错误: (port_name, error_msg)
@@ -36,6 +37,7 @@ class SerialCommunicator(QObject):
         self._serial_ports: Dict[str, serial.Serial] = {} # {port_name: serial.Serial_instance}
         # 查看可用设备列表
         self.available_ports = self.list_ports()
+        self.active_port = ''
         self._read_timers: Dict[str, QTimer] = {} # {port_name: QTimer_instance}
         self.logger.info("SerialCommunicator: 初始化完成。")
 
@@ -45,26 +47,27 @@ class SerialCommunicator(QObject):
         列出所有可用串口。
         """
         ports = list_ports.comports()
+        all_ports = []
         bt_ports = []
         usb_ports = []
         other_ports = []
         for port in ports:
+            all_ports.append(port.device)
+            self.logger.debug(f"SerialCommunicator: 发现串口: {port.device} - {port.description}")
+
             if "bluetooth" in port.description or "bth" in port.hwid or "蓝牙" in port.description:
                 bt_ports.append(port.device)
-            elif "usb" in port.description or "vid" in port.hwid:
+            elif "usb" in port.description.lower() or "ch340" in port.description.lower() or "串行设备" in port.description:
                 usb_ports.append(port.device)
             else:
                 other_ports.append(port.device)
 
-        self.logger.info("SerialCommunicator: 蓝牙设备列表: %s", bt_ports)
+        # self.logger.info("SerialCommunicator: 蓝牙设备列表: %s", bt_ports)
         self.logger.info("SerialCommunicator: USB设备列表: %s", usb_ports)
-        self.logger.info("SerialCommunicator: 其他设备列表: %s", other_ports)
-                
-        # port_names = [port.device for port in ports]
-        # port_descriptions = [port.description for port in ports]
-        # self.logger.info("SerialCommunicator: 可用设备列表: %s", port_names)
-        # self.logger.info("SerialCommunicator: 可用设备描述: %s", port_descriptions)
-        return bt_ports
+        # self.logger.info("SerialCommunicator: 其他设备列表: %s", other_ports)
+        # self.logger.info(f"SerialCommunicator: 所有串口列表: {all_ports}")
+
+        return usb_ports
 
     @Slot(str, int)
     def open_port(self, port_name: str, baud_rate: Optional[int] = None):
@@ -96,6 +99,7 @@ class SerialCommunicator(QObject):
             self._serial_ports[port_name] = ser
             self.connection_status_changed.emit(port_name, True)
             self.logger.info(f"SerialCommunicator: 串口 '{port_name}' 打开成功。")
+            self.active_port = port_name
             self.start_reading(port_name)
         except serial.SerialException as e:
             error_msg = f"打开串口 '{port_name}' 失败: {e}"
@@ -117,6 +121,7 @@ class SerialCommunicator(QObject):
             try:
                 self._serial_ports[port_name].close()
                 self.connection_status_changed.emit(port_name, False)
+                self.active_port = ''
                 self.logger.info(f"SerialCommunicator: 串口 '{port_name}' 已关闭。")
                 del self._serial_ports[port_name]
             except Exception as e:
@@ -177,8 +182,8 @@ class SerialCommunicator(QObject):
     def _read_serial_data(self, port_name: str):
         """
         内部方法：从串口读取数据，并解析为 CAN 帧组件。
-        数据格式: "AT" + CANID (hex) + Len (hex) + Data (hex) + "\r\n"
-        例如: "AT00000108AABBCCDDEEFF0011\r\n"
+        数据格式: AT(2字节) + CANID(4字节) + Len(1字节) + Data(N字节) + \r\n(2字节)
+        例如: 41 54 14 00 37 EC 08 FF FF 82 0F 81 51 01 36 0D 0A 
         """
         if port_name not in self._serial_ports or not self._serial_ports[port_name].is_open:
             self.logger.warning(f"SerialCommunicator: 尝试从已关闭或不存在的串口 '{port_name}' 读取数据。")
@@ -190,51 +195,55 @@ class SerialCommunicator(QObject):
             if not line: # 没有读到数据
                 return
 
-            decoded_line = line.decode('ascii').strip() # 假设是 ASCII 编码
-            self.logger.debug(f"SerialCommunicator: 从串口 '{port_name}' 读取到行: {decoded_line}")
+            # 检查数据长度是否足够（至少需要9字节：2字节AT + 4字节CANID + 1字节长度 + 2字节\r\n）
+            if len(line) < 9:
+                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 收到数据长度不足: {len(line)} 字节")
+                return
 
-            # 检查并解析数据格式: "AT" + CANID (hex) + Len (hex) + Data (hex) + "\r\n"
-            # 正则表达式: ^AT([0-9A-Fa-f]{1,8})([0-9A-Fa-f]{2})([0-9A-Fa-f]*)$
-            # 1. 匹配 "AT" 开头
-            # 2. 捕获 1-8 位十六进制作为 CANID
-            # 3. 捕获 2 位十六进制作为 Len (表示数据字节数)
-            # 4. 捕获剩余的十六进制作为 Data
-            match = re.match(r"^AT([0-9A-Fa-f]+)([0-9A-Fa-f]{2})([0-9A-Fa-f]*)$", decoded_line)
+            # 检查数据头是否为 "AT"
+            if line[0:2] != b'AT':
+                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 收到无效的数据头: {line[0:2].hex()}")
+                return
+            # 检查数据尾是否为 \r\n
+            if line[-2:] != b'\r\n':
+                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据尾无效: {line[-2:].hex()}")
+                return
+            
+            # 去掉头尾后发送
+            processed_line = line[2:-2]
+            self.raw_frame_received.emit(port_name, processed_line)
 
-            if match:
-                can_id_hex = match.group(1)
-                len_hex = match.group(2)
-                data_hex = match.group(3)
+            # 解析CAN ID（4字节），先向右移3位
+            
+            arbitration_id = int.from_bytes(line[2:6], byteorder='big') >> 3
+            
+            # 解析数据长度（1字节）
+            data_length = line[6]
+            
+            # 检查数据长度是否合理
+            if data_length > 8:  # CAN 2.0 标准帧最大数据长度为8字节
+                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据长度超出范围: {data_length}")
+                return
 
-                try:
-                    arbitration_id = int(can_id_hex, 16)
-                    data_length = int(len_hex, 16)
-                    
-                    # 将十六进制数据字符串转换为字节数组
-                    # 确保 data_hex 是偶数长度，如果不是，则补0
-                    if len(data_hex) % 2 != 0:
-                        data_hex = '0' + data_hex 
-                    data_bytes = bytes.fromhex(data_hex)
+            # 检查接收到的数据长度是否足够
+            expected_length = 9 + data_length  # 9 = 2(AT) + 4(CANID) + 1(Len) + 2(\r\n)
+            if len(line) < expected_length:
+                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据不完整，期望 {expected_length} 字节，实际 {len(line)} 字节")
+                return
 
-                    # 验证实际数据长度与声明的长度是否一致
-                    if len(data_bytes) != data_length:
-                        self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据长度不匹配。声明: {data_length}, 实际: {len(data_bytes)}。原始: {decoded_line}")
-                        return # 丢弃不完整或错误的数据包
+            # 提取数据部分
+            data_bytes = line[7:7+data_length]
 
-                    # 假设所有 CAN ID 都是标准 ID (非扩展 ID)，实际项目中需要根据 CANID 范围判断
-                    is_extended_id = False 
+            
 
-                    self.logger.info(f"SerialCommunicator: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}")
-                    # 发射解析后的 CAN 帧组件，CanBusCommunicator 将会接收并进一步处理
-                    self.can_frame_components_received.emit(
-                        port_name, arbitration_id, data_bytes, is_extended_id
-                    )
-                except ValueError as ve:
-                    self.logger.error(f"SerialCommunicator: 串口 '{port_name}' 数据格式转换错误: {ve}. 原始: {decoded_line}")
-                except Exception as e:
-                    self.logger.error(f"SerialCommunicator: 串口 '{port_name}' 处理解析数据时发生未知错误: {e}. 原始: {decoded_line}")
-            else:
-                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 收到不符合协议格式的数据: {decoded_line}")
+            # 假设所有 CAN ID 都是标准 ID (非扩展 ID)，实际项目中需要根据 CANID 范围判断
+            is_extended_id = True
+
+            self.logger.info(f"SerialCommunicator: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}")
+            # 发射解析后的 CAN 帧组件，CanBusCommunicator 将会接收并进一步处理
+            self.can_frame_components_received.emit(
+                port_name, arbitration_id, data_bytes, is_extended_id
+            )
 
         except serial.SerialException as e:
             error_msg = f"从串口 '{port_name}' 读取数据失败: {e}"
@@ -247,67 +256,31 @@ class SerialCommunicator(QObject):
             self.serial_error.emit(port_name, error_msg)
             self.stop_reading(port_name) # 发生错误时停止读取
 
-    def sim_read_serial_data(self, port_name: str = "COM3"):
+    def sim_read_serial_data(self, port_name: str = None):
         """
         模拟从串口读取数据。
         :param port_name: 串口名称。
         """
         # 检查数据格式：AT开头，\r\n结尾
         # 扩展CAN ID 为 0x00000001，数据长度为 0x08，数据为 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11
-        decoded_line = [0x41, 0x54, 0x00, 0x00, 0x00, 0x01, 0x08, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0D, 0x0A]
+        decoded_line = bytes([0x41, 0x54, 0x14, 0x00, 0x37, 0xEC, 0x08, 0xFF, 0xFF, 0x82, 0x0F, 0x81, 0x51, 0x01, 0x36, 0x0D, 0x0A])
         self.logger.info(f"SerialCommunicator: 模拟从串口 '{port_name}' 读取数据。")
-        self.logger.info(f"SerialCommunicator: 数据: {decoded_line}")
+        self.logger.info(f"SerialCommunicator: 数据: {decoded_line.hex()}")
 
-        arbitration_id = 0x00000001
-        data_bytes = [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11]
+        arbitration_id = 0x140037ec
+        data_bytes = bytes([0xFF, 0xFF, 0x82, 0x0F, 0x81, 0x51, 0x01, 0x36])
         is_extended_id = True
 
+        if port_name is None:
+            port_name = self.active_port
+
+        # 发送原始帧数据
+        self.raw_frame_received.emit('DeepMotor', decoded_line)  # 去掉 AT 和 \r\n
+
+        # 发送 CAN 帧组件
         self.can_frame_components_received.emit(
             port_name, arbitration_id, data_bytes, is_extended_id
         )
-
-        # 检查并解析数据格式: "AT" + CANID (hex) + Len (hex) + Data (hex) + "\r\n"
-        # 正则表达式: ^AT([0-9A-Fa-f]{1,8})([0-9A-Fa-f]{2})([0-9A-Fa-f]*)$
-        # 1. 匹配 "AT" 开头
-        # 2. 捕获 1-8 位十六进制作为 CANID
-        # 3. 捕获 2 位十六进制作为 Len (表示数据字节数)
-        # 4. 捕获剩余的十六进制作为 Data
-        # match = re.match(r"^AT([0-9A-Fa-f]+)([0-9A-Fa-f]{2})([0-9A-Fa-f]*)$", decoded_line)
-
-        # if match:
-        #     can_id_hex = match.group(1)
-        #     len_hex = match.group(2)
-        #     data_hex = match.group(3)
-
-        #     try:
-        #         arbitration_id = int(can_id_hex, 16)
-        #         data_length = int(len_hex, 16)
-                
-        #         # 将十六进制数据字符串转换为字节数组
-        #         # 确保 data_hex 是偶数长度，如果不是，则补0
-        #         if len(data_hex) % 2 != 0:
-        #             data_hex = '0' + data_hex 
-        #         data_bytes = bytes.fromhex(data_hex)
-
-        #         # 验证实际数据长度与声明的长度是否一致
-        #         if len(data_bytes) != data_length:
-        #             self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据长度不匹配。声明: {data_length}, 实际: {len(data_bytes)}。原始: {decoded_line}")
-        #             return # 丢弃不完整或错误的数据包
-
-        #         # 假设所有 CAN ID 都是标准 ID (非扩展 ID)，实际项目中需要根据 CANID 范围判断
-        #         is_extended_id = False 
-
-        #         self.logger.info(f"SerialCommunicator: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}")
-        #         # 发射解析后的 CAN 帧组件，CanBusCommunicator 将会接收并进一步处理
-        #         self.can_frame_components_received.emit(
-        #             port_name, arbitration_id, data_bytes, is_extended_id
-        #         )
-        #     except ValueError as ve:
-        #         self.logger.error(f"SerialCommunicator: 串口 '{port_name}' 数据格式转换错误: {ve}. 原始: {decoded_line}")
-        #     except Exception as e:
-        #         self.logger.error(f"SerialCommunicator: 串口 '{port_name}' 处理解析数据时发生未知错误: {e}. 原始: {decoded_line}")
-        # else:
-        #     self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 收到不符合协议格式的数据: {decoded_line}")
 
     def cleanup(self):
         """
