@@ -41,10 +41,10 @@ class DeepMotorProtocolParser(BaseProtocolParser):
             "raw_payload": "raw_protocol_payload", # 原始协议负载，如果需要透传
             "index": "parameter_index",
             "value": "parameter_value",
-            "current_position": "motor_current_position", # 从 motor_status 解码
-            "current_velocity": "motor_current_velocity", # 从 motor_status 解码
-            "current_torque": "motor_current_torque",     # 从 motor_status 解码
-            "current_temperature": "motor_current_temperature", # 从 motor_status 解码
+            "current_position": "position", # 从 motor_status 解码
+            "current_velocity": "velocity", # 从 motor_status 解码
+            "current_torque": "torque",     # 从 motor_status 解码
+            "current_temperature": "temperature", # 从 motor_status 解码
             "error_message": "error_message" # 错误信息
         }
 

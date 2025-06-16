@@ -32,12 +32,14 @@ class DeepMotor(BaseDevice):
         super().update_state_from_semantic_data(semantic_data)
 
         # 更新 DeepMotor 独有的状态
-        if 'motor_rpm' in semantic_data:
-            self._state.motor_rpm = int(semantic_data['motor_rpm'])
-        if 'motor_current' in semantic_data:
-            self._state.motor_current = float(semantic_data['motor_current'])
-        if 'motor_temperature' in semantic_data:
-            self._state.motor_temperature = float(semantic_data['motor_temperature'])
+        if 'position' in semantic_data:
+            self._state.position = float(semantic_data['position'])
+        if 'velocity' in semantic_data:
+            self._state.velocity = float(semantic_data['velocity'])
+        if 'torque' in semantic_data:
+            self._state.torque = float(semantic_data['torque'])
+        if 'temperature' in semantic_data:
+            self._state.temperature = float(semantic_data['temperature'])
         if 'error_code' in semantic_data:
             self._state.error_code = int(semantic_data['error_code'])
         
@@ -148,8 +150,8 @@ class DeepMotor(BaseDevice):
         执行 DeepMotor 特定的异常检测。
         """
         super().check_anomaly() # 先执行通用检测
-        if self._state.motor_temperature > 90:
-            self.device_error.emit(self.device_id, f"DeepMotor '{self.device_id}' 温度过高 ({self._state.motor_temperature}°C)！")
+        if self._state.temperature > 90:
+            self.device_error.emit(self.device_id, f"DeepMotor '{self.device_id}' 温度过高 ({self._state.temperature}°C)！")
             self._state.connection_status = DeviceStatus.WARNING # 更新状态为警告
         if self._state.error_code != 0:
             self.device_error.emit(self.device_id, f"DeepMotor '{self.device_id}' 报告错误码: {self._state.error_code}！")

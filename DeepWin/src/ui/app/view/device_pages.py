@@ -297,7 +297,14 @@ class DeepMotorPage(QWidget):
         """模拟数据按钮点击处理函数"""
         self.request_sim_data.emit(self.DeviceName)
 
-    def update_motor_data(self, position: float, speed: float, torque: float, temperature: float):
+    def update_motor_data(self, state_dict: dict):
+        print(f"--------------------------------------------------update_motor_data")
+        print(f"state_dict: {state_dict}")
+        status = state_dict.get('status', {})
+        position = status.get('position', 0.0)
+        speed = status.get('velocity', 0.0)
+        torque = status.get('torque', 0.0)
+        temperature = status.get('temperature', 0.0)
         """更新电机数据显示"""
         self.pos_display.setText(f"{position:.1f}°")
         self.speed_display.setText(f"{speed:.1f}°/s")

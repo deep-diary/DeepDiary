@@ -266,6 +266,13 @@ class Coordinator(QObject):
 
         self.logger.debug("Coordinator: 智能体信号连接完成。")
 
+
+    def connection_test(self):  
+        print("--------------------------------------------------connection_test")
+
+    def connection_test2(self, state_dict: dict):  
+        print("--------------------------------------------------connection_test2")
+
     def _connect_coordinator_output_signals(self):
         """
         将协调器自身的输出信号连接到 GUI 管理器中相应的 UI 视图。
@@ -280,6 +287,9 @@ class Coordinator(QObject):
         self.image_processing_error.connect(self.gui_manager.window.memoryInterface._on_image_processing_error)
 
         # 设备控制结果连接到设备控制界面
+        self.device_logic_manager.device_status_updated.connect(self.gui_manager.window.deviceInterface.deep_motor_page.update_motor_data)
+        # self.device_logic_manager.managed_devices['DeepMotor'].device_status_updated.connect(self.connection_test)
+        self.device_logic_manager.device_status_updated.connect(self.connection_test2)
         # self.device_control_response.connect(self.gui_manager.window.devicesInterface.on_device_control_response)
         # self.device_control_error.connect(self.gui_manager.window.devicesInterface.on_device_control_error)
         # self.device_status_updated.connect(self.gui_manager.window.devicesInterface.on_device_status_updated)

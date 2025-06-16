@@ -86,6 +86,10 @@ class DeepMotorProtocol:
         self.V_MIN, self.V_MAX = motor_range.get('velocity', [-65.0, 65.0])
         self.KP_MIN, self.KP_MAX = motor_range.get('kp', [0.0, 500.0])
         self.KD_MIN, self.KD_MAX = motor_range.get('kd', [0.0, 5.0])
+        # Data conversion parameters
+        self.POSITION_RANGE = (-4 * 3.14159, 4 * 3.14159)  # -4π ~ 4π
+        self.VELOCITY_RANGE = (-30, 30)                     # -30rad/s ~ 30rad/s
+        self.TORQUE_RANGE = (-12, 12)                      # -12Nm ~ 12Nm
 
         # 电机参数索引
         self.index = {}
@@ -336,7 +340,7 @@ class DeepMotorProtocol:
             can_id = struct.unpack('>I', can_id_bytes)[0]
 
             # 如果使用 USB 转 CAN 模块，需要进行转换
-            if self.config.get('uart', {}).get('use_uart2can', False):
+            if self.config.get('communication', {}).get('use_uart2can', True):
                 can_id = can_id >> 3
 
             offset += 4
@@ -346,55 +350,19 @@ class DeepMotorProtocol:
             
             response_mode = (can_id >> 24) & 0xFF
             motor_id = (can_id >> 8) & 0xFF
+
+            feedback = self.update_from_feedback(payload)
             
             response_data = {
                 'success': True,
                 'motor_id': motor_id,
                 'mode': response_mode,
                 'data': can_id & 0xFF,
-                'raw_payload': payload
             }
+            response_data.update(feedback)
+            print(f"------------------response_data: {response_data}")
             
-            # 根据不同的响应模式处理数据
-            if response_mode == 0x11:  # 读取参数响应
-                if len(payload) >= 8:
-                    index = struct.unpack('<H', payload[0:2])[0]
-                    value = struct.unpack('<f', payload[4:8])[0]
-                    response_data['index'] = index
-                    response_data['value'] = value
-                    
-                    # 尝试查找索引对应的名称
-                    for name, idx in self.index.items():
-                        if idx == index:
-                            response_data['index_name'] = name
-                            break
-                    
-                    return response_data
-                else:
-                    return {'success': False, 'error': "读取响应数据不完整"}
             
-            elif response_mode == 0x19:  # 状态响应
-                if len(payload) >= 8:
-                    position_raw = struct.unpack('>H', payload[0:2])[0]
-                    position = (position_raw - 32767) * (self.P_MAX - self.P_MIN) / (32767 - (-32768)) + self.P_MIN
-
-                    velocity_raw = struct.unpack('>H', payload[2:4])[0]
-                    velocity = (velocity_raw - 32767) * (self.V_MAX - self.V_MIN) / (32767 - (-32768)) + self.V_MIN
-
-                    torque_raw = struct.unpack('>H', payload[4:6])[0]
-                    torque = (torque_raw - 32767) * (self.T_MAX - self.T_MIN) / (32767 - (-32768)) + self.T_MIN
-                    
-                    temperature = struct.unpack('>H', payload[6:8])[0] / 10
-
-                    response_data.update({
-                        'current_position': position,
-                        'current_velocity': velocity,
-                        'current_torque': torque,
-                        'current_temperature': temperature
-                    })
-                    return response_data
-                else:
-                    return {'success': False, 'error': "状态响应数据不完整"}
             
             # 对于其他响应模式，只返回基本信息
             return response_data
@@ -402,4 +370,70 @@ class DeepMotorProtocol:
         except Exception as e:
             self.logger.error(f"解析响应失败: {str(e)}, 原始数据: {data.hex()}")
             return {'success': False, 'error': f"解析响应失败: {str(e)}"}
+        
+    def update_from_feedback(self, data_bytes):
+        """
+        Update motor position
+        
+        Args:
+            data_bytes: 8-byte feedback data
+            
+        Raises:
+            ValueError: Incorrect data length
+        """
+        if len(data_bytes) != 8:
+            raise ValueError("Feedback data must be 8 bytes")
+            
+        # Parse position data (Byte 0-1)
+        position_raw = struct.unpack('>H', data_bytes[0:2])[0]
+        position_raw = position_raw - 32767
+        current_position = self._scale_value(position_raw, -32768, 32767,
+                                                self.POSITION_RANGE[0],
+                                                self.POSITION_RANGE[1])
+        
+        # Parse velocity data (Byte 2-3)
+        velocity_raw = struct.unpack('>H', data_bytes[2:4])[0]
+        velocity_raw = velocity_raw - 32767
+        current_velocity = self._scale_value(velocity_raw, -32768, 32767,
+                                               self.VELOCITY_RANGE[0],
+                                               self.VELOCITY_RANGE[1])
+        
+        # Parse torque data (Byte 4-5)
+        torque_raw = struct.unpack('>H', data_bytes[4:6])[0]
+        torque_raw = torque_raw - 32767
+        current_torque = self._scale_value(torque_raw, -32768, 32767,
+                                             self.TORQUE_RANGE[0],
+                                             self.TORQUE_RANGE[1])
+        
+        # Parse temperature data (Byte 6-7)
+        current_temperature = struct.unpack('>H', data_bytes[6:8])[0]
+        current_temperature = current_temperature / 10
+
+        
+        self.logger.debug("Position: %.2f, Velocity: %.2f, Torque: %.2f, Temperature: %.2f" % 
+                         (current_position, current_velocity, current_torque, current_temperature))
+        
+        response_data = {
+            'current_position': current_position,
+            'current_velocity': current_velocity,
+            'current_torque': current_torque,
+            'current_temperature': current_temperature
+        }
+        return response_data
+    
+    def _scale_value(self, value, in_min, in_max, out_min, out_max):
+        """
+        Update motor temperature
+        
+        Args:
+            value: Input value
+            in_min: Input minimum value
+            in_max: Input maximum value
+            out_min: Output minimum value
+            out_max: Output maximum value
+            
+        Returns:
+            float: Mapped value
+        """
+        return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 

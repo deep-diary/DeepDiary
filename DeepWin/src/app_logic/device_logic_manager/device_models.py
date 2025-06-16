@@ -55,18 +55,20 @@ class BaseDeviceState:
 @dataclass
 class DeepMotorState(BaseDeviceState):
     """DeepMotor 无刷电机状态模型。"""
-    motor_rpm: int = 0
-    motor_current: float = 0.0
-    motor_temperature: float = 0.0
     error_code: int = 0
+    position: float = 0.0
+    velocity: float = 0.0
+    torque: float = 0.0
+    temperature: float = 0.0
     # 可以添加更多电机特定的状态，如 PWM 值，编码器读数等
 
     def to_dict(self) -> Dict[str, Any]:
         base_dict = super().to_dict()
         base_dict.update({
-            "motor_rpm": self.motor_rpm,
-            "motor_current": self.motor_current,
-            "motor_temperature": self.motor_temperature,
+            "position": self.position,
+            "velocity": self.velocity,
+            "torque": self.torque,
+            "temperature": self.temperature,
             "error_code": self.error_code
         })
         return base_dict
