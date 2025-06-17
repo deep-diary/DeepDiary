@@ -181,22 +181,6 @@ class DeviceInterface(GalleryInterface):
 
     def _create_pages(self):
         """创建并初始化所有页面"""
-        # 如果已存在页面，先断开信号连接
-        if self.deep_motor_page:
-            try:
-                self.deep_motor_page.ui_device_command.disconnect()
-            except:
-                pass
-        if self.deep_arm_page:
-            try:
-                self.deep_arm_page.ui_device_command.disconnect()
-            except:
-                pass
-        if self.deep_toy_page:
-            try:
-                self.deep_toy_page.ui_device_command.disconnect()
-            except:
-                pass
 
         # 创建新的页面实例
         self.deep_motor_page = DeepMotorPage()

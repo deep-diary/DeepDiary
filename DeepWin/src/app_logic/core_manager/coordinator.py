@@ -101,7 +101,8 @@ class Coordinator(QObject):
         self.device_protocol_parser = DeviceProtocolParser(log_manager=log_manager, config_manager=self.config_manager)
         self.cloud_api_client = CloudApiClient(log_manager=log_manager) # 云端 API 客户端
 
-
+        # NEW: 存储串口名到设备ID的映射，用于数据接收分发
+        self._port_to_device_id_map: Dict[str, str] = {}
 
         # ----------------------------------------------------------------------
         # 3. 建立信号和槽连接
@@ -215,32 +216,17 @@ class Coordinator(QObject):
         self.task_scheduler.task_failed.connect(self._on_scheduled_task_failed)
         # --- 服务层 -> Coordinator -> 设备逻辑管理器的数据流 ---
         # 1. SerialCommunicator 发射解析后的 CAN 帧组件
-        self.serial_communicator.can_frame_components_received.connect(self.can_bus_communicator.process_serial_can_frame)
+        # self.serial_communicator.can_frame_components_received.connect(self.can_bus_communicator.process_serial_can_frame)
         self.serial_communicator.serial_error.connect(lambda p, msg: self.app_status_message.emit(f"串口错误 [{p}]: {msg}"))
         
-        # 修改串口连接状态信号的处理
-        def on_serial_connection_status_changed(port: str, is_connected: bool):
-            if is_connected:
-                self.logger.info(f"Coordinator: 串口 {port} 连接成功")
-                self.app_status_message.emit(f"串口 {port} 连接成功")
-                # 串口连接成功后，配置CAN总线
-                self._configure_can_bus(port)
-            else:
-                self.logger.info(f"Coordinator: 串口 {port} 已断开")
-                self.app_status_message.emit(f"串口 {port} 已断开")
-                # 串口断开时，清除所有相关的映射关系
-                self.can_bus_communicator.remove_channel_mapping(port)
-                self.logger.info(f"Coordinator: 已清除所有与通道 {port} 相关的映射关系")
-        
-        self.serial_communicator.connection_status_changed.connect(on_serial_connection_status_changed)
-        self.serial_communicator.connection_status_changed.connect(lambda p, s: self.gui_manager.window.deviceInterface.serial_config.update_connection_status(s))
-        self.serial_communicator.raw_frame_received.connect(self.device_protocol_parser.parse_low_level_data)
+        self.serial_communicator.connection_status_changed.connect(self._on_serial_connection_status_changed)
+        self.serial_communicator.raw_frame_received.connect(self._on_raw_serial_frame_received)
 
         # 2. CanBusCommunicator 发射 DBC 解析后的 CAN 信号数据
         # self.can_bus_communicator.can_parsed_data_received.connect(self.device_protocol_parser.parse_low_level_data)
         # self.can_bus_communicator.can_raw_frame_received.connect(self.device_protocol_parser.parse_low_level_data)
-        self.can_bus_communicator.can_error.connect(lambda ch, msg: self.app_status_message.emit(f"CAN 错误 [{ch}]: {msg}"))
-        self.can_bus_communicator.connection_status_changed.connect(lambda ch, s: self.app_status_message.emit(f"CAN 总线 '{ch}' 连接状态: {'已连接' if s else '已断开'}"))
+        # self.can_bus_communicator.can_error.connect(lambda ch, msg: self.app_status_message.emit(f"CAN 错误 [{ch}]: {msg}"))
+        # self.can_bus_communicator.connection_status_changed.connect(lambda ch, s: self.app_status_message.emit(f"CAN 总线 '{ch}' 连接状态: {'已连接' if s else '已断开'}"))
 
         # 3. DeviceProtocolParser 发射业务语义数据
         self.device_protocol_parser.device_semantic_data_ready.connect(self.device_logic_manager.handle_device_semantic_data)
@@ -328,14 +314,62 @@ class Coordinator(QObject):
     def start_application(self):
         """启动应用程序"""
         self.logger.info("Coordinator: 启动应用程序...")
-        
-        # 初始化各个管理器
-        self.logger.info("Coordinator: 初始化各个管理器...")
-        
-        # 启动 GUI
-        self.logger.info("Coordinator: 启动 GUI...")
-        
+
+
+        self.agent_manager.start_agents()
         self.logger.info("Coordinator: 应用程序启动完成。")
+        self.app_status_message.emit("DeepWin 应用程序启动成功！")
+
+
+    @Slot(str, int)
+    def handle_serial_connect(self, port: str, baud_rate: int):
+        """
+        处理串口连接请求
+        :param port: 串口名称
+        :param baud_rate: 波特率
+        """
+        self.logger.info(f"Coordinator: 收到串口连接请求 - 端口: {port}, 波特率: {baud_rate}")
+        try:
+            # 尝试打开串口
+            self.serial_communicator.open_port(port, baud_rate)
+            # 注意：实际的连接状态将通过 serial_communicator 的 connection_status_changed 信号通知
+            # CAN总线配置将在收到连接成功的信号后执行
+            
+        except Exception as e:
+            error_msg = f"串口连接失败: {str(e)}"
+            self.logger.error(f"Coordinator: {error_msg}")
+            self.app_status_message.emit(error_msg)
+
+    # 修改串口连接状态信号的处理
+    @Slot(str, bool)
+    def _on_serial_connection_status_changed(self, port: str, is_connected: bool):
+        device_instance_id = 'DeepMotor'
+        if is_connected:
+            self.logger.info(f"Coordinator: 串口 {port} 连接成功")
+            self.app_status_message.emit(f"串口 {port} 连接成功")
+            self._port_to_device_id_map[port] = device_instance_id # 映射串口到设备ID
+        else:
+            self.logger.info(f"Coordinator: 串口 {port} 已断开")
+            self.app_status_message.emit(f"串口 {port} 已断开")
+            self._port_to_device_id_map.pop(port)
+        self.gui_manager.window.deviceInterface.serial_config.update_connection_status(is_connected)
+
+    @Slot(str, bytes)
+    def _on_raw_serial_frame_received(self, port_name: str, raw_frame_data: bytes):
+        """
+        槽函数：处理从 SerialCommunicator 接收到的原始串口帧数据。
+        根据 port_name 映射到 device_id，然后转发给 DeviceProtocolParser。
+        :param port_name: 接收到数据的串口名称。
+        :param raw_frame_data: 完整的原始串口帧字节串。
+        """
+        device_id = self._port_to_device_id_map.get(port_name)
+        if not device_id:
+            self.logger.warning(f"Coordinator: 收到来自未知串口 '{port_name}' 的数据，无法映射到设备ID。数据: {raw_frame_data.hex()}")
+            return
+        
+        self.logger.debug(f"Coordinator: 收到来自串口 '{port_name}' (设备 '{device_id}') 的原始帧数据: {raw_frame_data.hex()}")
+        # 将原始帧数据和对应的 device_id 转发给 DeviceProtocolParser
+        self.device_protocol_parser.parse_low_level_data(device_id, raw_frame_data)
 
     @Slot(str, str)
     def _on_agent_action_requested(self, device_id: str, command: str):
@@ -387,14 +421,23 @@ class Coordinator(QObject):
             # 根据设备类型决定通过哪个通信器发送
             # 假设 DeepArm 和 DeepMotor 的底层命令都是通过串口发送的
 
-            # 根据映射获取串口名，若无则默认用 device_id
-            target_port_name = self.can_bus_communicator.get_port_name(device_id)
+            target_port_name = None
+            # 从 _port_to_device_id_map 反向查找 port_name
+            for port, dev_id in self._port_to_device_id_map.items():
+                if dev_id == device_id:
+                    target_port_name = port
+                    break
+
+            if not target_port_name:
+                self.logger.warning(f"Coordinator: 无法确定设备 '{device_id}' 对应的串口。")
+                raise ValueError(f"无法确定设备 '{device_id}' 对应的串口。")
 
             # 处理多帧命令
             if isinstance(low_level_command_bytes, list):
-                self.logger.debug(f"Coordinator: 目标串口 '{target_port_name}'，底层命令: {[cmd.hex() for cmd in low_level_command_bytes]}")
-                for cmd in low_level_command_bytes:
-                    self.serial_communicator.send_bytes(target_port_name, cmd)
+                for cmd_bytes in low_level_command_bytes:
+                    self.logger.debug(f"Coordinator: 目标串口 '{target_port_name}'，底层命令 (多帧): {cmd_bytes.hex()}")
+                    self.serial_communicator.send_bytes(target_port_name, cmd_bytes)
+                    time.sleep(0.01) # 短暂延迟，避免连续发送过快导致串口拥堵
             else:
                 self.logger.debug(f"Coordinator: 目标串口 '{target_port_name}'，底层命令: {low_level_command_bytes.hex()}")
                 self.serial_communicator.send_bytes(target_port_name, low_level_command_bytes)
@@ -406,24 +449,7 @@ class Coordinator(QObject):
             self.app_status_message.emit(f"命令发送失败: {error_msg}")
             self.device_logic_manager.device_error.emit(error_msg) # 通知 DeviceLogicManager 错误
 
-    @Slot(str, int)
-    def handle_serial_connect(self, port: str, baud_rate: int):
-        """
-        处理串口连接请求
-        :param port: 串口名称
-        :param baud_rate: 波特率
-        """
-        self.logger.info(f"Coordinator: 收到串口连接请求 - 端口: {port}, 波特率: {baud_rate}")
-        try:
-            # 尝试打开串口
-            self.serial_communicator.open_port(port, baud_rate)
-            # 注意：实际的连接状态将通过 serial_communicator 的 connection_status_changed 信号通知
-            # CAN总线配置将在收到连接成功的信号后执行
-            
-        except Exception as e:
-            error_msg = f"串口连接失败: {str(e)}"
-            self.logger.error(f"Coordinator: {error_msg}")
-            self.app_status_message.emit(error_msg)
+    
 
     def _configure_can_bus(self, port: str):
         """

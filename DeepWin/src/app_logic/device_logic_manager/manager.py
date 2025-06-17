@@ -72,9 +72,9 @@ class DeviceLogicManager(QObject):
         :param device_id: 设备的唯一标识符。
         :return: 设备逻辑实例，如果无法创建则返回 None。
         """
-        # 如果设备ID是命令而不是设备ID，则使用默认设备ID
-        if device_id in ["init_motor", "reset_motor", "enable_motor", "set_motor_mode", "set_motor_position", "set_motor_pos_speed"]:
-            device_id = "DeepMotor1"  # 使用默认的电机ID
+        # # 如果设备ID是命令而不是设备ID，则使用默认设备ID
+        # if device_id in ["init_motor", "reset_motor", "enable_motor", "set_motor_mode", "set_motor_position", "set_motor_pos_speed"]:
+        #     device_id = "DeepMotor1"  # 使用默认的电机ID
 
         if device_id not in self.managed_devices:
             # 根据设备ID前缀创建对应的设备实例

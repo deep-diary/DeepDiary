@@ -19,6 +19,7 @@ class SerialCommunicator(QObject):
     """
     # 修改信号，使其直接发出解析后的 CAN 帧组件
     raw_frame_received = Signal(str, bytes) # 收到原始帧: (port_name, data_bytes)
+    raw_frame_send = Signal(str, bytes) # 发送原始帧: (port_name, data_bytes)
     can_frame_components_received = Signal(str, int, bytes, bool) # 收到 CAN 帧组件: (port_name, arbitration_id, data_bytes, is_extended_id)
     connection_status_changed = Signal(str, bool) # 串口连接状态变更: (port_name, is_connected)
     serial_error = Signal(str, str) # 串口错误: (port_name, error_msg)
@@ -70,7 +71,7 @@ class SerialCommunicator(QObject):
         return usb_ports
 
     @Slot(str, int)
-    def open_port(self, port_name: str, baud_rate: Optional[int] = None):
+    def open_port(self, port_name: str, baud_rate: Optional[int] = 921600):
         """
         打开指定的串口。
         如果未指定波特率，将尝试从配置管理器中获取。
@@ -81,17 +82,6 @@ class SerialCommunicator(QObject):
             self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 已打开。")
             return
 
-        # 如果未提供波特率，尝试从配置中获取
-        if baud_rate is None:
-            # 尝试根据端口名判断设备类型，并从配置中获取对应的波特率
-            if "COM1" in port_name or "DeepArm" in port_name: # 假设COM1或包含DeepArm的是DeepArm
-                baud_rate = self.config_manager.get('device_settings.deeparm_baud_rate', 9600)
-            elif "COM2" in port_name or "DeepMotor" in port_name: # 假设COM2或包含DeepMotor的是DeepMotor
-                baud_rate = self.config_manager.get('device_settings.deepmotor_baud_rate', 115200)
-            else:
-                baud_rate = self.config_manager.get('device_settings.default_baud_rate', 9600) # 通用默认值
-
-            self.logger.info(f"SerialCommunicator: 未指定波特率，从配置中获取到波特率: {baud_rate}")
 
         self.logger.info(f"SerialCommunicator: 尝试打开串口 '{port_name}'，波特率 {baud_rate}...")
         try:
@@ -109,6 +99,7 @@ class SerialCommunicator(QObject):
             error_msg = f"打开串口 '{port_name}' 遇到未知错误: {e}"
             self.logger.error(f"SerialCommunicator: {error_msg}")
             self.serial_error.emit(port_name, error_msg)
+
 
     @Slot(str)
     def close_port(self, port_name: str):
@@ -144,6 +135,7 @@ class SerialCommunicator(QObject):
         try:
             self.logger.debug(f"SerialCommunicator: 向串口 '{port_name}' 发送数据: {data.hex()}")
             self._serial_ports[port_name].write(data)
+            self.raw_frame_send.emit(port_name, data)
         except Exception as e:
             error_msg = f"向串口 '{port_name}' 发送数据失败: {e}"
             self.logger.error(f"SerialCommunicator: {error_msg}")
@@ -213,37 +205,7 @@ class SerialCommunicator(QObject):
             processed_line = line[2:-2]
             self.raw_frame_received.emit(port_name, processed_line)
 
-            # 解析CAN ID（4字节），先向右移3位
-            
-            arbitration_id = int.from_bytes(line[2:6], byteorder='big') >> 3
-            
-            # 解析数据长度（1字节）
-            data_length = line[6]
-            
-            # 检查数据长度是否合理
-            if data_length > 8:  # CAN 2.0 标准帧最大数据长度为8字节
-                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据长度超出范围: {data_length}")
-                return
-
-            # 检查接收到的数据长度是否足够
-            expected_length = 9 + data_length  # 9 = 2(AT) + 4(CANID) + 1(Len) + 2(\r\n)
-            if len(line) < expected_length:
-                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据不完整，期望 {expected_length} 字节，实际 {len(line)} 字节")
-                return
-
-            # 提取数据部分
-            data_bytes = line[7:7+data_length]
-
-            
-
-            # 假设所有 CAN ID 都是标准 ID (非扩展 ID)，实际项目中需要根据 CANID 范围判断
-            is_extended_id = True
-
-            self.logger.info(f"SerialCommunicator: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}")
-            # 发射解析后的 CAN 帧组件，CanBusCommunicator 将会接收并进一步处理
-            self.can_frame_components_received.emit(
-                port_name, arbitration_id, data_bytes, is_extended_id
-            )
+            self.ser2can(port_name,processed_line)
 
         except serial.SerialException as e:
             error_msg = f"从串口 '{port_name}' 读取数据失败: {e}"
@@ -255,6 +217,43 @@ class SerialCommunicator(QObject):
             self.logger.error(f"SerialCommunicator: {error_msg}")
             self.serial_error.emit(port_name, error_msg)
             self.stop_reading(port_name) # 发生错误时停止读取
+
+    def ser2can(self, port_name: str, line: bytes):
+        """
+        将串口数据解析为 CAN 帧组件。
+        :param line: 串口数据。
+        :param port_name: 串口名称。
+        """
+        # 解析CAN ID（4字节），先向右移3位, 具体根据协议决定
+            
+        arbitration_id = int.from_bytes(line[0:4], byteorder='big') >> 3
+        
+        # 解析数据长度（1字节）
+        data_length = line[4]
+        
+        # 检查数据长度是否合理
+        if data_length > 8:  # CAN 2.0 标准帧最大数据长度为8字节
+            self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据长度超出范围: {data_length}")
+            return
+
+        # 检查接收到的数据长度是否足够
+        expected_length = 5 + data_length  # 5 = 4(CANID) + 1(Len)
+        if len(line) < expected_length:
+            self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据不完整，期望 {expected_length} 字节，实际 {len(line)} 字节")
+            return
+
+        # 提取数据部分
+        data_bytes = line[5:5+data_length]
+
+
+        # 假设所有 CAN ID 都是标准 ID (非扩展 ID)，实际项目中需要根据 CANID 范围判断
+        is_extended_id = True
+
+        self.logger.info(f"SerialCommunicator: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}")
+        # 发射解析后的 CAN 帧组件，CanBusCommunicator 将会接收并进一步处理
+        self.can_frame_components_received.emit(
+            port_name, arbitration_id, data_bytes, is_extended_id
+        )
 
     def sim_read_serial_data(self, port_name: str = None):
         """
@@ -275,7 +274,7 @@ class SerialCommunicator(QObject):
             port_name = self.active_port
 
         # 发送原始帧数据
-        self.raw_frame_received.emit('DeepMotor', decoded_line)  # 去掉 AT 和 \r\n
+        self.raw_frame_received.emit('DeepMotor', decoded_line[2:-2])  # 去掉 AT 和 \r\n
 
         # 发送 CAN 帧组件
         self.can_frame_components_received.emit(

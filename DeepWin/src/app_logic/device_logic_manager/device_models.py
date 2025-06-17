@@ -62,6 +62,21 @@ class DeepMotorState(BaseDeviceState):
     temperature: float = 0.0
     # 可以添加更多电机特定的状态，如 PWM 值，编码器读数等
 
+    position: float = 0.0
+    velocity: float = 0.0
+    torque: float = 0.0
+    temperature: float = 0.0
+    error_message: str = ""
+    response_mode: str = ""
+    motor_can_id: int = 0
+    mode_state: str = ""
+    flt_uninitialized: bool = False
+    flt_hall_encoding: bool = False
+    flt_magnetic_encoding: bool = False
+    flt_over_temperature: bool = False
+    flt_over_current: bool = False
+    flt_voltage_drop: bool = False
+
     def to_dict(self) -> Dict[str, Any]:
         base_dict = super().to_dict()
         base_dict.update({
@@ -69,7 +84,17 @@ class DeepMotorState(BaseDeviceState):
             "velocity": self.velocity,
             "torque": self.torque,
             "temperature": self.temperature,
-            "error_code": self.error_code
+            "error_code": self.error_code,
+            "error_message": self.error_message,
+            "response_mode": self.response_mode,
+            "motor_can_id": self.motor_can_id,
+            "mode_state": self.mode_state,
+            "flt_uninitialized": self.flt_uninitialized,
+            "flt_hall_encoding": self.flt_hall_encoding,
+            "flt_magnetic_encoding": self.flt_magnetic_encoding,
+            "flt_over_temperature": self.flt_over_temperature,
+            "flt_over_current": self.flt_over_current,
+            "flt_voltage_drop": self.flt_voltage_drop
         })
         return base_dict
 

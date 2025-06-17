@@ -32,16 +32,9 @@ class DeepMotor(BaseDevice):
         super().update_state_from_semantic_data(semantic_data)
 
         # 更新 DeepMotor 独有的状态
-        if 'position' in semantic_data:
-            self._state.position = float(semantic_data['position'])
-        if 'velocity' in semantic_data:
-            self._state.velocity = float(semantic_data['velocity'])
-        if 'torque' in semantic_data:
-            self._state.torque = float(semantic_data['torque'])
-        if 'temperature' in semantic_data:
-            self._state.temperature = float(semantic_data['temperature'])
-        if 'error_code' in semantic_data:
-            self._state.error_code = int(semantic_data['error_code'])
+        for key, value in semantic_data.items():
+            if hasattr(self._state, key):
+                setattr(self._state, key, value)
         
         self.logger.debug(f"DeepMotor '{self.device_id}': 特定状态更新完成。")
         self.device_state_updated.emit(self.device_id, self._state.to_dict())

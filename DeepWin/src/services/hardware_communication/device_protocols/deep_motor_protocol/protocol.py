@@ -168,12 +168,12 @@ class DeepMotorProtocol:
         self.logger.debug(f"DeepMotorProtocol: 编码命令 '{command_type}' 参数: {kwargs}")
         
         try:
-            if command_type == 'enable_motor':
+            if command_type == 'enable_motor': #  41 54 18 07 e8 34 08 00 00 00 00 00 00 00 00 0d 0a
                 motor_id = kwargs.get('motor_id', 1)
-                return self._create_frame(3, motor_id, 0, self.master_id)
-            elif command_type == 'disable_motor':  # 添加失能电机命令
+                return self._create_frame(3, motor_id, 0, self.master_id) 
+            elif command_type == 'disable_motor':  # 41 54 20 07 e8 34 08 00 00 00 00 00 00 00 00 0d 0a
                 motor_id = kwargs.get('motor_id', 1)
-                return self._create_frame(0x02, motor_id, 0, self.master_id)
+                return self._create_frame(4, motor_id, 0, self.master_id)
             elif command_type == 'reset_motor':
                 motor_id = kwargs.get('motor_id', 1)
                 return self._create_frame(4, motor_id, 0, self.master_id)
@@ -183,10 +183,10 @@ class DeepMotorProtocol:
                 payload[0] = 1
                 payload[1] = 1
                 return self._create_frame(6, motor_id, 0, self.master_id, payload)
-            elif command_type == 'set_motor_mode':
+            elif command_type == 'set_motor_mode': # 位置模式：41 54 90 07 e8 2c 08 05 70 00 00 01 00 00 00 0d 0a
                 motor_id = kwargs.get('motor_id', 1)
-                value = kwargs.get('value')
-                return self._create_frame(0x12, motor_id, 0, self.master_id, struct.pack('<H', self.index['RUN_MODE']) + struct.pack('<B', value))
+                run_mode = kwargs.get('run_mode', 1)
+                return self.create_motor_mode_frame(motor_id,run_mode)
             elif command_type == 'set_motor_mit_mode':
                 motor_id = kwargs.get('motor_id', 1)
                 torque = kwargs.get('torque', 0.0)
@@ -256,13 +256,14 @@ class DeepMotorProtocol:
                 return self._create_frame(0x12, motor_id, 0, self.master_id, payload)
             elif command_type == 'init_motor':
                 motor_id = kwargs.get('motor_id', 1)
-                frames = [
-                    self.AT_HEADER + b'+AT' + self.END_BYTES,
-                    self._create_frame(4, motor_id, 0, self.master_id), # Reset
-                    self._create_frame(6, motor_id, 0, self.master_id, bytearray([1, 1, 0, 0, 0, 0, 0, 0])), # Zero
-                    self._create_frame(3, motor_id, 0, self.master_id), # Enable
-                    self.encode_command('set_motor_mode', motor_id=motor_id, value=self.modes.get('position', 1)) # Set Position Mode
-                ]
+                # frames = [
+                #     self.AT_HEADER + b'+AT' + self.END_BYTES,
+                #     self._create_frame(4, motor_id, 0, self.master_id), # Reset
+                #     self._create_frame(6, motor_id, 0, self.master_id, bytearray([1, 1, 0, 0, 0, 0, 0, 0])), # Zero
+                #     self._create_frame(3, motor_id, 0, self.master_id), # Enable
+                #     self.encode_command('set_motor_mode', motor_id=motor_id, value=self.modes.get('position', 1)) # Set Position Mode
+                # ]
+                frames = self.create_motor_init_frame(motor_id)
                 return frames
             elif command_type == 'init_all_motors':
                 motor_ids = kwargs.get('motor_ids', [])
@@ -326,43 +327,47 @@ class DeepMotorProtocol:
             Dict[str, Any]: 解码后的响应数据
         """
         try:
-            if not data or len(data) < len(self.AT_HEADER) + 4 + 1 + len(self.END_BYTES):
-                self.logger.debug(f"Received data too short or incomplete: {data.hex()}")
-                return {'success': False, 'error': "无效的数据帧格式"}
+            # if not data or len(data) < len(self.AT_HEADER) + 4 + 1 + len(self.END_BYTES):
+            #     self.logger.debug(f"Received data too short or incomplete: {data.hex()}")
+            #     return {'success': False, 'error': "无效的数据帧格式"}
             
-            # 检查帧头和帧尾
-            if not data.startswith(self.AT_HEADER) or not data.endswith(self.END_BYTES):
-                self.logger.debug(f"Invalid frame header or end bytes. Raw: {data.hex()}")
-                return {'success': False, 'error': "无效的帧头或帧尾"}
+            # # 检查帧头和帧尾
+            # if not data.startswith(self.AT_HEADER) or not data.endswith(self.END_BYTES):
+            #     self.logger.debug(f"Invalid frame header or end bytes. Raw: {data.hex()}")
+            #     return {'success': False, 'error': "无效的帧头或帧尾"}
             
-            offset = len(self.AT_HEADER)
-            can_id_bytes = data[offset : offset + 4]
-            can_id = struct.unpack('>I', can_id_bytes)[0]
+            # offset = len(self.AT_HEADER)
+            # can_id_bytes = data[offset : offset + 4]
+            # can_id = struct.unpack('>I', can_id_bytes)[0]
 
-            # 如果使用 USB 转 CAN 模块，需要进行转换
-            if self.config.get('communication', {}).get('use_uart2can', True):
-                can_id = can_id >> 3
+            # # 如果使用 USB 转 CAN 模块，需要进行转换
+            # if self.config.get('communication', {}).get('use_uart2can', True):
+            #     can_id = can_id >> 3
 
-            offset += 4
-            data_length = data[offset]
-            offset += 1
-            payload = data[offset : offset + data_length]
+            # offset += 4
+            # data_length = data[offset]
+            # offset += 1
+            # payload = data[offset : offset + data_length]
             
-            response_mode = (can_id >> 24) & 0xFF
-            motor_id = (can_id >> 8) & 0xFF
+            # response_mode = (can_id >> 24) & 0xFF
+            # motor_id = (can_id >> 8) & 0xFF
 
-            feedback = self.update_from_feedback(payload)
+            # feedback = self.update_from_feedback(payload)
             
-            response_data = {
-                'success': True,
-                'motor_id': motor_id,
-                'mode': response_mode,
-                'data': can_id & 0xFF,
-            }
-            response_data.update(feedback)
-            print(f"------------------response_data: {response_data}")
-            
-            
+            # response_data = {
+            #     'success': True,
+            #     'motor_id': motor_id,
+            #     'mode': response_mode,
+            #     'data': can_id & 0xFF,
+            # }
+            # response_data.update(feedback)
+            # print(f"------------------response_data: {response_data}")
+
+            can_id, payload = self._ser2can(data)
+            ext_can_id_info = self._decode_ext_can_id(can_id)
+            response_data = self._decode_can_data(payload)
+            response_data.update(ext_can_id_info)
+            response_data['success'] = True
             
             # 对于其他响应模式，只返回基本信息
             return response_data
@@ -371,7 +376,81 @@ class DeepMotorProtocol:
             self.logger.error(f"解析响应失败: {str(e)}, 原始数据: {data.hex()}")
             return {'success': False, 'error': f"解析响应失败: {str(e)}"}
         
-    def update_from_feedback(self, data_bytes):
+    def _ser2can(self, frame_bytes: bytes):
+        """
+        将串口数据解析为 CAN 帧组件。
+        """
+        # 解析CAN ID（4字节），先向右移3位, 具体根据协议决定
+        arbitration_id = int.from_bytes(frame_bytes[0:4], byteorder='big')
+
+        # 如果使用 USB 转 CAN 模块，需要进行转换
+        if self.config.get('communication', {}).get('use_uart2can', True):
+            arbitration_id = arbitration_id >> 3
+        
+        # 解析数据长度（1字节）
+        data_length = frame_bytes[4]
+        
+        # 检查数据长度是否合理
+        if data_length > 8:  # CAN 2.0 标准帧最大数据长度为8字节
+            self.logger.warning(f"DeepMotorProtocol: 数据长度超出范围: {data_length}")
+            return
+
+        # 检查接收到的数据长度是否足够
+        expected_length = 5 + data_length  # 5 = 4(CANID) + 1(Len)
+        if len(frame_bytes) < expected_length:
+            self.logger.warning(f"DeepMotorProtocol: 数据不完整，期望 {expected_length} 字节，实际 {len(frame_bytes)} 字节")
+            return
+
+        # 提取数据部分
+        data_bytes = frame_bytes[5:5+data_length]
+
+
+        # # 假设所有 CAN ID 都是标准 ID (非扩展 ID)，实际项目中需要根据 CANID 范围判断
+        # is_extended_id = True
+
+        self.logger.info(f"DeepMotorProtocol: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}")
+        # 发射解析后的 CAN 帧组件，CanBusCommunicator 将会接收并进一步处理
+        return arbitration_id, data_bytes
+
+    def _decode_ext_can_id(self, ext_can_id):
+        """
+        解析 CAN ID
+        """
+        response_mode = (ext_can_id >> 24) & 0xFF
+        motor_can_id = (ext_can_id >> 8) & 0xFF  # Bit8~Bit15: 当前电机CANID
+        fault_info = (ext_can_id >> 16) & 0x3F  # Bit21~Bit16: 故障信息
+        mode_state = (ext_can_id >> 22) & 0x3  # Bit22~Bit23: 模式状态
+
+        # Parse fault information
+        faults = {
+            "flt_uninitialized": (fault_info >> 5) & 0x1,
+            "flt_hall_encoding": (fault_info >> 4) & 0x1,
+            "flt_magnetic_encoding": (fault_info >> 3) & 0x1,
+            "flt_over_temperature": (fault_info >> 2) & 0x1,
+            "flt_over_current": (fault_info >> 1) & 0x1,
+            "flt_voltage_drop": fault_info & 0x1
+        }
+
+        # 解析模式状态
+        mode_states = {
+            0: "ResetMode",
+            1: "CaliMode",
+            2: "RunMode"
+        }
+        ext_can_id_info = {
+            "response_mode": response_mode,
+            "motor_can_id": motor_can_id,
+            "mode_state": mode_states[mode_state]
+        }
+        ext_can_id_info.update(faults)  # 更新故障信息
+
+        # 记录
+        self.logger.info(f"DeepMotorProtocol: 解析到 CAN ID: {ext_can_id_info}")
+
+
+        return ext_can_id_info
+
+    def _decode_can_data(self, data_bytes):
         """
         Update motor position
         
@@ -387,37 +466,37 @@ class DeepMotorProtocol:
         # Parse position data (Byte 0-1)
         position_raw = struct.unpack('>H', data_bytes[0:2])[0]
         position_raw = position_raw - 32767
-        current_position = self._scale_value(position_raw, -32768, 32767,
+        position = self._scale_value(position_raw, -32768, 32767,
                                                 self.POSITION_RANGE[0],
                                                 self.POSITION_RANGE[1])
         
         # Parse velocity data (Byte 2-3)
         velocity_raw = struct.unpack('>H', data_bytes[2:4])[0]
         velocity_raw = velocity_raw - 32767
-        current_velocity = self._scale_value(velocity_raw, -32768, 32767,
+        velocity = self._scale_value(velocity_raw, -32768, 32767,
                                                self.VELOCITY_RANGE[0],
                                                self.VELOCITY_RANGE[1])
         
         # Parse torque data (Byte 4-5)
         torque_raw = struct.unpack('>H', data_bytes[4:6])[0]
         torque_raw = torque_raw - 32767
-        current_torque = self._scale_value(torque_raw, -32768, 32767,
+        torque = self._scale_value(torque_raw, -32768, 32767,
                                              self.TORQUE_RANGE[0],
                                              self.TORQUE_RANGE[1])
         
         # Parse temperature data (Byte 6-7)
-        current_temperature = struct.unpack('>H', data_bytes[6:8])[0]
-        current_temperature = current_temperature / 10
+        temperature = struct.unpack('>H', data_bytes[6:8])[0]
+        temperature = temperature / 10
 
         
         self.logger.debug("Position: %.2f, Velocity: %.2f, Torque: %.2f, Temperature: %.2f" % 
-                         (current_position, current_velocity, current_torque, current_temperature))
+                         (position, velocity, torque, temperature))
         
         response_data = {
-            'current_position': current_position,
-            'current_velocity': current_velocity,
-            'current_torque': current_torque,
-            'current_temperature': current_temperature
+            'position': position,
+            'velocity': velocity,
+            'torque': torque,
+            'temperature': temperature
         }
         return response_data
     
@@ -437,3 +516,377 @@ class DeepMotorProtocol:
         """
         return (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 
+    def create_AT_frame(self):
+        # Send 'AT+AT' command
+        frame = [0x41, 0x54, 0x2B, 0x41, 0x54, 0x0D, 0x0A]
+        return frame
+
+    def create_frame(self, mode, motor_id, res, data, payload=None):
+        """
+        Create a communication frame
+        
+        Args:
+            mode: Command mode
+            motor_id: Motor ID
+            res: Reserved field
+            data: Data field
+            payload: Payload data
+            
+        Returns:
+            bytearray: Complete communication frame
+        """
+        can_id = (res << 29) | (mode << 24) | (data << 8) | motor_id
+        if self.config.get('communication', {}).get('use_uart2can', True):
+            can_id = (can_id << 3) + 0x04  # If you need to use the usb to can module, you need to convert
+        
+        frame = bytearray()
+        frame.extend(self.AT_HEADER)
+        frame.extend(struct.pack('>I', can_id))
+        
+        if payload:
+            frame.append(len(payload))
+            frame.extend(payload)
+        else:
+            frame.append(0)
+        
+        frame.extend(self.END_BYTES)
+        return frame
+
+    def create_motor_enable_frame(self, motor_id):
+        """
+        Create a motor enable frame (mode 3)
+        
+        Args:
+            motor_id: Motor ID
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        return self.create_frame(3, motor_id, 0, self.master_id)
+
+    def create_motor_reset_frame(self, motor_id):
+        """
+        Create a motor reset frame (mode 4)
+        
+        Args:
+            motor_id: Motor ID
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        return self.create_frame(4, motor_id, 0, self.master_id)
+
+    def create_motor_zero_frame(self, motor_id):
+        """
+        Create a motor zero frame (mode 6)
+        
+        Args:
+            motor_id: Motor ID
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        payload = bytearray([0] * 8)
+        payload[0] = 1
+        payload[1] = 1
+        return self.create_frame(6, motor_id, 0, self.master_id, payload)
+
+    def create_motor_mode_frame(self, motor_id, run_mode):
+        """
+        Create a motor mode setting frame (mode 0x12)
+        
+        Args:
+            motor_id: Motor ID
+            index: Parameter index
+            run_mode: Operating mode
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        index = self.index['RUN_MODE']
+        payload = bytearray(8)
+        payload[0:2] = [index & 0xFF, (index >> 8) & 0xFF]
+        payload[4] = run_mode
+        return self.create_frame(0x12, motor_id, 0, self.master_id, payload)
+    
+    def create_motor_jog_frame(self, motor_id, jog_speed):
+        """
+        Create a motor jog mode setting frame (mode 0x12)
+        
+        Args:
+            motor_id: Motor ID
+            jog_speed: Jog speed
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        index = self.index['RUN_MODE']    # write
+        run_mode = self.modes.get('jog', 7)  # jog mode
+        payload = bytearray(8)
+        payload[0:2] = struct.pack('<H', index)
+        payload[4] = run_mode
+        payload[5] = 0x01  # 1: enable jog, 0: disable jog
+        jog_speed = min(max(jog_speed, -30), 30)
+        scaled_speed = int((jog_speed + 30) / 60 * 65535)
+        payload[6:8] = struct.pack('>H', scaled_speed)
+        return self.create_frame(0x12, motor_id, 0, self.master_id, payload)
+    
+    def create_motor_jog_frame_stop(self, motor_id):
+        """
+        Create a motor jog mode stop frame (mode 0x12)
+        
+        Args:
+            motor_id: Motor ID
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        index = self.index['RUN_MODE']    # write
+        run_mode = self.modes.get('jog', 7)  # jog mode
+        payload = bytearray(8)
+        payload[0:2] = struct.pack('<H', index)
+        payload[4] = run_mode
+        payload[5] = 0x00  # 1: enable jog, 0: disable jog
+        payload[6:8] = struct.pack('>H', 0x7fff)
+        return self.create_frame(0x12, motor_id, 0, self.master_id, payload)
+    
+    def create_motor_write_frame(self, motor_id, index, value):
+        """
+        Create a motor parameter write frame (mode 0x12)
+        
+        Args:
+            motor_id: Motor ID
+            index: Parameter index
+            value: Parameter value
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        payload = bytearray(8)
+        payload[0:2] = struct.pack('<H', index)
+        payload[4:8] = struct.pack('<f', float(value))
+        return self.create_frame(0x12, motor_id, 0, self.master_id, payload)
+    
+    def create_motor_read_frame(self, motor_id, index):
+        """
+        Create a motor parameter read frame (mode 0x11)
+        
+        Args:
+            motor_id: Motor ID
+            index: Parameter index
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        payload = bytearray(8)
+        payload[0:2] = struct.pack('<H', index)
+        return self.create_frame(0x11, motor_id, 0, self.master_id, payload)
+    
+    def create_motor_mit_mode_frame(self, motor_id, torque, position, speed, kp, kd):
+        """
+        Create a motor MIT mode control frame (mode 1)
+        
+        Args:
+            motor_id: Motor ID
+            torque: Torque value
+            position: Target position
+            speed: Target speed
+            kp: Position loop gain
+            kd: Velocity loop gain
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        data = self.float_to_uint(torque, self.T_MIN, self.T_MAX, 16)
+        payload = bytearray(8)
+        pos_uint = self.float_to_uint(position, self.P_MIN, self.P_MAX, 16)
+        spd_uint = self.float_to_uint(speed, self.V_MIN, self.V_MAX, 16)
+        kp_uint = self.float_to_uint(kp, self.KP_MIN, self.KP_MAX, 16)
+        kd_uint = self.float_to_uint(kd, self.KD_MIN, self.KD_MAX, 16)
+        
+        payload[0:2] = struct.pack('<H', pos_uint)
+        payload[2:4] = struct.pack('<H', spd_uint)
+        payload[4:6] = struct.pack('<H', kp_uint)
+        payload[6:8] = struct.pack('<H', kd_uint)
+        
+        return self.create_frame(1, motor_id, 0, data, payload)
+    
+    def create_motor_init_frame(self, motor_id):
+        """
+        Create a motor initialization frame (including enable, zero and mode setting)
+        
+        Args:
+            motor_id: Motor ID
+            
+        Returns:
+            list: Communication frame list
+        """
+        return [
+            self.create_AT_frame(),
+            self.create_motor_reset_frame(motor_id),
+            self.create_motor_zero_frame(motor_id),
+            self.create_motor_mode_frame(motor_id, self.modes.get('position', 1)),
+            self.create_motor_enable_frame(motor_id)
+        ]
+    
+    def create_motor_init_frame_all(self, motor_ids):
+        """
+        Create initialization frames for all motors
+        
+        Args:
+            motor_ids: Motor ID list
+            
+        Returns:
+            list: Communication frame list
+        """
+        frames = []
+        for motor_id in motor_ids:
+            frames.extend(self.create_motor_init_frame(motor_id))
+        return frames
+    
+    def create_motor_reset_frame_all(self, motor_ids):
+        """
+        Create reset frames for all motors
+        
+        Args:
+            motor_ids: Motor ID list
+            
+        Returns:
+            list: Communication frame list
+        """
+        return [self.create_motor_reset_frame(motor_id) for motor_id in motor_ids]
+    
+    def create_motor_pos_frame(self, motor_id, position):
+        # Calculate the position index and speed index
+        loc_index = self.index['LOC_REF']
+        # Create and send the position control frame
+        return self.create_motor_write_frame(motor_id, loc_index, self.limit_position(motor_id, position))
+    
+    def create_motor_pos_frame_all(self, motor_ids, positions):
+        frames = []
+        # Check if the list lengths match
+        if len(motor_ids) != len(positions):
+            self.logger.error("Motor ID and position list lengths do not match")
+            return frames
+        
+        # Create a position control frame for each motor
+        for i, motor_id in enumerate(motor_ids):
+            position = positions[i]
+            frames.append(self.create_motor_pos_frame(motor_id, self.limit_position(motor_id, position)))
+
+        return frames
+
+    def create_motor_pos_spd_frame(self, motor_id, position, speed):
+        """
+        Create a motor position and speed control frame
+        
+        Args:
+            motor_id: Motor ID
+            position: Target position
+            speed: Target speed
+            
+        Returns:
+            bytearray: Communication frame
+        """
+        # Calculate the position index and speed index
+        loc_index = self.index['LOC_REF']
+        spd_index = self.index['LIMIT_SPD']
+        
+        # Create and send the position control frame
+        position_frame = self.create_motor_write_frame(motor_id, loc_index, self.limit_position(motor_id, position))
+        
+        # Create and send the speed control frame
+        speed_frame = self.create_motor_write_frame(motor_id, spd_index, speed)
+        
+        # Return two frames, the caller needs to send them in order
+        return [position_frame, speed_frame]
+
+    def create_motor_frame_all_pos_spd(self, motor_ids, positions, speeds):
+        """
+        Create multiple motor position and speed control frames
+        
+        Args:
+            motor_ids: Motor ID list
+            positions: Target position list
+            speeds: Target speed list
+            
+        Returns:
+            list: Communication frame list
+        """
+        frames = []
+        
+        # Check if the list lengths match
+        if len(motor_ids) != len(positions) or len(motor_ids) != len(speeds):
+            self.logger.error("Motor ID, position and speed list lengths do not match")
+            return frames
+        
+        # Create a control frame for each motor
+        for i, motor_id in enumerate(motor_ids):
+            position = positions[i]
+            speed = speeds[i]
+            # Get the position and speed control frame
+            pos_spd_frames = self.create_motor_pos_spd_frame(motor_id, position, speed)
+            frames.extend(pos_spd_frames)
+        
+        return frames
+
+    def limit_position(self, motor_id, position):
+        # Get the corresponding joint name according to the motor_id
+        joint_name = 'joint' + str(motor_id)
+        # Get the joint range
+        joint_range = self.config.get('motor', {}).get('range', {}).get(joint_name, [-0.5, 0.5])
+        # Limit the position within the joint range
+        position = min(max(position, joint_range[0]), joint_range[1])
+        return position
+    
+    def create_motor_sinwave_test(self, motor_id, amplitude, frequency, start_stop):
+        # 41 54 90 07 e8 34 08 03 70 00 00 00 00 80 3f 0d 0a # Set amplitude
+        # 41 54 90 07 e8 34 08 02 70 00 00 00 00 80 3f 0d 0a # Set frequency
+        # 41 54 90 07 e8 34 08 01 70 00 00 01 00 00 00 0d 0a # Start sine test
+        # 41 54 90 07 e8 34 08 01 70 00 00 00 00 00 00 0d 0a # Stop sine test
+        # 41 54 20 07 e8 34 08 00 00 00 00 00 00 00 00 0d 0a # Reset motor
+
+        # 41 54 98 07 e8 34 08 1b 82 30 02 a0 42 32 0e 0d 0a # Load parameter table
+        pass
+
+    def create_motor_scope_disp(self, motor_id, frequency, channel, start_stop):
+    # 41 54 50 07 e8 0c 08 14 00 11 00 00 10 0e 00 0d 0a    Set sampling frequency
+    # 41 54 50 0f e8 0c 08 16 30 16 30 16 30 16 30 0d 0a    Set channel
+    # 41 54 50 17 e8 0c 08 00 00 00 00 00 00 00 00 0d 0a    Start sampling
+    # 41 54 50 1f e8 0c 08 00 00 00 00 00 00 00 00 0d 0a    Stop sampling
+        pass
+
+    def float_to_uint(self, x, x_min, x_max, bits):
+        """
+        Convert a float to an unsigned integer
+
+        Args:
+            x: Input float
+            x_min: Minimum value
+            x_max: Maximum value
+            bits: Number of bits
+            
+        Returns:
+            int: Converted unsigned integer
+        """
+        span = x_max - x_min
+        offset = x_min
+        x = min(max(x, x_min), x_max)
+        return int((x - offset) * ((1 << bits) - 1) / span)
+
+def uint_to_float(self, uint, x_min, x_max, bits):
+    """
+    Convert an unsigned integer to a float
+    
+    Args:
+        uint: Unsigned integer
+        x_min: Minimum value
+        x_max: Maximum value
+        bits: Number of bits
+        
+    Returns:
+        float: Converted float
+    """
+    span = x_max - x_min
+    offset = x_min
+    return uint * span / ((1 << bits) - 1) + offset

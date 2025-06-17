@@ -35,18 +35,22 @@ class DeepMotorProtocolParser(BaseProtocolParser):
         """
         # DeepMotor 的输入数据映射 (由 DeepMotorProtocol 解析后的语义字段)
         self._input_data_mapping = {
-            "motor_id": "motor_id",
-            "response_type": "response_type",
-            "response_code": "response_code",
-            "raw_payload": "raw_protocol_payload", # 原始协议负载，如果需要透传
-            "index": "parameter_index",
-            "value": "parameter_value",
-            "current_position": "position", # 从 motor_status 解码
-            "current_velocity": "velocity", # 从 motor_status 解码
-            "current_torque": "torque",     # 从 motor_status 解码
-            "current_temperature": "temperature", # 从 motor_status 解码
-            "error_message": "error_message" # 错误信息
+            "position": "position", # 从 motor_status 解码
+            "velocity": "velocity", # 从 motor_status 解码
+            "torque": "torque",     # 从 motor_status 解码
+            "temperature": "temperature", # 从 motor_status 解码
+            "error_message": "error_message", # 错误信息
+            "response_mode": "response_mode",
+            "motor_can_id": "motor_can_id",
+            "mode_state": "mode_state",
+            "flt_uninitialized": "flt_uninitialized",
+            "flt_hall_encoding": "flt_hall_encoding",
+            "flt_magnetic_encoding": "flt_magnetic_encoding",
+            "flt_over_temperature": "flt_over_temperature",
+            "flt_over_current": "flt_over_current",
+            "flt_voltage_drop": "flt_voltage_drop"
         }
+
 
         # DeepMotor 的输出命令映射 (抽象命令名 -> DeepMotorProtocol 中的对应抽象命令)
         self._output_command_mapping = {
@@ -90,14 +94,7 @@ class DeepMotorProtocolParser(BaseProtocolParser):
                 for proto_key, semantic_key in self._input_data_mapping.items():
                     if proto_key in response:
                         semantic_data[semantic_key] = response[proto_key]
-                
-                # 额外传递一些原始响应信息
-                if 'mode' in response:
-                    semantic_data['protocol_response_type'] = response['mode']
-                if 'data' in response:
-                    semantic_data['protocol_response_code'] = response['data']
-                if 'error' in response:
-                    semantic_data['protocol_error_message'] = response['error']
+            
             else:
                 semantic_data["success"] = False
                 semantic_data["error_message"] = response.get('error', '未知错误')
@@ -114,19 +111,21 @@ class DeepMotorProtocolParser(BaseProtocolParser):
 
     def generate_output_command(self, command_name: str, *args) -> Union[bytes, List[bytes]]:
         """
-        生成输出命令。
-        :param command_name: 命令名称。
+        生成 DeepMotor 的底层命令。
+        :param command_name: 抽象命令名称。
         :param args: 命令参数。
-        :return: 生成的命令字节或命令字节列表。
+        :return: 编码后的命令字节串或字节串列表（多帧命令）。
         """
-        self.logger.debug(f"DeepMotorProtocolParser: 生成 DeepMotor 命令 '{command_name}' 参数: {args}")
-        
         try:
-            # 将位置参数转换为关键字参数
+            self.logger.debug(f"DeepMotorProtocolParser: 生成 DeepMotor 命令 '{command_name}' 参数: {args}")
+            
+            # 准备命令参数
             kwargs = {}
+            
+            # 根据命令类型设置参数
             if command_name == 'enable_motor':
                 kwargs['motor_id'] = args[0] if args else 1
-            elif command_name == 'disable_motor':  # 添加失能电机命令处理
+            elif command_name == 'disable_motor':
                 kwargs['motor_id'] = args[0] if args else 1
             elif command_name == 'reset_motor':
                 kwargs['motor_id'] = args[0] if args else 1
@@ -134,7 +133,7 @@ class DeepMotorProtocolParser(BaseProtocolParser):
                 kwargs['motor_id'] = args[0] if args else 1
             elif command_name == 'set_motor_mode':
                 kwargs['motor_id'] = args[0] if args else 1
-                kwargs['value'] = args[1] if len(args) > 1 else None
+                kwargs['run_mode'] = args[1] if len(args) > 1 else None
             elif command_name == 'set_motor_mit_mode':
                 kwargs['motor_id'] = args[0] if args else 1
                 kwargs['torque'] = args[1] if len(args) > 1 else 0.0
@@ -180,7 +179,8 @@ class DeepMotorProtocolParser(BaseProtocolParser):
             
             if isinstance(command, list):
                 self.logger.debug(f"DeepMotorProtocolParser: 已生成命令 '{command_name}' (多帧)。")
-                return command
+                # 确保列表中的每个元素都是字节类型
+                return [bytes(cmd) if isinstance(cmd, list) else cmd for cmd in command]
             else:
                 self.logger.debug(f"DeepMotorProtocolParser: 已生成命令 '{command_name}': {command.hex()}")
                 return command
