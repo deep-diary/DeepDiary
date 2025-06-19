@@ -53,7 +53,8 @@ class ConfigManager(QObject):
                 "deeparm_can_bustype": "virtual", # "virtual", "pcan", "socketcan"
                 "deeparm_dbc_path": "deeparm.dbc", # 相对路径或绝对路径
                 "deepmotor_serial_port": "COM2",
-                "deepmotor_baud_rate": 115200
+                "deepmotor_baud_rate": 115200,
+                "deepmotor_history_length": 100
             },
             "network": {
                 "server_address": "localhost:8000",

@@ -24,5 +24,25 @@
     "image_recognition_enabled": true,
     "voice_recognition_enabled": true,
     "llm_api_key": "your_llm_api_key_here"
-  }
+  },
+  "mcp_services": [
+    {
+      "id": "news_feed_mcp",
+      "url": "https://api.some-news-mcp.com/v1",
+      "api_key": "YOUR_NEWS_API_KEY",
+      "type": "external_news"
+    },
+    {
+      "id": "amap_maps_mcp",
+      "url": "https://mcp.so/server/amap-maps/amap",
+      "api_key": "fd18a18f74ff824346df1d1c7185f07f",
+      "type": "external_maps"
+    },
+    {
+      "id": "deepserver_memory_mcp",
+      "url": "https://your-deepserver-ip/mcp",
+      "api_key": "YOUR_DEEPSERVER_MCP_API_KEY",
+      "type": "internal_memory_resource"
+    }
+  ]
 }

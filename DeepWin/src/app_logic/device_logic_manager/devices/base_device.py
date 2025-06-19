@@ -17,7 +17,7 @@ class BaseDevice(QObject):
     # 注意：这些信号的连接通常在 DeviceLogicManager 内部处理
     # 例如：device_error 信号用于报告设备内部发生的错误
     device_error = Signal(str, str) # (device_id, error_message)
-    device_state_updated = Signal(str, dict) # (device_id, new_state_dict)
+    device_states_updated = Signal(str, dict) # (device_id, new_state_dict)
 
     def __init__(self, device_id: str, log_manager: LogManager, parent: Optional[QObject] = None):
         """
@@ -52,7 +52,7 @@ class BaseDevice(QObject):
         self._state.is_online = True # 收到数据表明在线
         self._state.connection_status = DeviceStatus.CONNECTED
         self.logger.debug(f"Device '{self.device_id}': 状态已更新。")
-        self.device_state_updated.emit(self.device_id, self._state.to_dict())
+        self.device_states_updated.emit(self.device_id, self._state.to_dict())
 
 
     def execute_abstract_command(self,

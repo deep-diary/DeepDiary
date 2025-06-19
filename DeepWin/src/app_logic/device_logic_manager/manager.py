@@ -30,7 +30,7 @@ class DeviceLogicManager(QObject):
     """
 
     # 定义设备逻辑管理器可以向 Coordinator 发射的信号
-    device_status_updated = Signal(dict)    # 设备状态实时更新，参数为设备ID和状态数据 (dict)
+    device_status_updated = Signal(str, dict)    # 设备状态实时更新，参数为设备ID和状态数据 (dict)
     device_command_response = Signal(str)   # 设备控制命令的响应 (str)
     device_error = Signal(str)              # 设备相关操作发生错误 (str)
 
@@ -64,6 +64,7 @@ class DeviceLogicManager(QObject):
         # 实例化 TeachingTrajectoryManager (逻辑暂时跳过)
         self.teaching_manager = TeachingTrajectoryManager(log_manager=log_manager)
 
+
         self.logger.info("DeviceLogicManager: 初始化完成。")
 
     def _get_or_create_device_instance(self, device_id: str) -> Optional[BaseDevice]:
@@ -83,7 +84,9 @@ class DeviceLogicManager(QObject):
                 self.managed_devices[device_id] = DeepArm(device_id, self.logger_instance)
             elif device_id.startswith("DeepMotor"):
                 from .devices.deep_motor.deep_motor import DeepMotor
-                self.managed_devices[device_id] = DeepMotor(device_id, self.logger_instance)
+                self.managed_devices[device_id] = DeepMotor(device_id, self.logger_instance, self.config_manager)
+                # 绑定底层设备状态更新信号
+                self.managed_devices[device_id].device_states_updated.connect(self.device_status_updated)
             else:
                 self.logger.error(f"DeviceLogicManager: 无法识别的设备类型或 ID 前缀: {device_id}")
                 return None
@@ -166,10 +169,10 @@ class DeviceLogicManager(QObject):
             device_instance.check_anomaly() # 假设设备实例内部会发出错误信号
 
             # 通知 Coordinator 设备状态已更新
-            self.device_status_updated.emit({
-                "device_id": device_id,
-                "status": device_instance.get_current_state().to_dict() # 获取最新状态字典
-            })
+            self.device_status_updated.emit(
+                device_id,
+                device_instance.get_current_state().to_dict() # 获取最新状态字典
+            )
             self.logger.debug(f"DeviceLogicManager: 设备 '{device_id}' 状态已更新。")
 
             # # 示教逻辑（暂时跳过）

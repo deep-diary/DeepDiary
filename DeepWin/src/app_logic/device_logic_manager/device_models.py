@@ -56,10 +56,6 @@ class BaseDeviceState:
 class DeepMotorState(BaseDeviceState):
     """DeepMotor 无刷电机状态模型。"""
     error_code: int = 0
-    position: float = 0.0
-    velocity: float = 0.0
-    torque: float = 0.0
-    temperature: float = 0.0
     # 可以添加更多电机特定的状态，如 PWM 值，编码器读数等
 
     position: float = 0.0

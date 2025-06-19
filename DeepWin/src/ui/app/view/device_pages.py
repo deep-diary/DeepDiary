@@ -2,6 +2,14 @@ from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout
 from qfluentwidgets import (PrimaryPushButton, ComboBox, SpinBox, FluentIcon as FIF, CardWidget)
 
+# 添加matplotlib支持
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+import matplotlib.dates as mdates
+from datetime import datetime
+import time
+
 class SerialConfigWidget(QWidget):
     """串口配置组件"""
     serial_connect_requested = Signal(str, int)  # 串口名, 波特率
@@ -118,12 +126,14 @@ class DeepMotorPage(QWidget):
     """DeepMotor 控制页面"""
     ui_deepmotor_command = Signal(str, str)  # 设备命令信号
     request_sim_data = Signal(str)  # 请求模拟数据的信号
+    request_history_data = Signal(str, str)  # 请求历史数据信号 (设备名, 参数名)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.DeviceName = "DeepMotor"
         self.current_motor_id = 1  # 当前选中的电机ID
         self._is_jogging = False  # 添加点动状态标志
+        self.current_selected_param = "position"  # 当前选中的参数
         self.setup_ui()
 
     def setup_ui(self):
@@ -249,6 +259,56 @@ class DeepMotorPage(QWidget):
         
         layout.addWidget(control_group)
         layout.addWidget(data_group)  # 添加数据显示组
+        
+        # 添加历史曲线显示部分
+        history_group = CardWidget(parent=self)
+        history_group.setObjectName('历史曲线')
+        history_group.setMinimumHeight(350)  # 新增：设置最小高度
+        history_layout = QVBoxLayout(history_group)
+        
+        # 历史曲线标题
+        history_title = QLabel('历史曲线')
+        history_title.setObjectName('cardTitle')
+        history_layout.addWidget(history_title)
+        
+        # 参数选择和控制
+        param_control_layout = QHBoxLayout()
+        param_label = QLabel('选择参数:')
+        self.param_combo = ComboBox()
+        # 根据DeepMotorState的属性添加选项
+        self.param_combo.addItems([
+            'position (位置)',
+            'velocity (速度)', 
+            'torque (扭矩)',
+            'temperature (温度)',
+            'error_code (错误码)',
+            'motor_can_id (CAN ID)'
+        ])
+        self.param_combo.setCurrentText('position (位置)')
+        
+        # 刷新按钮
+        self.refresh_button = PrimaryPushButton('刷新曲线')
+        
+        param_control_layout.addWidget(param_label)
+        param_control_layout.addWidget(self.param_combo)
+        param_control_layout.addWidget(self.refresh_button)
+        param_control_layout.addStretch()
+        
+        history_layout.addLayout(param_control_layout)
+        
+        # 创建matplotlib图形
+        self.figure = Figure(figsize=(8, 4))
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.setMinimumHeight(300)  # 新增：设置画布最小高度
+        self.ax = self.figure.add_subplot(111)
+        self.ax.set_xlabel('时间')
+        self.ax.set_ylabel('数值')
+        self.ax.grid(True)
+        self.figure.tight_layout()
+        
+        history_layout.addWidget(self.canvas)
+        
+        layout.addWidget(history_group)
         layout.addStretch()
         
         # 连接信号
@@ -257,10 +317,94 @@ class DeepMotorPage(QWidget):
         self.disable_button.clicked.connect(self.on_disable_clicked)
         self.set_pos_button.clicked.connect(self.on_set_pos_clicked)
         self.set_pos_speed_button.clicked.connect(self.on_set_pos_speed_clicked)
+        self.param_combo.currentTextChanged.connect(self.on_param_changed)
+        self.refresh_button.clicked.connect(self.on_refresh_clicked)
 
     def on_motor_id_changed(self, value):
         """电机ID改变时的处理函数"""
         self.current_motor_id = value
+
+    def on_param_changed(self, param_text):
+        """参数选择改变时的处理函数"""
+        # 从显示文本中提取参数名
+        param_map = {
+            'position (位置)': 'position',
+            'velocity (速度)': 'velocity',
+            'torque (扭矩)': 'torque', 
+            'temperature (温度)': 'temperature',
+            'error_code (错误码)': 'error_code',
+            'motor_can_id (CAN ID)': 'motor_can_id'
+        }
+        self.current_selected_param = param_map.get(param_text, 'position')
+        # 自动刷新曲线
+        self.on_refresh_clicked()
+
+    def on_refresh_clicked(self):
+        """刷新曲线按钮点击处理函数"""
+        print('on_refresh_clicked', self.DeviceName, self.current_selected_param)
+        self.request_history_data.emit(self.DeviceName, self.current_selected_param)
+
+    def update_history_curve(self, history_data):
+        """更新历史曲线显示"""
+        if not history_data:
+            # 如果没有数据，清空图形
+            self.ax.clear()
+            self.ax.set_xlabel('时间')
+            self.ax.set_ylabel('数值')
+            self.ax.grid(True)
+            self.ax.text(0.5, 0.5, '暂无数据', ha='center', va='center', transform=self.ax.transAxes)
+            self.canvas.draw()
+            return
+        
+        # 清空当前图形
+        self.ax.clear()
+        
+        # 提取时间和数值数据
+        timestamps = []
+        values = []
+        
+        for timestamp, value in history_data:
+            # 转换时间戳为datetime对象
+            dt = datetime.fromtimestamp(timestamp)
+            timestamps.append(dt)
+            values.append(value)
+        
+        # 绘制曲线
+        self.ax.plot(timestamps, values, 'b-', linewidth=2, marker='o', markersize=3)
+        
+        # 设置Y轴范围
+        if values:
+            min_val = min(values)
+            max_val = max(values)
+            if min_val == max_val:
+                self.ax.set_ylim(min_val - 1, max_val + 1)
+            else:
+                margin = (max_val - min_val) * 0.1
+                self.ax.set_ylim(min_val - margin, max_val + margin)
+        
+        # 设置标签和网格
+        param_labels = {
+            'position': '位置 (°)',
+            'velocity': '速度 (°/s)',
+            'torque': '扭矩 (N·m)',
+            'temperature': '温度 (°C)',
+            'error_code': '错误码',
+            'motor_can_id': 'CAN ID'
+        }
+        
+        self.ax.set_xlabel('时间')
+        self.ax.set_ylabel(param_labels.get(self.current_selected_param, '数值'))
+        self.ax.grid(True, alpha=0.3)
+        
+        # 格式化x轴时间显示
+        self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        self.ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+        
+        # 自动调整布局
+        self.figure.tight_layout()
+        
+        # 刷新画布
+        self.canvas.draw()
 
     def on_jog_pressed(self):
         """点动按钮按下时的处理函数"""
@@ -300,12 +444,10 @@ class DeepMotorPage(QWidget):
     def update_motor_data(self, state_dict: dict):
         print(f"--------------------------------------------------update_motor_data")
         print(f"state_dict: {state_dict}")
-        status = state_dict.get('status', {})
-        position = status.get('position', 0.0)
-        speed = status.get('velocity', 0.0)
-        torque = status.get('torque', 0.0)
-        temperature = status.get('temperature', 0.0)
-        """更新电机数据显示"""
+        position = state_dict.get('position', 0.0)
+        speed = state_dict.get('velocity', 0.0)
+        torque = state_dict.get('torque', 0.0)
+        temperature = state_dict.get('temperature', 0.0)
         self.pos_display.setText(f"{position:.1f}°")
         self.speed_display.setText(f"{speed:.1f}°/s")
         self.torque_display.setText(f"{torque:.1f} N·m")

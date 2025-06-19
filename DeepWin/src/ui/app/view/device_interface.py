@@ -110,6 +110,7 @@ class DeviceInterface(GalleryInterface):
     ui_device_stop_button = Signal(str, str)
     ui_device_reset_button = Signal(str, str)
     ui_device_command = Signal(str, str)  # 设备命令信号
+    ui_request_history_data = Signal(str, str)  # 请求历史数据信号 (设备名, 参数名)
     # ui_serial_connect = Signal(str, int)  # 串口连接信号
 
     def __init__(self, parent=None):
@@ -189,6 +190,7 @@ class DeviceInterface(GalleryInterface):
 
         # 连接信号
         self.deep_motor_page.ui_deepmotor_command.connect(self.ui_device_command)
+        self.deep_motor_page.request_history_data.connect(self.ui_request_history_data)
         self.deep_arm_page.ui_device_command.connect(self.ui_device_command)
         self.deep_toy_page.ui_device_command.connect(self.ui_device_command)
 
@@ -215,4 +217,9 @@ class DeviceInterface(GalleryInterface):
     def show_status_message(self, message: str):
         """显示状态消息"""
         self.status_bar.setText(message)
+
+    def update_motor_history_data(self, history_data):
+        """更新电机历史数据"""
+        if self.deep_motor_page:
+            self.deep_motor_page.update_history_curve(history_data)
         

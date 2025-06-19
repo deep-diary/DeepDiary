@@ -12,7 +12,8 @@
     "deeparm_dbc_path": "src/services/hardware_communication/device_protocols/deep_arm_protocol/deeparm.dbc",
     "deepmotor_serial_port": "COM2",
     "deepmotor_baud_rate": 115200,
-    "deeparm_default_mode": "idle"
+    "deeparm_default_mode": "idle",
+    "deepmotor_history_length": 100
   },
   "network": {
     "server_address": "localhost:8000",

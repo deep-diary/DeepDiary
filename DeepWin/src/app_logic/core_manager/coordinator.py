@@ -26,6 +26,8 @@ from src.services.hardware_communication.serial_communicator import SerialCommun
 from src.services.hardware_communication.can_bus_communicator import CanBusCommunicator
 from src.services.hardware_communication.device_protocol_parser import DeviceProtocolParser
 from src.services.cloud_communication.api_client import CloudApiClient
+from src.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
+from src.app_logic.weather_manager import WeatherManager
 
 class Coordinator(QObject):
     """
@@ -46,7 +48,7 @@ class Coordinator(QObject):
     image_processing_finished = Signal(str, str)
     image_processing_error = Signal(str, str)
     # 设备控制相关信号 (直接转发给 UI)
-    device_status_updated = Signal(dict)
+    device_status_updated = Signal(str, dict)
     device_control_response = Signal(str)
     device_control_error = Signal(str)
     # 资源匹配相关信号 (直接转发给 UI)
@@ -101,6 +103,11 @@ class Coordinator(QObject):
         self.device_protocol_parser = DeviceProtocolParser(log_manager=log_manager, config_manager=self.config_manager)
         self.cloud_api_client = CloudApiClient(log_manager=log_manager) # 云端 API 客户端
 
+        # 实例化 MCPClientManager
+        self.mcp_client_manager = MCPClientManager(log_manager=log_manager, config_manager=self.config_manager) # NEW
+        # 实例化 WeatherManager，并传入 mcp_client_manager
+        self.weather_manager = WeatherManager(mcp_client_manager=self.mcp_client_manager, log_manager=log_manager) # NEW
+
         # NEW: 存储串口名到设备ID的映射，用于数据接收分发
         self._port_to_device_id_map: Dict[str, str] = {}
 
@@ -147,8 +154,22 @@ class Coordinator(QObject):
         self.device_logic_manager.send_device_abstract_command_requested.connect(self._on_device_abstract_command_requested)
         self.device_logic_manager.device_command_response.connect(lambda res: self.app_status_message.emit(f"设备命令响应: {res}"))
         self.device_logic_manager.device_error.connect(lambda err: self.app_status_message.emit(f"设备操作错误: {err}"))
-        self.device_logic_manager.device_status_updated.connect(lambda data: self.app_status_message.emit(f"设备状态更新: {data.get('device_id')}")) # 简化消息
+        self.device_logic_manager.device_status_updated.connect(self.handle_device_states_updated)
         self.logger.debug("Coordinator: 设备逻辑信号连接完成。")
+
+    def handle_device_states_updated(self, device_id: str, data: dict):
+        """处理设备状态更新"""
+        self.logger.info(f"Coordinator: 收到设备状态更新，设备: {device_id}, 数据: {data}")
+        self.app_status_message.emit(f"设备状态更新: {data.get('device_id')}")
+        self.gui_manager.window.deviceInterface.deep_motor_page.update_motor_data(data)
+
+        # 获取UI界面上当前选择的参数
+        param_name = self.gui_manager.window.deviceInterface.deep_motor_page.current_selected_param
+        # 根据参数获取历史数据
+        history_data = self.device_logic_manager._get_or_create_device_instance(device_id).get_field_history(param_name)
+        # 发送历史数据到UI
+        self.gui_manager.window.deviceInterface.deep_motor_page.update_history_curve(history_data)
+        self.logger.info(f"Coordinator: 历史数据请求完成，设备: {device_id}, 参数: {param_name}")
 
     def _connect_gui_signals(self):
         """
@@ -168,6 +189,7 @@ class Coordinator(QObject):
         self.gui_manager.window.deviceInterface.serial_config.serial_connect_requested.connect(self.handle_serial_connect)  # 添加串口连接信号绑定
         self.gui_manager.window.deviceInterface.serial_config.serial_disconnect_requested.connect(self.handle_serial_disconnect)
         self.gui_manager.window.deviceInterface.deep_motor_page.request_sim_data.connect(self.handle_sim_data_request)
+        self.gui_manager.window.deviceInterface.deep_motor_page.request_history_data.connect(self.handle_request_history_data)
 
         # 连接测试按钮信号
         self.gui_manager.window.basicInputInterface.test_button_clicked.connect(self.handle_test_button_click)
@@ -273,12 +295,14 @@ class Coordinator(QObject):
         self.image_processing_error.connect(self.gui_manager.window.memoryInterface._on_image_processing_error)
 
         # 设备控制结果连接到设备控制界面
-        self.device_logic_manager.device_status_updated.connect(self.gui_manager.window.deviceInterface.deep_motor_page.update_motor_data)
+        
         # self.device_logic_manager.managed_devices['DeepMotor'].device_status_updated.connect(self.connection_test)
-        self.device_logic_manager.device_status_updated.connect(self.connection_test2)
+        # self.device_logic_manager.device_status_updated.connect(self.connection_test2)
         # self.device_control_response.connect(self.gui_manager.window.devicesInterface.on_device_control_response)
         # self.device_control_error.connect(self.gui_manager.window.devicesInterface.on_device_control_error)
-        # self.device_status_updated.connect(self.gui_manager.window.devicesInterface.on_device_status_updated)
+        # self.device_status_updated.connect(self.gui_manager.window.device
+        # 
+        # sInterface.on_device_status_updated)
 
         # # 资源匹配结果连接到资源/需求管理界面
         # self.resource_matched.connect(self.gui_manager.window.resourcesInterface.on_resource_matched)
@@ -365,7 +389,8 @@ class Coordinator(QObject):
         device_id = self._port_to_device_id_map.get(port_name)
         if not device_id:
             self.logger.warning(f"Coordinator: 收到来自未知串口 '{port_name}' 的数据，无法映射到设备ID。数据: {raw_frame_data.hex()}")
-            return
+            # return
+            device_id = "DeepMotor" # for debug
         
         self.logger.debug(f"Coordinator: 收到来自串口 '{port_name}' (设备 '{device_id}') 的原始帧数据: {raw_frame_data.hex()}")
         # 将原始帧数据和对应的 device_id 转发给 DeviceProtocolParser
@@ -743,6 +768,16 @@ class Coordinator(QObject):
         if device_name == "DeepMotor":
             # 调用串口通信器的模拟数据方法
             self.serial_communicator.sim_read_serial_data()
+
+    def handle_request_history_data(self, device_name: str, param_name: str):
+        """处理历史数据请求"""
+        self.logger.info(f"Coordinator: 收到历史数据请求，设备: {device_name}, 参数: {param_name}")
+        if device_name == "DeepMotor":
+            # 调用串口通信器的模拟数据方法
+            history_data = self.device_logic_manager._get_or_create_device_instance(device_name).get_field_history(param_name)
+        # 发送历史数据到UI
+        self.gui_manager.window.deviceInterface.deep_motor_page.update_history_curve(history_data)
+        self.logger.info(f"Coordinator: 历史数据请求完成，设备: {device_name}, 参数: {param_name}")
 
     def handle_can_frame(self, port_name: str, arbitration_id: int, data_bytes: bytes, is_extended_id: bool):
         """处理接收到的CAN帧"""

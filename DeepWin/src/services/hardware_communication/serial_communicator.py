@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from typing import Dict, Any, Optional, Union, List, Tuple
 from src.data_management.log_manager import LogManager
 from src.data_management.config_manager import ConfigManager
+import random
 
 
 class SerialCommunicator(QObject):
@@ -262,9 +263,16 @@ class SerialCommunicator(QObject):
         """
         # 检查数据格式：AT开头，\r\n结尾
         # 扩展CAN ID 为 0x00000001，数据长度为 0x08，数据为 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11
-        decoded_line = bytes([0x41, 0x54, 0x14, 0x00, 0x37, 0xEC, 0x08, 0xFF, 0xFF, 0x82, 0x0F, 0x81, 0x51, 0x01, 0x36, 0x0D, 0x0A])
+
+        decoded_line = [0x41, 0x54, 0x14, 0x00, 0x37, 0xEC, 0x08, 0xFF, 0xFF, 0x82, 0x0F, 0x81, 0x51, 0x01, 0x36, 0x0D, 0x0A]
+        # 发送原始帧数据
+        frame = decoded_line[2:-2]
+        # 最后一个自己增加一个随机数
+        frame[-1] = random.randint(0, 255)
+        frame = bytes(frame)
+
         self.logger.info(f"SerialCommunicator: 模拟从串口 '{port_name}' 读取数据。")
-        self.logger.info(f"SerialCommunicator: 数据: {decoded_line.hex()}")
+        self.logger.info(f"SerialCommunicator: 数据: {frame.hex()}")
 
         arbitration_id = 0x140037ec
         data_bytes = bytes([0xFF, 0xFF, 0x82, 0x0F, 0x81, 0x51, 0x01, 0x36])
@@ -273,8 +281,8 @@ class SerialCommunicator(QObject):
         if port_name is None:
             port_name = self.active_port
 
-        # 发送原始帧数据
-        self.raw_frame_received.emit('DeepMotor', decoded_line[2:-2])  # 去掉 AT 和 \r\n
+
+        self.raw_frame_received.emit('DeepMotor', frame)  # 去掉 AT 和 \r\n
 
         # 发送 CAN 帧组件
         self.can_frame_components_received.emit(
