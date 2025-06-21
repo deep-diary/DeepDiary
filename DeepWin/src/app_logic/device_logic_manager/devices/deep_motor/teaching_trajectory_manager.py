@@ -188,8 +188,32 @@ class TeachingTrajectoryManager(QObject):
             'original_positions': original_positions,
             'planned_times': planned_times,
             'planned_positions': planned_positions,
-            'trajectory_name': trajectory_name
+            'trajectory_name': trajectory_name,
+            'total_time': planned_data.get('total_time', 5.0)  # 返回总时长
         }
+
+    def replan_trajectory_with_duration(self, trajectory_name: str, duration: float):
+        """
+        使用新的时长重新规划轨迹。
+        :param trajectory_name: 轨迹名称。
+        :param duration: 新的总执行时长。
+        """
+        self.logger.info(f"正在以 {duration}秒 的新时长重新规划轨迹: '{trajectory_name}'")
+        # 直接调用内部规划函数，并强制使用均匀时间模式
+        self._plan_trajectory(
+            trajectory_name, 
+            keep_original_time=False, 
+            uniform_duration=duration
+        )
+
+    def replan_trajectory_with_original_time(self, trajectory_name: str):
+        """
+        使用原始示教时间戳重新规划轨迹。
+        :param trajectory_name: 轨迹名称。
+        """
+        self.logger.info(f"正在以原始时间戳重新规划轨迹: '{trajectory_name}'")
+        # 强制使用原始时间模式
+        self._plan_trajectory(trajectory_name, keep_original_time=True)
 
     @Slot(str)
     def start_teaching(self, device_id: str):
@@ -225,29 +249,49 @@ class TeachingTrajectoryManager(QObject):
         self.logger.info(f"TeachingTrajectoryManager: 示教模式已启动 for device '{device_id}'")
 
     @Slot(str)
-    def stop_teaching(self, device_id: str):
+    def stop_teaching(self, device_id: str) -> Optional[str]:
         """
-        停止示教模式
+        停止示教模式, 并自动保存轨迹。
         :param device_id: 要停止示教的设备ID
+        :return: 保存后的轨迹名称，如果失败则返回 None
         """
         self.logger.info(f"TeachingTrajectoryManager: 停止示教模式 for device '{device_id}'")
         
         # 清除示教标志
-        self._teaching_sessions[device_id] = False
+        if device_id in self._teaching_sessions:
+            self._teaching_sessions[device_id] = False
         
         # 发送示教状态变化信号
         self._teaching_status_changed.emit(device_id, False)
         
+        # 检查是否有录制会话
+        if device_id not in self._recording_sessions or len(self._recording_sessions[device_id]) <= 1:
+            self.logger.error(f"TeachingTrajectoryManager: 设备 '{device_id}' 没有录制到有效的轨迹数据点")
+            if device_id in self._recording_sessions:
+                del self._recording_sessions[device_id]
+            return None
+
         # 记录结束时间
         end_time = time.time()
-        if device_id in self._recording_sessions:
-            self._recording_sessions[device_id].append({
-                'timestamp': end_time,
-                'type': 'end',
-                'message': '示教结束'
-            })
+        self._recording_sessions[device_id].append({
+            'timestamp': end_time,
+            'type': 'end',
+            'message': '示教结束'
+        })
         
-        self.logger.info(f"TeachingTrajectoryManager: 示教模式已停止 for device '{device_id}'")
+        # 生成唯一的轨迹名称
+        trajectory_name = f"trajectory_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        self.logger.info(f"TeachingTrajectoryManager: 示教模式已停止 for device '{device_id}', 准备保存为 '{trajectory_name}'")
+        
+        # 调用保存方法
+        if self.save_trajectory(device_id, trajectory_name):
+            return trajectory_name
+        else:
+            # 清理失败的录制会话
+            if device_id in self._recording_sessions:
+                del self._recording_sessions[device_id]
+            return None
 
     @Slot(str, float, float)
     def record_trajectory_point(self, device_id: str, position: float, velocity: float):

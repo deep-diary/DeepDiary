@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QDoubleSpinBox
 from qfluentwidgets import (PrimaryPushButton, ComboBox, SpinBox, FluentIcon as FIF, CardWidget, FlowLayout)
 
 # 添加matplotlib支持
@@ -141,6 +141,8 @@ class DeepMotorPage(QWidget):
     # 新增：轨迹可视化相关信号
     request_trajectory_data = Signal(str, str)  # 请求轨迹数据信号 (设备名, 轨迹名)
     request_trajectory_list = Signal(str)  # 请求轨迹列表信号
+    replan_requested = Signal(str, str, float)  # 重规划信号 (设备名, 轨迹名, 新时长)
+    restore_default_requested = Signal(str, str) # 恢复默认信号 (设备名, 轨迹名)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -151,6 +153,7 @@ class DeepMotorPage(QWidget):
         self._is_teaching = False  # 示教状态标志
         self._current_trajectory = ""  # 当前选中的轨迹
         self._show_trajectory = False  # 是否显示轨迹模式
+        self._original_total_time = 5.0  # 保存轨迹的原始时长
         self.setup_ui()
         
         # 初始化轨迹列表
@@ -235,11 +238,21 @@ class DeepMotorPage(QWidget):
         self.trajectory_combo = ComboBox()
         self.trajectory_combo.setMinimumWidth(150)
         
+        # 执行时间控制
+        duration_label = QLabel('执行时间:')
+        self.duration_spin = QDoubleSpinBox(self)
+        self.duration_spin.setRange(2.0, 10.0)
+        self.duration_spin.setSingleStep(0.5)
+        self.duration_spin.setSuffix(" s")
+        self.duration_spin.setValue(5.0)
+        
         teaching_controls_layout.addWidget(self.start_teaching_button)
         teaching_controls_layout.addWidget(self.stop_teaching_button)
         teaching_controls_layout.addWidget(self.execute_teaching_button)
         teaching_controls_layout.addWidget(trajectory_label)
         teaching_controls_layout.addWidget(self.trajectory_combo)
+        teaching_controls_layout.addWidget(duration_label)
+        teaching_controls_layout.addWidget(self.duration_spin)
         teaching_controls_layout.addStretch()
         teaching_layout_v.addLayout(teaching_controls_layout)
 
@@ -281,7 +294,7 @@ class DeepMotorPage(QWidget):
         # 添加历史曲线显示部分
         history_group = CardWidget(parent=self)
         history_group.setObjectName('历史曲线')
-        history_group.setMinimumHeight(350)  # 新增：设置最小高度
+        history_group.setMinimumHeight(350)
         history_layout = QVBoxLayout(history_group)
         
         # 历史曲线标题
@@ -293,35 +306,26 @@ class DeepMotorPage(QWidget):
         param_control_layout = QHBoxLayout()
         param_label = QLabel('选择参数:')
         self.param_combo = ComboBox()
-        # 根据DeepMotorState的属性添加选项
         self.param_combo.addItems([
-            'position (位置)',
-            'velocity (速度)', 
-            'torque (扭矩)',
-            'temperature (温度)',
-            'error_code (错误码)',
-            'motor_can_id (CAN ID)',
-            'mode_state (模式状态)',
-            'flt_uninitialized (未初始化故障)',
-            'flt_hall_encoding (霍尔编码故障)',
-            'flt_magnetic_encoding (磁编码故障)',
-            'flt_over_temperature (过温故障)',
-            'flt_over_current (过流故障)',
-            'flt_voltage_drop (电压跌落故障)',
-            '--- 示教与轨迹 ---',
-            '示教轨迹',
-            'trajectory_original (原始轨迹)',
-            'trajectory_planned (规划轨迹)',
-            'trajectory_both (原始+规划)'
+            'position (位置)', 'velocity (速度)', 'torque (扭矩)', 'temperature (温度)', 'error_code (错误码)',
+            'motor_can_id (CAN ID)', 'mode_state (模式状态)', 'flt_uninitialized (未初始化故障)',
+            'flt_hall_encoding (霍尔编码故障)', 'flt_magnetic_encoding (磁编码故障)', 'flt_over_temperature (过温故障)',
+            'flt_over_current (过流故障)', 'flt_voltage_drop (电压跌落故障)',
+            '--- 示教与轨迹 ---', '示教轨迹', 'trajectory_original (原始轨迹)', 'trajectory_planned (规划轨迹)', 'trajectory_both (原始+规划)'
         ])
         self.param_combo.setCurrentText('position (位置)')
         
-        # 刷新按钮
+        # 统一的刷新按钮
         self.refresh_button = PrimaryPushButton('刷新曲线')
+        
+        # 恢复默认时间按钮
+        self.restore_time_button = PrimaryPushButton('恢复默认')
+        self.restore_time_button.setEnabled(False)
         
         param_control_layout.addWidget(param_label)
         param_control_layout.addWidget(self.param_combo)
         param_control_layout.addWidget(self.refresh_button)
+        param_control_layout.addWidget(self.restore_time_button)
         param_control_layout.addStretch()
         
         history_layout.addLayout(param_control_layout)
@@ -329,7 +333,7 @@ class DeepMotorPage(QWidget):
         # 创建matplotlib图形
         self.figure = Figure(figsize=(8, 4))
         self.canvas = FigureCanvas(self.figure)
-        self.canvas.setMinimumHeight(300)  # 新增：设置画布最小高度
+        self.canvas.setMinimumHeight(300)
         self.ax = self.figure.add_subplot(111)
         self.ax.set_xlabel('时间')
         self.ax.set_ylabel('数值')
@@ -358,8 +362,24 @@ class DeepMotorPage(QWidget):
         # 连接轨迹选择信号
         self.trajectory_combo.currentTextChanged.connect(self.on_trajectory_selection_changed)
         
+        # 连接执行时间变化信号
+        self.duration_spin.valueChanged.connect(self.on_duration_changed)
+        
+        # 连接恢复默认时间按钮
+        self.restore_time_button.clicked.connect(self.on_restore_time_clicked)
+
         # 初始化示教按钮状态
         self.update_teaching_buttons_state()
+
+    def select_trajectory(self, trajectory_name: str):
+        """在下拉框中选中指定的轨迹"""
+        # findText 会查找匹配的文本并返回其索引
+        index = self.trajectory_combo.findText(trajectory_name)
+        if index >= 0:
+            self.trajectory_combo.setCurrentIndex(index)
+            print(f"UI: 已自动选中新轨迹 '{trajectory_name}'")
+        else:
+            print(f"UI: 尝试选中轨迹 '{trajectory_name}' 但在下拉框中未找到。")
 
     def update_teaching_buttons_state(self):
         """更新示教按钮状态"""
@@ -376,10 +396,28 @@ class DeepMotorPage(QWidget):
             self.teaching_status_label.setText('示教状态: 未开始')
             self.teaching_status_label.setStyleSheet("color: gray;")
 
-    def update_trajectory_list(self, trajectory_names: list):
+    def update_trajectory_list(self, trajectory_names: list, prefer_newest: bool = False):
         """更新轨迹列表"""
+        # 保存当前选中的轨迹名称
+        current_selection = self.trajectory_combo.currentText()
+        
+        # 清空并重新添加轨迹
         self.trajectory_combo.clear()
         self.trajectory_combo.addItems(trajectory_names)
+        
+        if prefer_newest and trajectory_names:
+            # 优先选择最新的轨迹（列表中的最后一个）
+            newest_trajectory = trajectory_names[-1]
+            self.trajectory_combo.setCurrentText(newest_trajectory)
+            print(f"UI: 优先选中最新轨迹 '{newest_trajectory}'")
+        elif current_selection and current_selection in trajectory_names:
+            # 尝试恢复之前选中的轨迹
+            self.trajectory_combo.setCurrentText(current_selection)
+            print(f"UI: 保持选中轨迹 '{current_selection}'")
+        else:
+            # 如果没有之前选中的轨迹或轨迹不存在，清空选择
+            self._current_trajectory = None
+            print("UI: 清空轨迹选择")
 
     def on_start_teaching_clicked(self):
         """开始示教按钮点击处理函数"""
@@ -430,9 +468,44 @@ class DeepMotorPage(QWidget):
 
         self._current_trajectory = text
         
-        # 如果当前参数是轨迹相关的，则自动请求新选择的轨迹数据
-        if self.current_selected_param.startswith('trajectory_'):
-            self.request_trajectory_data.emit(self.DeviceName, self._current_trajectory)
+        # 自动切换到轨迹视图并刷新
+        # 1. 确保视图在正确的参数模式
+        if not self.current_selected_param.startswith('trajectory_'):
+            # 使用 blockSignals 避免触发 on_param_changed
+            self.param_combo.blockSignals(True)
+            self.param_combo.setCurrentText('trajectory_both (原始+规划)')
+            self.current_selected_param = 'trajectory_both' # 立即更新内部状态
+            self.param_combo.blockSignals(False)
+
+        # 2. 直接发送请求，自动刷新曲线
+        self.request_trajectory_data.emit(self.DeviceName, self._current_trajectory)
+
+    def on_duration_changed(self, value: float):
+        """执行时长改变时的处理函数"""
+        if not self._current_trajectory:
+            return
+        
+        # 启用刷新按钮，让用户确认重规划
+        self.refresh_button.setEnabled(True)
+        # 同时启用恢复按钮
+        self.restore_time_button.setEnabled(True)
+
+    def on_restore_time_clicked(self):
+        """恢复默认时长按钮点击处理函数"""
+        if not self._current_trajectory:
+            return
+        
+        # 1. 立即在UI上恢复时长输入框的值
+        self.duration_spin.blockSignals(True)
+        self.duration_spin.setValue(self._original_total_time)
+        self.duration_spin.blockSignals(False)
+        
+        # 2. 发射信号，请求后端按原始时间戳进行重规划
+        self.restore_default_requested.emit(self.DeviceName, self._current_trajectory)
+        
+        # 3. 点击后，禁用刷新和恢复按钮，因为UI即将更新到最新状态
+        self.refresh_button.setEnabled(False)
+        self.restore_time_button.setEnabled(False)
 
     def on_param_changed(self, param_text: str):
         """参数选择改变时的处理函数"""
@@ -465,27 +538,57 @@ class DeepMotorPage(QWidget):
             if self._current_trajectory:
                 self.request_trajectory_data.emit(self.DeviceName, self._current_trajectory)
             else:
-                # 如果没有选择轨迹，提示用户选择
+                # 如果没有选择轨迹，提示用户选择并禁用时长控件
                 self.ax.clear()
                 self.ax.text(0.5, 0.5, '请先从上方选择一条轨迹',
                              horizontalalignment='center',
                              verticalalignment='center',
                              transform=self.ax.transAxes)
                 self.canvas.draw()
+                # 禁用时长相关控件
+                self.duration_spin.setEnabled(False)
+                self.refresh_button.setEnabled(False)
+                self.restore_time_button.setEnabled(False)
         else:
             self._show_trajectory = False
+            # 禁用时长相关控件（非轨迹模式）
+            self.duration_spin.setEnabled(False)
+            self.refresh_button.setEnabled(False)
+            self.restore_time_button.setEnabled(False)
             # 自动刷新曲线
             self.on_refresh_clicked()
 
     def on_refresh_clicked(self):
-        """刷新曲线按钮点击处理函数"""
-        print('on_refresh_clicked', self.DeviceName, self.current_selected_param)
-        self.request_history_data.emit(self.DeviceName, self.current_selected_param)
+        """刷新曲线按钮点击处理函数. 根据当前模式决定行为."""
+        if self.current_selected_param.startswith('trajectory_') and self._current_trajectory:
+            # 轨迹模式：发送重规划请求
+            duration = self.duration_spin.value()
+            self.replan_requested.emit(self.DeviceName, self._current_trajectory, duration)
+            # 点击后禁用，等待新数据
+            self.refresh_button.setEnabled(False)
+        else:
+            # 普通模式：发送普通刷新请求
+            self.request_history_data.emit(self.DeviceName, self.current_selected_param)
 
-    def update_history_curve(self, history_data):
+    def update_history_curve(self, history_data_dict: dict):
         """更新历史曲线显示"""
+        # 从字典中提取绘图数据和元数据
+        plot_data = history_data_dict.get('data')
+        total_time = history_data_dict.get('total_time')
+        
+        # 如果是轨迹数据，更新时长控件
+        if total_time is not None:
+            self._original_total_time = total_time  # 保存原始时长
+            self.duration_spin.blockSignals(True)
+            self.duration_spin.setValue(total_time)
+            self.duration_spin.blockSignals(False)
+            self.duration_spin.setEnabled(True)
+            # 刚加载完，禁用刷新按钮，启用恢复按钮
+            self.refresh_button.setEnabled(False)
+            self.restore_time_button.setEnabled(True)
+            
         # 检查数据是否为空
-        if history_data is None or (hasattr(history_data, 'empty') and history_data.empty):
+        if plot_data is None or (hasattr(plot_data, 'empty') and plot_data.empty):
             # 如果没有数据，清空图形
             self.ax.clear()
             self.ax.set_xlabel('时间')
@@ -499,15 +602,15 @@ class DeepMotorPage(QWidget):
         self.ax.clear()
         
         # 检查是否是轨迹数据（DataFrame格式）
-        if hasattr(history_data, 'columns') and 'type' in history_data.columns:
+        if hasattr(plot_data, 'columns') and 'type' in plot_data.columns:
             # 这是轨迹对比数据
-            self._plot_trajectory_comparison(history_data)
-        elif hasattr(history_data, 'columns') and 'time' in history_data.columns and 'value' in history_data.columns:
+            self._plot_trajectory_comparison(plot_data)
+        elif hasattr(plot_data, 'columns') and 'time' in plot_data.columns and 'value' in plot_data.columns:
             # 这是DataFrame格式的历史数据
-            self._plot_dataframe_history(history_data)
+            self._plot_dataframe_history(plot_data)
         else:
             # 这是旧的列表格式数据
-            self._plot_list_history(history_data)
+            self._plot_list_history(plot_data)
         
         # 设置标签和网格
         param_labels = {
@@ -654,6 +757,16 @@ class DeepMotorPage(QWidget):
         planned_times = trajectory_data.get('planned_times', [])
         planned_positions = trajectory_data.get('planned_positions', [])
         trajectory_name = trajectory_data.get('trajectory_name', '')
+        total_time = trajectory_data.get('total_time')
+
+        # 更新并启用时长控制器
+        if total_time is not None:
+            self.duration_spin.blockSignals(True)
+            self.duration_spin.setValue(total_time)
+            self.duration_spin.blockSignals(False)
+            self.duration_spin.setEnabled(True)
+            # 禁用刷新按钮（因为当前显示的是原始规划结果）
+            self.refresh_button.setEnabled(False)
         
         # 根据选择的参数类型绘制不同的曲线
         if self.current_selected_param == 'trajectory_original' and original_times:

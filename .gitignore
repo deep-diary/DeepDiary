@@ -55,6 +55,9 @@ DeepWin/**/.installed.cfg
 DeepWin/**/*.egg
 DeepWin/**/logs/
 DeepWin/**/media/
+# 示教轨迹文件
+DeepWin/src/app_logic/device_logic_manager/devices/deep_motor/trajectories/
+DeepWin/**/trajectories/
 
 # DeepMotor
 DeepMotor/**/*.o

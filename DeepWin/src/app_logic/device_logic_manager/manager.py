@@ -217,31 +217,27 @@ class DeviceLogicManager(QObject):
 
     @Slot(str)
     def start_teaching(self, device_id: str):
-        """开始示教模式"""
-        self.logger.info(f"DeviceLogicManager: 请求为设备 '{device_id}' 开始示教")
+        """
+        请求设备开始示教
+        """
+        self.logger.info(f"请求为设备 '{device_id}' 开始示教")
         device = self._get_or_create_device_instance(device_id)
         if device and hasattr(device, 'start_teaching'):
-            device.start_teaching()
-        else:
-            self.logger.error(f"设备 '{device_id}' 不支持 'start_teaching' 或不存在。")
+            # 修复：将 device_id 传递给设备
+            device.start_teaching(device_id)
 
-    @Slot(str, str)
-    def stop_teaching(self, device_id: str, trajectory_name: str):
-        """停止示教模式并保存轨迹"""
-        self.logger.info(f"DeviceLogicManager: 请求为设备 '{device_id}' 停止示教，轨迹名: {trajectory_name}")
+    @Slot(str)
+    def stop_teaching(self, device_id: str) -> Optional[str]:
+        """
+        请求设备停止示教
+        :return: 保存的轨迹文件名
+        """
+        self.logger.info(f"请求为设备 '{device_id}' 停止示教。")
         device = self._get_or_create_device_instance(device_id)
         if device and hasattr(device, 'stop_teaching'):
-            # 这里需要一个机制来获取保存成功与否的返回结果，并可能需要更新UI
-            # 例如，可以发射一个信号
-            was_saved = device.stop_teaching(trajectory_name)
-            if was_saved:
-                # 可以在这里发射一个信号，通知UI轨迹列表已更新
-                # self.signal_bus.trajectory_list_updated.emit(self.get_trajectory_list(device_id))
-                pass
-            return was_saved  # 返回保存结果
-        else:
-            self.logger.error(f"设备 '{device_id}' 不支持 'stop_teaching' 或不存在。")
-            return False  # 返回失败
+            # 修复：确保传递的是 device_id
+            return device.stop_teaching(device_id)
+        return None
 
     @Slot(str, str)
     def execute_trajectory(self, device_id: str, trajectory_name: str):
@@ -282,3 +278,19 @@ class DeviceLogicManager(QObject):
         else:
             self.logger.warning(f"设备 '{device_id}' 不支持 'reload_trajectories' 或不存在。")
             return []
+
+    def replan_trajectory(self, device_id: str, trajectory_name: str, duration: float):
+        """
+        请求设备使用新的时长重新规划轨迹
+        """
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'replan_trajectory'):
+            device.replan_trajectory(trajectory_name, duration)
+
+    def replan_with_original_time(self, device_id: str, trajectory_name: str):
+        """
+        请求设备使用原始时间戳重新规划轨迹
+        """
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'replan_with_original_time'):
+            device.replan_with_original_time(trajectory_name)

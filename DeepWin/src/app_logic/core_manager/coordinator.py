@@ -175,12 +175,13 @@ class Coordinator(QObject):
             if device_id == "DeepMotor":
                 self.gui_manager.window.deviceInterface.deep_motor_page.update_motor_data(data)
 
-        # 检查是否需要更新示教轨迹
+        # 检查是否需要自动刷新实时曲线
         if device_id == "DeepMotor":
             current_param = self.gui_manager.window.deviceInterface.deep_motor_page.current_selected_param
-            if current_param == 'teaching_trajectory':
-                # 自动请求刷新历史数据以更新实时示教曲线
-                self.handle_request_history_data(device_id, 'teaching_trajectory')
+            # 如果当前视图不是静态的规划轨迹视图，则自动刷新
+            if not current_param.startswith('trajectory_'):
+                self.logger.debug(f"检测到数据更新，自动刷新实时曲线，参数: {current_param}")
+                self.handle_request_history_data(device_id, current_param)
 
         # 转发到 AI 协调器
         if self.ai_coordinator:
@@ -216,6 +217,10 @@ class Coordinator(QObject):
         
         # 连接轨迹列表请求信号
         self.gui_manager.window.deviceInterface.deep_motor_page.request_trajectory_list.connect(self.handle_trajectory_list_request)
+        # 新增：连接重规划请求信号
+        self.gui_manager.window.deviceInterface.deep_motor_page.replan_requested.connect(self.handle_replan_requested)
+        # 新增：连接恢复默认请求信号
+        self.gui_manager.window.deviceInterface.deep_motor_page.restore_default_requested.connect(self.handle_restore_default_requested)
 
         # 连接测试按钮信号
         self.gui_manager.window.basicInputInterface.test_button_clicked.connect(self.handle_test_button_click)
@@ -796,8 +801,22 @@ class Coordinator(QObject):
         """处理历史数据请求"""
         self.logger.info(f"Coordinator: 收到历史数据请求，设备: {device_name}, 参数: {param_name}")
         if device_name == "DeepMotor":
-            # 获取历史数据 - 使用新的方法
-            history_data = self.device_logic_manager.get_historical_data(device_name, param_name, {})
+            # 检查是否是轨迹相关参数
+            if param_name.startswith('trajectory_'):
+                # 获取当前选中的轨迹名称
+                current_trajectory = self.gui_manager.window.deviceInterface.deep_motor_page._current_trajectory
+                if not current_trajectory:
+                    self.logger.warning("请求轨迹数据但未选择轨迹")
+                    self.app_status_message.emit("请先选择一条轨迹")
+                    return
+                
+                # 传递轨迹名称作为选项
+                options = {"trajectory_name": current_trajectory}
+                history_data = self.device_logic_manager.get_historical_data(device_name, param_name, options)
+            else:
+                # 普通历史数据请求
+                history_data = self.device_logic_manager.get_historical_data(device_name, param_name, {})
+            
             if history_data is not None:
                 # 发送历史数据到UI
                 self.gui_manager.window.deviceInterface.deep_motor_page.update_history_curve(history_data)
@@ -839,61 +858,59 @@ class Coordinator(QObject):
         """处理停止示教请求"""
         self.logger.info(f"Coordinator: 收到停止示教请求，设备: {device_name}")
         
-        # 生成轨迹名称（使用时间戳）
-        from datetime import datetime
-        trajectory_name = f"trajectory_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        # 停止示教并等待返回保存的轨迹名
+        saved_trajectory_name = self.device_logic_manager.stop_teaching(device_name)
         
-        # 停止示教模式并保存轨迹
-        save_success = self.device_logic_manager.stop_teaching(device_name, trajectory_name)
-        self.logger.info(f"Coordinator: 轨迹 '{trajectory_name}' 保存成功: {save_success}")
-        
-        if save_success:
-            self.app_status_message.emit(f"轨迹 '{trajectory_name}' 已保存")
+        if saved_trajectory_name:
+            self.logger.info(f"轨迹 '{saved_trajectory_name}' 已保存")
+            self.app_status_message.emit(f"轨迹 '{saved_trajectory_name}' 已保存")
             
-            # 更新UI中的轨迹列表
-            trajectory_list = self.device_logic_manager.get_trajectory_list(device_name)
-            self.gui_manager.window.deviceInterface.deep_motor_page.update_trajectory_list(trajectory_list)
-            self.logger.info(f"Coordinator: 轨迹列表已更新，共 {len(trajectory_list)} 条轨迹")
+            # 更新UI中的轨迹列表，优先选择最新轨迹
+            # 这样会自动选中新保存的轨迹，无需额外的选择操作
+            self.handle_trajectory_list_request(device_name, prefer_newest=True)
             
-            # 自动选中新轨迹并显示对比曲线
-            if trajectory_name in trajectory_list:
-                self.logger.info(f"Coordinator: 轨迹 '{trajectory_name}' 存在于轨迹列表中，开始更新UI")
-                page = self.gui_manager.window.deviceInterface.deep_motor_page
-                
-                # 1. 自动切换参数为轨迹对比模式
-                param_text = 'trajectory_both (原始+规划)'
-                page.param_combo.setCurrentText(param_text)
-                
-                # 2. 自动选中新轨迹
-                page.trajectory_combo.setCurrentText(trajectory_name)
-
-                # 3. 显式调用处理函数以触发数据刷新
-                page.on_param_changed(param_text)
-                page.on_trajectory_selection_changed(trajectory_name)
+            self.logger.info(f"示教完成，已自动选中新轨迹 '{saved_trajectory_name}'")
 
         else:
-            self.app_status_message.emit(f"轨迹 '{trajectory_name}' 保存失败")
+            self.logger.error(f"轨迹保存失败")
+            self.app_status_message.emit(f"轨迹保存失败")
         
         self.app_status_message.emit(f"已停止示教，设备: {device_name}")
 
     @Slot(str, str)
     def handle_execute_teaching_request(self, device_name: str, trajectory_name: str):
-        """处理执行示教请求"""
-        self.logger.info(f"Coordinator: 收到执行示教请求，设备: {device_name}, 轨迹: {trajectory_name}")
+        """处理UI发出的执行示教请求"""
+        self.logger.info(f"收到对设备 '{device_name}' 的示教执行请求，轨迹: '{trajectory_name}'")
+        self.device_logic_manager.execute_trajectory(device_name, trajectory_name)
+
+    @Slot(str, str)
+    def handle_restore_default_requested(self, device_name: str, trajectory_name: str):
+        """
+        处理UI发出的恢复默认轨迹请求
+        """
+        self.logger.info(f"收到对轨迹 '{trajectory_name}' 的恢复默认请求")
+        # 1. 请求设备逻辑管理器使用原始时间戳执行重规划
+        self.device_logic_manager.replan_with_original_time(device_name, trajectory_name)
         
-        try:
-            # 执行示教轨迹
-            self.device_logic_manager.execute_trajectory(device_name, trajectory_name)
-            self.app_status_message.emit(f"正在执行轨迹: {trajectory_name}")
-        except Exception as e:
-            error_msg = f"执行轨迹失败: {str(e)}"
-            self.logger.error(f"Coordinator: {error_msg}")
-            self.app_status_message.emit(error_msg)
+        # 2. 规划后，立即请求新的轨迹数据以更新UI
+        self.handle_trajectory_data_request(device_name, trajectory_name)
+
+    @Slot(str, str, float)
+    def handle_replan_requested(self, device_name: str, trajectory_name: str, duration: float):
+        """
+        处理UI发出的轨迹重规划请求
+        """
+        self.logger.info(f"收到对轨迹 '{trajectory_name}' 的重规划请求，新时长: {duration}s")
+        # 1. 请求设备逻辑管理器执行重规划
+        self.device_logic_manager.replan_trajectory(device_name, trajectory_name, duration)
+        
+        # 2. 规划后，立即请求新的轨迹数据以更新UI
+        self.handle_trajectory_data_request(device_name, trajectory_name)
 
     @Slot(str, float, float)
     def handle_trajectory_point_ready(self, device_id: str, position: float, velocity: float):
-        """处理轨迹点就绪信号"""
-        self.logger.debug(f"Coordinator: 轨迹点就绪，设备: {device_id}, 位置: {position:.2f}, 速度: {velocity:.2f}")
+        """处理轨迹播放器发出的轨迹点，并转发为电机命令"""
+        self.logger.debug(f"Trajectory point ready: pos={position}, speed={velocity}")
         
         # 发送位置控制命令到设备
         command = f"set_motor_position(1, {position:.2f})"
@@ -926,27 +943,25 @@ class Coordinator(QObject):
         current_param = self.gui_manager.window.deviceInterface.deep_motor_page.current_selected_param
         
         # 根据参数类型获取轨迹数据
-        if current_param.startswith('trajectory_'):
-            # 直接使用当前参数
-            param_type = current_param
-        else:
-            # 默认使用轨迹对比
-            param_type = "trajectory_both"
+        if not current_param.startswith('trajectory_'):
+             # 如果当前不是轨迹视图，默认切换到对比视图
+            current_param = "trajectory_both"
         
-        trajectory_data = self.device_logic_manager.get_historical_data(
+        history_data_dict = self.device_logic_manager.get_historical_data(
             device_name, 
-            param_type, 
+            current_param, 
             {"trajectory_name": trajectory_name}
         )
         
-        if trajectory_data is not None and not trajectory_data.empty:
-            self.gui_manager.window.deviceInterface.deep_motor_page.update_history_curve(trajectory_data)
+        # history_data_dict 现在是一个字典, 直接传递给UI
+        if history_data_dict:
+            self.gui_manager.window.deviceInterface.deep_motor_page.update_history_curve(history_data_dict)
             self.app_status_message.emit(f"轨迹数据已获取并更新到设备: {device_name}")
         else:
             self.app_status_message.emit(f"轨迹数据获取失败，设备: {device_name}")
 
     @Slot(str)
-    def handle_trajectory_list_request(self, device_name: str):
+    def handle_trajectory_list_request(self, device_name: str, prefer_newest: bool = False):
         """处理轨迹列表请求"""
         self.logger.info(f"Coordinator: 收到轨迹列表请求，设备: {device_name}")
         
@@ -954,7 +969,12 @@ class Coordinator(QObject):
         trajectory_list = self.device_logic_manager.get_trajectory_list(device_name)
         
         if trajectory_list:
-            self.gui_manager.window.deviceInterface.deep_motor_page.update_trajectory_list(trajectory_list)
+            # 如果是程序启动时的初始化请求（没有指定prefer_newest），默认选择最新轨迹
+            if not prefer_newest and trajectory_list:
+                prefer_newest = True
+                self.logger.info(f"程序启动，默认选择最新轨迹")
+            
+            self.gui_manager.window.deviceInterface.deep_motor_page.update_trajectory_list(trajectory_list, prefer_newest)
             self.app_status_message.emit(f"轨迹列表已更新，共 {len(trajectory_list)} 条轨迹")
         else:
             self.app_status_message.emit("暂无轨迹数据")

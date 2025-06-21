@@ -255,117 +255,158 @@ class DeepMotor(BaseDevice):
         self.logger.info(f"DeepMotor '{self.device_id}': 清理完成。")
         super().cleanup()
 
-    def get_historical_data(self, parameter: str, options: dict = {}) -> pd.DataFrame:
+    def get_historical_data(self, parameter: str, options: dict = {}) -> Dict[str, Any]:
         """
-        获取历史数据。
-        - 对于 position, velocity, speed, torque, temperature, current, error_code, 
-          motor_can_id, mode_state, flt_* 等参数，从环形缓冲区获取。
-        - 对于轨迹相关，从 teaching_manager 获取。
+        获取指定参数的历史数据。
+        :param parameter: 参数名称 (e.g., 'position', 'velocity', 'trajectory_both')
+        :param options: 其他选项 (e.g., a time range, trajectory_name)
+        :return: 包含绘图数据和元数据（如总时长）的字典
         """
-        # 定义所有支持的参数列表
-        supported_parameters = [
-            "position", "velocity", "torque", "temperature",
-            "error_code", "motor_can_id", "mode_state", "flt_uninitialized",
-            "flt_hall_encoding", "flt_magnetic_encoding", "flt_over_temperature",
-            "flt_over_current", "flt_voltage_drop"
-        ]
-        
-        # 如果请求 '示教轨迹'，则返回 'position' 数据
-        effective_parameter = 'position' if parameter == 'teaching_trajectory' else parameter
-        
-        if effective_parameter in supported_parameters:
-            data = self.data_buffer.get(effective_parameter, pd.DataFrame(columns=['time', 'value']))
-            logging.debug(f"获取到历史数据: {parameter}, 数据点数: {len(data)}")
-            return data.copy()
-        
-        elif parameter in ["trajectory_original", "trajectory_planned", "trajectory_comparison", "trajectory_both"]:
-            trajectory_name = options.get("trajectory_name")
+        # 处理轨迹相关参数
+        if parameter.startswith('trajectory_'):
+            trajectory_name = options.get('trajectory_name')
             if not trajectory_name:
-                logging.warning("请求轨迹数据，但未提供轨迹名称。")
-                return pd.DataFrame()
+                self.logger.warning(f"DeepMotor '{self.device_id}': 请求轨迹数据但未提供轨迹名称")
+                return {'data': pd.DataFrame(columns=['time', 'value', 'type'])}
             
-            logging.debug(f"向 teaching_manager 请求轨迹数据: {trajectory_name}, 类型: {parameter}")
-            # 使用现有的方法获取轨迹数据
-            trajectory_data = self.teaching_manager.get_trajectory_visualization_data(trajectory_name)
-            if not trajectory_data:
-                return pd.DataFrame()
+            # 从 teaching_manager 获取轨迹可视化数据
+            vis_data = self.get_trajectory_visualization_data(trajectory_name)
+            if not vis_data:
+                return {'data': pd.DataFrame(columns=['time', 'value', 'type'])}
             
-            # 根据参数类型返回不同的数据
-            if parameter == "trajectory_original":
-                times = trajectory_data.get('original_times', [])
-                positions = trajectory_data.get('original_positions', [])
-            elif parameter == "trajectory_planned":
-                times = trajectory_data.get('planned_times', [])
-                positions = trajectory_data.get('planned_positions', [])
-            elif parameter == "trajectory_both":  # 兼容 trajectory_both 参数
-                # 返回对比数据，包含原始和规划的数据
-                original_times = trajectory_data.get('original_times', [])
-                original_positions = trajectory_data.get('original_positions', [])
-                planned_times = trajectory_data.get('planned_times', [])
-                planned_positions = trajectory_data.get('planned_positions', [])
+            # 准备DataFrame
+            data_list = []
+            df = pd.DataFrame()
+
+            if parameter == 'trajectory_original':
+                times = vis_data.get('original_times', [])
+                positions = vis_data.get('original_positions', [])
+                data_list = [{'time': t, 'value': p, 'type': 'original'} for t, p in zip(times, positions)]
+                df = pd.DataFrame(data_list)
+            
+            elif parameter == 'trajectory_planned':
+                times = vis_data.get('planned_times', [])
+                positions = vis_data.get('planned_positions', [])
+                data_list = [{'time': t, 'value': p, 'type': 'planned'} for t, p in zip(times, positions)]
+                df = pd.DataFrame(data_list)
+            
+            elif parameter == 'trajectory_both':
+                original_times = vis_data.get('original_times', [])
+                original_positions = vis_data.get('original_positions', [])
+                planned_times = vis_data.get('planned_times', [])
+                planned_positions = vis_data.get('planned_positions', [])
                 
-                # 创建包含两种数据的DataFrame
-                data_list = []
-                for i, (t, p) in enumerate(zip(original_times, original_positions)):
+                for t, p in zip(original_times, original_positions):
                     data_list.append({'time': t, 'value': p, 'type': 'original'})
-                for i, (t, p) in enumerate(zip(planned_times, planned_positions)):
+                for t, p in zip(planned_times, planned_positions):
                     data_list.append({'time': t, 'value': p, 'type': 'planned'})
-                return pd.DataFrame(data_list)
-            else:  # trajectory_comparison
-                # 返回对比数据，包含原始和规划的数据
-                original_times = trajectory_data.get('original_times', [])
-                original_positions = trajectory_data.get('original_positions', [])
-                planned_times = trajectory_data.get('planned_times', [])
-                planned_positions = trajectory_data.get('planned_positions', [])
-                
-                # 创建包含两种数据的DataFrame
-                data_list = []
-                for i, (t, p) in enumerate(zip(original_times, original_positions)):
-                    data_list.append({'time': t, 'value': p, 'type': 'original'})
-                for i, (t, p) in enumerate(zip(planned_times, planned_positions)):
-                    data_list.append({'time': t, 'value': p, 'type': 'planned'})
-                return pd.DataFrame(data_list)
+                df = pd.DataFrame(data_list)
             
-            # 创建DataFrame
-            data_list = [{'time': t, 'value': p} for t, p in zip(times, positions)]
-            return pd.DataFrame(data_list)
+            return {
+                'data': df,
+                'total_time': vis_data.get('total_time')
+            }
+        
+        # 处理示教轨迹参数
+        elif parameter == 'teaching_trajectory':
+            # 示教轨迹使用 position 数据
+            if 'position' in self.data_buffer:
+                self.logger.debug(f"DeepMotor '{self.device_id}': 正在获取示教轨迹数据，当前有 {len(self.data_buffer['position'])} 条记录。")
+                return {'data': self.data_buffer['position'].copy()}
+            else:
+                return {'data': pd.DataFrame(columns=['time', 'value'])}
+        
+        # 处理普通的历史数据参数
+        elif parameter in self.data_buffer:
+            self.logger.debug(f"DeepMotor '{self.device_id}': 正在获取参数 '{parameter}' 的历史数据，当前有 {len(self.data_buffer[parameter])} 条记录。")
+            return {'data': self.data_buffer[parameter].copy()}
+        else:
+            self.logger.warning(f"DeepMotor '{self.device_id}': 请求了未知的历史数据参数 '{parameter}'")
+            return {'data': pd.DataFrame(columns=['time', 'value'])}
 
-        logging.warning(f"未知的历史数据参数请求: {parameter}")
-        return pd.DataFrame()
-
-    def get_trajectory_list(self):
-        return self.teaching_manager.get_available_trajectories()
-
-    def start_teaching(self):
+    def start_teaching(self, device_id: str):
+        """
+        开始示教
+        :param device_id: 开始示教的设备ID
+        """
+        self.logger.info(f"正在为设备 '{self.device_id}' 清空历史位置数据并开始示教。")
         # 清空当前的位置历史数据，以便实时显示示教轨迹
         if 'position' in self.data_buffer:
             self.data_buffer['position'] = pd.DataFrame(columns=['time', 'value'])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已为示教清空位置缓冲区。")
         
-        # 开始示教前，确保电机失能
-        self.command_to_coordinator.emit(self.device_id, "disable_motor", [1])
-        return self.teaching_manager.start_teaching(self.device_id)
+        if self.teaching_manager:
+            return self.teaching_manager.start_teaching(device_id)
 
-    def stop_teaching(self, trajectory_name: str) -> bool:
-        # 先停止示教
-        self.teaching_manager.stop_teaching(self.device_id)
-        # 然后保存轨迹
-        return self.teaching_manager.save_trajectory(self.device_id, trajectory_name)
+    def stop_teaching(self, device_id: str) -> Optional[str]:
+        """
+        停止示教
+        :param device_id: 停止示教的设备ID
+        :return: 保存的轨迹文件名，如果未保存则返回None
+        """
+        self.logger.info(f"正在停止对设备 '{self.device_id}' 的示教。")
+        if self.teaching_manager:
+            trajectory_name = self.teaching_manager.stop_teaching(device_id)
+            return trajectory_name
+        return None
+
+    def replan_trajectory(self, trajectory_name: str, duration: float):
+        """
+        使用新的时长重新规划轨迹
+        :param trajectory_name: 轨迹名称
+        :param duration: 新的执行时长
+        """
+        if self.teaching_manager:
+            self.teaching_manager.replan_trajectory_with_duration(trajectory_name, duration)
+
+    def replan_with_original_time(self, trajectory_name: str):
+        """
+        使用原始时间戳重新规划轨迹
+        """
+        if self.teaching_manager:
+            self.teaching_manager.replan_trajectory_with_original_time(trajectory_name)
+
+    def get_trajectory_list(self) -> list:
+        """
+        获取示教轨迹列表
+        """
+        if self.teaching_manager:
+            return self.teaching_manager.get_trajectory_names_for_device(self.device_id)
+        return []
+
+    def get_trajectory_visualization_data(self, trajectory_name: str) -> dict:
+        """
+        获取轨迹可视化数据
+        """
+        if self.teaching_manager:
+            return self.teaching_manager.get_trajectory_visualization_data(trajectory_name)
+        return {}
 
     def execute_trajectory(self, trajectory_name: str):
-        self.teaching_manager.play_trajectory(self.device_id, trajectory_name)
+        """
+        执行指定的示教轨迹
+        """
+        if self.teaching_manager:
+            self.teaching_manager.execute_trajectory(trajectory_name)
 
     @Slot(float, float)
     def _on_trajectory_point_ready(self, position: float, speed: float):
         """
-        接收到轨迹播放器发出的点，并将其作为命令发送到协调器。
+        接收到规划轨迹点后的槽函数，用于发送电机指令
         """
-        self.logger.debug(f"Trajectory point ready: pos={position}, speed={speed}")
-        # 通过信号请求 Coordinator 发送底层命令
-        # 注意：这里的 "1" 是电机ID，可能需要根据实际情况调整
-        self.command_to_coordinator.emit(self.device_id, "set_motor_pos_speed", [1, position, speed])
+        # 假设电机ID为1，后续可根据需要修改
+        motor_id = 1
+        # 使用 set_motor_pos_speed 指令发送轨迹点
+        command_name = "set_motor_pos_speed"
+        args = [motor_id, position, speed]
+        
+        # 此方法由TeachingManager的信号触发，在DeviceLogicManager层面连接。
+        # 我们在这里发射一个信号，让上层（DeviceLogicManager）来处理命令发送。
+        self.send_command_request.emit(self.device_id, command_name, args)
 
     def reload_trajectories(self):
-        """重新加载所有轨迹"""
-        # 轨迹在初始化时已经加载，这里只需要返回当前列表
-        return self.get_trajectory_list()
+        """
+        重新从文件加载所有轨迹。
+        """
+        if self.teaching_manager:
+            self.teaching_manager.load_all_trajectories()
+            self.logger.info(f"设备 '{self.device_id}' 的轨迹已重新加载。")
