@@ -18,6 +18,9 @@ class BaseDevice(QObject):
     # 例如：device_error 信号用于报告设备内部发生的错误
     device_error = Signal(str, str) # (device_id, error_message)
     device_states_updated = Signal(str, dict) # (device_id, new_state_dict)
+    
+    # 新增：设备实例向协调器发送命令请求的信号
+    command_to_coordinator = Signal(str, str, list) # (device_id, command_name, args)
 
     def __init__(self, device_id: str, log_manager: LogManager, parent: Optional[QObject] = None):
         """

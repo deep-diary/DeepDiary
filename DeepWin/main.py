@@ -5,10 +5,13 @@ import sys
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QThreadPool # 用于管理后台任务
 
+# 配置matplotlib（必须在导入其他模块之前）
+from src.app_logic.device_logic_manager.devices.deep_motor.matplotlib_config import configure_matplotlib_globally
+configure_matplotlib_globally()
+
 # 导入 DeepWin 核心组件
 from src.app_logic.core_manager.coordinator import Coordinator
 from src.data_management.log_manager import LogManager # 导入日志管理器
-
 
 def main():
     """

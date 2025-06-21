@@ -1,0 +1,82 @@
+{
+  "device_id": "DeepMotor",
+  "created_time": "2025-06-21T14:29:11.691667",
+  "points": [
+    {
+      "timestamp": 1750487336.612811,
+      "type": "start",
+      "message": "示教开始"
+    },
+    {
+      "timestamp": 1750487340.0509975,
+      "type": "point",
+      "position": 12.480072336919203,
+      "velocity": 0.6120393682764949
+    },
+    {
+      "timestamp": 1750487340.901808,
+      "type": "point",
+      "position": 12.479305335469594,
+      "velocity": 0.581826504921036
+    },
+    {
+      "timestamp": 1750487341.6630907,
+      "type": "point",
+      "position": 12.517655407949952,
+      "velocity": 0.5058365758754881
+    },
+    {
+      "timestamp": 1750487344.9145532,
+      "type": "point",
+      "position": 12.541048952162967,
+      "velocity": 0.4756237125200258
+    },
+    {
+      "timestamp": 1750487345.5828412,
+      "type": "point",
+      "position": 12.553704476081482,
+      "velocity": 0.5168230716411095
+    },
+    {
+      "timestamp": 1750487346.300756,
+      "type": "point",
+      "position": 12.471635320973526,
+      "velocity": 0.6047150377660806
+    },
+    {
+      "timestamp": 1750487346.9917154,
+      "type": "point",
+      "position": 12.524941921721219,
+      "velocity": 0.6211947814145127
+    },
+    {
+      "timestamp": 1750487347.6750097,
+      "type": "point",
+      "position": 12.533378937666892,
+      "velocity": 0.6504921034561697
+    },
+    {
+      "timestamp": 1750487348.3896565,
+      "type": "point",
+      "position": 12.508451390554665,
+      "velocity": 0.6321812771801341
+    },
+    {
+      "timestamp": 1750487349.0361977,
+      "type": "point",
+      "position": 12.535296441290914,
+      "velocity": 0.5644312199588022
+    },
+    {
+      "timestamp": 1750487349.7209437,
+      "type": "point",
+      "position": 12.496562868085757,
+      "velocity": 0.6102082856488913
+    },
+    {
+      "timestamp": 1750487351.6916678,
+      "type": "end",
+      "message": "示教结束"
+    }
+  ]
+}

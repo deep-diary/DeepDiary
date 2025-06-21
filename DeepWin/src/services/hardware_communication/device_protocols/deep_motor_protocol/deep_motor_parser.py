@@ -39,6 +39,7 @@ class DeepMotorProtocolParser(BaseProtocolParser):
             "velocity": "velocity", # 从 motor_status 解码
             "torque": "torque",     # 从 motor_status 解码
             "temperature": "temperature", # 从 motor_status 解码
+            "error_code": "error_code", # 错误码
             "error_message": "error_message", # 错误信息
             "response_mode": "response_mode",
             "motor_can_id": "motor_can_id",

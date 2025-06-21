@@ -10,15 +10,14 @@ from src.data_management.config_manager import ConfigManager
 import os
 import sys
 
-from PySide6.QtCore import Qt, QTranslator
+from PySide6.QtCore import Qt, QTranslator, QObject, Signal, Slot, QTimer, QCoreApplication
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import FluentTranslator
 
 from src.ui.app.common.config import cfg
 from src.ui.app.view.main_window import MainWindow
-
-from PySide6.QtCore import QObject, Signal, Slot
+from src.ui.app.common.style_sheet import StyleSheet
 
 
 
@@ -47,17 +46,19 @@ class GuiManager():
             os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "0"
             os.environ["QT_SCALE_FACTOR"] = str(cfg.get(cfg.dpiScale))
         
-        self.app = QApplication(sys.argv)
-        self.app.setAttribute(Qt.AA_DontCreateNativeWidgetSiblings)
+        self.app = QApplication.instance()
+        if self.app is None:
+            self.app = QApplication(sys.argv)
+
+        # 初始化UI
         self.window = self.init_ui()
 
         self.logger.info("GuiManager: 初始化完成。")
 
-    def init_ui(self):
+    def init_ui(self) -> MainWindow:
         """
         初始化用户界面元素和布局。
         """
-
 
         # internationalization
         locale = cfg.get(cfg.language).value
@@ -70,6 +71,12 @@ class GuiManager():
 
         # create main window
         window = MainWindow()
+        
+        # 启用无边框窗口模式
+        # window.setWindowFlags(window.windowFlags() | Qt.FramelessWindowHint)
+        # 启用亚克力背景
+        # window.setMicaEffectEnabled(True)
+
         return window
 
 

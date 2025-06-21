@@ -4,11 +4,15 @@
 from typing import Dict, Any, List, Callable, Optional
 import copy
 import time
+import pandas as pd
+import logging
+import os
 
 from src.data_management.log_manager import LogManager
 from src.data_management.config_manager import ConfigManager
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
 from src.app_logic.device_logic_manager.device_models import DeepMotorState, DeviceStatus
+from .teaching_trajectory_manager import TeachingTrajectoryManager
 from PySide6.QtCore import QObject, Signal, Slot
 
 class DeepMotor(BaseDevice):
@@ -18,121 +22,119 @@ class DeepMotor(BaseDevice):
     """
     def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         super().__init__(device_id, log_manager, parent)
-        self._state: DeepMotorState = DeepMotorState(device_id=device_id) # 使用 DeepMotorState
+        self._state: DeepMotorState = DeepMotorState(device_id=device_id)
+        self.config_manager = config_manager
         
-        # 初始化历史记录
-        self._history_length = config_manager.get("device_settings.deepmotor_history_length", 100)
-        self._state_history: List[Dict[str, Any]] = []
-        self.logger.info(f"DeepMotor '{device_id}': 初始化完成，历史记录长度设置为 {self._history_length}。")
+        # 初始化数据缓冲区 - 扩展支持所有相关参数
+        self.data_buffer = {
+            "position": pd.DataFrame(columns=['time', 'value']),
+            "velocity": pd.DataFrame(columns=['time', 'value']),
+            "torque": pd.DataFrame(columns=['time', 'value']),
+            "temperature": pd.DataFrame(columns=['time', 'value']),
+            "error_code": pd.DataFrame(columns=['time', 'value']),
+            "motor_can_id": pd.DataFrame(columns=['time', 'value']),
+            "mode_state": pd.DataFrame(columns=['time', 'value']),
+            "flt_uninitialized": pd.DataFrame(columns=['time', 'value']),
+            "flt_hall_encoding": pd.DataFrame(columns=['time', 'value']),
+            "flt_magnetic_encoding": pd.DataFrame(columns=['time', 'value']),
+            "flt_over_temperature": pd.DataFrame(columns=['time', 'value']),
+            "flt_over_current": pd.DataFrame(columns=['time', 'value']),
+            "flt_voltage_drop": pd.DataFrame(columns=['time', 'value'])
+        }
+        self.buffer_size = self.config_manager.get("device_settings.deepmotor_history_length", 1000)
+        
+        # 添加相对时间起始点
+        self._start_time = time.time()
+
+        # 初始化示教管理器
+        # 使用设备目录下的 trajectories 文件夹
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        trajectory_folder = os.path.join(current_dir, 'trajectories')
+        self.teaching_manager = TeachingTrajectoryManager(log_manager=log_manager, trajectory_folder=trajectory_folder)
+        # 将轨迹点就绪信号连接到发送电机指令的方法
+        self.teaching_manager._trajectory_point_ready.connect(self._on_trajectory_point_ready)
+        
+        self.logger.info(f"DeepMotor '{device_id}': 初始化完成，历史记录长度设置为 {self.buffer_size}。")
 
     def get_current_state(self) -> DeepMotorState:
         """重写以返回 DeepMotorState。"""
         return self._state
 
-    def get_state_history(self) -> List[Dict[str, Any]]:
-        """
-        获取状态历史记录。
-        :return: 状态历史记录列表，每个元素是一个状态字典。
-        """
-        return copy.deepcopy(self._state_history)
-
-    def get_state_history_length(self) -> int:
-        """
-        获取当前历史记录长度。
-        :return: 历史记录长度。
-        """
-        return len(self._state_history)
-
-    def get_field_history(self, field_name: str) -> List[tuple]:
-        """
-        获取特定字段的历史数据，用于曲线绘制。
-        :param field_name: 字段名称，如 'position', 'velocity', 'temperature' 等。
-        :return: 包含 (timestamp, value) 元组的列表。
-        """
-        history_data = []
-        for state in self._state_history:
-            if field_name in state:
-                history_data.append((state.get('timestamp', 0), state[field_name]))
-        return history_data
-
-    def get_time_range_history(self, start_time: float, end_time: float) -> List[Dict[str, Any]]:
-        """
-        获取指定时间范围内的历史记录。
-        :param start_time: 开始时间戳。
-        :param end_time: 结束时间戳。
-        :return: 时间范围内的历史记录列表。
-        """
-        return [
-            state for state in self._state_history
-            if start_time <= state.get('timestamp', 0) <= end_time
-        ]
-
-    def get_recent_history(self, count: int) -> List[Dict[str, Any]]:
-        """
-        获取最近的历史记录。
-        :param count: 要获取的记录数量。
-        :return: 最近的历史记录列表。
-        """
-        return copy.deepcopy(self._state_history[-count:]) if self._state_history else []
-
-    def clear_history(self):
-        """
-        清空历史记录。
-        """
-        self._state_history.clear()
-        self.logger.info(f"DeepMotor '{self.device_id}': 历史记录已清空。")
-
-    def set_history_length(self, new_length: int):
-        """
-        动态设置历史记录长度。
-        :param new_length: 新的历史记录长度。
-        """
-        if new_length < 0:
-            self.logger.warning(f"DeepMotor '{self.device_id}': 历史记录长度不能为负数，保持原值 {self._history_length}。")
-            return
-        
-        self._history_length = new_length
-        
-        # 如果当前历史记录超过新长度，移除多余的记录
-        while len(self._state_history) > self._history_length:
-            self._state_history.pop(0)
-        
-        self.logger.info(f"DeepMotor '{self.device_id}': 历史记录长度已设置为 {new_length}。")
-
-    def _add_to_history(self, state_dict: Dict[str, Any]):
-        """
-        将状态添加到历史记录中。
-        :param state_dict: 要添加的状态字典。
-        """
-        # 添加时间戳
-        state_with_timestamp = copy.deepcopy(state_dict)
-        state_with_timestamp['timestamp'] = time.time()
-        
-        self._state_history.append(state_with_timestamp)
-        
-        # 保持历史记录长度不超过配置的限制
-        if len(self._state_history) > self._history_length:
-            self._state_history.pop(0)  # 移除最旧的记录
-
     def update_state_from_semantic_data(self, semantic_data: Dict[str, Any]):
         """
         从业务语义数据更新 DeepMotor 的状态模型。
-        :param semantic_data: 语义数据字典，例如包含 motor_rpm, motor_current 等。
         """
         self.logger.debug(f"DeepMotor '{self.device_id}': 收到语义数据更新: {semantic_data}")
-        # 调用基类更新通用状态
         super().update_state_from_semantic_data(semantic_data)
 
-        # 更新 DeepMotor 独有的状态
         for key, value in semantic_data.items():
             if hasattr(self._state, key):
                 setattr(self._state, key, value)
         
-        # 将更新后的状态添加到历史记录
         current_state_dict = self._state.to_dict()
-        self._add_to_history(current_state_dict)
+
+        # 更新数据缓冲区 - 使用相对时间
+        relative_time = time.time() - self._start_time
         
-        self.logger.debug(f"DeepMotor '{self.device_id}': 特定状态更新完成，历史记录长度: {len(self._state_history)}。")
+        # 定义需要存储历史数据的参数映射
+        parameter_mapping = {
+            'position': 'position',
+            'velocity': 'velocity', 
+            'torque': 'torque',
+            'temperature': 'temperature',
+            'error_code': 'error_code',
+            'motor_can_id': 'motor_can_id',
+            'mode_state': 'mode_state',
+            'flt_uninitialized': 'flt_uninitialized',
+            'flt_hall_encoding': 'flt_hall_encoding',
+            'flt_magnetic_encoding': 'flt_magnetic_encoding',
+            'flt_over_temperature': 'flt_over_temperature',
+            'flt_over_current': 'flt_over_current',
+            'flt_voltage_drop': 'flt_voltage_drop'
+        }
+        
+        # 遍历所有参数，如果语义数据中包含该参数，则存储到对应的缓冲区
+        for semantic_key, buffer_key in parameter_mapping.items():
+            if semantic_key in semantic_data:
+                value = semantic_data[semantic_key]
+                self.logger.debug(f"DeepMotor '{self.device_id}': 处理参数 {semantic_key} = {value} (类型: {type(value)})")
+                
+                # 对于 mode_state，支持字符串类型；对于其他参数，只接受数值类型
+                if value is not None:
+                    if semantic_key == 'mode_state':
+                        # mode_state 是字符串类型，直接存储
+                        new_data = pd.DataFrame([{'time': relative_time, 'value': value}])
+                        self.data_buffer[buffer_key] = pd.concat([self.data_buffer[buffer_key], new_data], ignore_index=True)
+                        self.logger.debug(f"DeepMotor '{self.device_id}': 存储 mode_state 数据: {value}")
+                    elif isinstance(value, (int, float)):
+                        # 其他参数必须是数值类型
+                        new_data = pd.DataFrame([{'time': relative_time, 'value': value}])
+                        self.data_buffer[buffer_key] = pd.concat([self.data_buffer[buffer_key], new_data], ignore_index=True)
+                        self.logger.debug(f"DeepMotor '{self.device_id}': 存储数值数据 {semantic_key}: {value}")
+                    else:
+                        self.logger.warning(f"DeepMotor '{self.device_id}': 参数 {semantic_key} 的值 {value} 不是支持的格式")
+                else:
+                    self.logger.debug(f"DeepMotor '{self.device_id}': 参数 {semantic_key} 的值为 None，跳过存储")
+        
+        # 限制缓冲区大小
+        for key in self.data_buffer:
+            if len(self.data_buffer[key]) > self.buffer_size:
+                self.data_buffer[key] = self.data_buffer[key].iloc[-self.buffer_size:]
+        
+        # 添加调试日志，显示每个缓冲区中的数据点数
+        for key in self.data_buffer:
+            if len(self.data_buffer[key]) > 0:
+                self.logger.debug(f"DeepMotor '{self.device_id}': 缓冲区 {key} 有 {len(self.data_buffer[key])} 个数据点")
+
+        # 如果正在示教，则记录状态
+        if self.teaching_manager.is_teaching(self.device_id):
+            self.teaching_manager.record_trajectory_point(
+                device_id=self.device_id,
+                position=semantic_data.get('position'),
+                velocity=semantic_data.get('velocity')
+            )
+
+        self.logger.debug(f"DeepMotor '{self.device_id}': 特定状态更新完成。")
         self.device_states_updated.emit(self.device_id, current_state_dict)
 
     def execute_abstract_command(self,
@@ -247,7 +249,102 @@ class DeepMotor(BaseDevice):
 
     def cleanup(self):
         """
-        清理 DeepMotor 实例占用的资源。
+        清理资源，例如停止正在执行的轨迹。
         """
+        self.teaching_manager.stop_playback()
         self.logger.info(f"DeepMotor '{self.device_id}': 清理完成。")
         super().cleanup()
+
+    def get_historical_data(self, parameter: str, options: dict = {}) -> pd.DataFrame:
+        """
+        获取指定参数的历史数据。
+        :param parameter: 参数名称 (e.g., 'position', 'velocity')
+        :param options: 其他选项 (e.g., a time range)
+        :return: 包含时间和数值的DataFrame
+        """
+        if parameter in self.data_buffer:
+            self.logger.debug(f"DeepMotor '{self.device_id}': 正在获取参数 '{parameter}' 的历史数据，当前有 {len(self.data_buffer[parameter])} 条记录。")
+            return self.data_buffer[parameter].copy()
+        else:
+            self.logger.warning(f"DeepMotor '{self.device_id}': 请求了未知的历史数据参数 '{parameter}'")
+            return pd.DataFrame(columns=['time', 'value'])
+
+    def start_teaching(self, device_id: str):
+        """
+        开始示教
+        :param device_id: 开始示教的设备ID
+        """
+        self.logger.info(f"正在为设备 '{self.device_id}' 清空历史位置数据并开始示教。")
+        # 清空当前的位置历史数据，以便实时显示示教轨迹
+        if 'position' in self.data_buffer:
+            self.data_buffer['position'] = pd.DataFrame(columns=['time', 'value'])
+        
+        if self.teaching_manager:
+            return self.teaching_manager.start_teaching(device_id)
+
+    def stop_teaching(self, device_id: str) -> Optional[str]:
+        """
+        停止示教
+        :param device_id: 停止示教的设备ID
+        :return: 保存的轨迹文件名，如果未保存则返回None
+        """
+        self.logger.info(f"正在停止对设备 '{self.device_id}' 的示教。")
+        if self.teaching_manager:
+            trajectory_name = self.teaching_manager.stop_teaching(device_id)
+            return trajectory_name
+        return None
+
+    def replan_trajectory(self, trajectory_name: str, duration: float):
+        """
+        使用新的时长重新规划轨迹
+        :param trajectory_name: 轨迹名称
+        :param duration: 新的执行时长
+        """
+        if self.teaching_manager:
+            self.teaching_manager.replan_trajectory_with_duration(trajectory_name, duration)
+
+    def get_trajectory_list(self) -> list:
+        """
+        获取示教轨迹列表
+        """
+        if self.teaching_manager:
+            return self.teaching_manager.get_trajectory_list()
+        return []
+
+    def get_trajectory_visualization_data(self, trajectory_name: str) -> dict:
+        """
+        获取轨迹可视化数据
+        """
+        if self.teaching_manager:
+            return self.teaching_manager.get_trajectory_visualization_data(trajectory_name)
+        return {}
+
+    def execute_trajectory(self, trajectory_name: str):
+        """
+        执行指定的示教轨迹
+        """
+        if self.teaching_manager:
+            self.teaching_manager.execute_trajectory(trajectory_name)
+
+    @Slot(float, float)
+    def _on_trajectory_point_ready(self, position: float, speed: float):
+        """
+        接收到规划轨迹点后的槽函数，用于发送电机指令
+        """
+        # 假设电机ID为1，后续可根据需要修改
+        motor_id = 1
+        # 使用 set_motor_pos_speed 指令发送轨迹点
+        command_name = "set_motor_pos_speed"
+        args = [motor_id, position, speed]
+        
+        # 此方法由TeachingManager的信号触发，在DeviceLogicManager层面连接。
+        # 我们在这里发射一个信号，让上层（DeviceLogicManager）来处理命令发送。
+        self.send_command_request.emit(self.device_id, command_name, args)
+
+    def reload_trajectories(self):
+        """
+        重新从文件加载所有轨迹。
+        """
+        if self.teaching_manager:
+            self.teaching_manager.load_all_trajectories()
+            self.logger.info(f"设备 '{self.device_id}' 的轨迹已重新加载。")

@@ -2,7 +2,7 @@
 from typing import List
 from PySide6.QtCore import Qt, Signal, QEasingCurve, QUrl, QSize, QTimer
 from PySide6.QtGui import QIcon, QDesktopServices, QColor
-from PySide6.QtWidgets import QApplication, QHBoxLayout, QFrame, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QFrame, QWidget, QLabel, QVBoxLayout, QMainWindow
 
 from qfluentwidgets import (NavigationAvatarWidget, NavigationItemPosition, MessageBox, FluentWindow,
                             SplashScreen, SystemThemeListener, isDarkTheme)
@@ -68,6 +68,10 @@ class MainWindow(FluentWindow):
 
         # add items to navigation interface
         self.initNavigation()
+
+        # add status bar
+        self.create_status_bar()
+
         self.splashScreen.finish()
 
         # start theme listener
@@ -136,6 +140,47 @@ class MainWindow(FluentWindow):
         self.move(w//2 - self.width()//2, h//2 - self.height()//2)
         self.show()
         QApplication.processEvents()
+
+    def create_status_bar(self):
+        """创建状态栏"""
+        # 创建状态栏容器
+        self.status_bar_container = QWidget()
+        self.status_bar_container.setObjectName('statusBarContainer')
+        self.status_bar_container.setFixedHeight(30)
+        self.status_bar_container.setStyleSheet("""
+            QWidget#statusBarContainer {
+                background-color: #f5f5f5;
+                border-top: 1px solid #e0e0e0;
+            }
+        """)
+        
+        # 创建状态栏布局
+        status_layout = QHBoxLayout(self.status_bar_container)
+        status_layout.setContentsMargins(10, 5, 10, 5)
+        status_layout.setSpacing(10)
+        
+        # 创建状态栏标签
+        self.status_bar = QLabel('就绪')
+        self.status_bar.setObjectName('statusBar')
+        self.status_bar.setStyleSheet("""
+            QLabel#statusBar {
+                color: #666666;
+                font-size: 12px;
+            }
+        """)
+        
+        status_layout.addWidget(self.status_bar)
+        status_layout.addStretch()
+        
+        # 将状态栏添加到主窗口底部
+        # self.layout().addWidget(self.status_bar_container)
+        self.status_bar_container.setVisible(False)
+
+    def show_status_message(self, message: str):
+        """显示状态消息"""
+        if hasattr(self, 'status_bar'):
+            self.status_bar.setText(message)
+            print(f"Status: {message}")
 
     def onSupport(self):
         language = cfg.get(cfg.language).value

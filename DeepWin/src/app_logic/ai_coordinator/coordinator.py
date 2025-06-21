@@ -21,5 +21,13 @@ class AICoordinator(QObject):
         time.sleep(2) # 模拟网络延迟和AI处理
         return f"AI Response for: {prompt}"
 
+    def perceive_device_state(self, device_id: str, data: dict):
+        """
+        接收并处理来自协调器的设备状态信息。
+        未来可以用于触发AI决策或分析。
+        """
+        # self.logger.debug(f"AICoordinator: 感知到设备 '{device_id}' 的状态: {data}")
+        pass
+
     def cleanup(self):
         self.logger.info("AICoordinator: 执行清理工作。")

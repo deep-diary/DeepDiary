@@ -268,7 +268,10 @@ class SerialCommunicator(QObject):
         # 发送原始帧数据
         frame = decoded_line[2:-2]
         # 最后一个自己增加一个随机数
-        frame[-1] = random.randint(0, 255)
+        frame[6] = random.randint(0, 255)
+        frame[8] = random.randint(0, 255)
+        frame[10] = random.randint(0, 255)
+        frame[12] = random.randint(0, 255)
         frame = bytes(frame)
 
         self.logger.info(f"SerialCommunicator: 模拟从串口 '{port_name}' 读取数据。")

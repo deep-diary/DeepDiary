@@ -4,6 +4,7 @@
 import time
 from PySide6.QtCore import QObject, Signal, Slot
 from typing import Dict, Any, Optional, Union, List
+import pandas as pd
 
 from src.data_management.log_manager import LogManager
 from src.data_management.config_manager import ConfigManager
@@ -11,9 +12,6 @@ from src.app_logic.device_logic_manager.device_models import BaseDeviceState, De
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
 from src.app_logic.device_logic_manager.devices.deep_motor.deep_motor import DeepMotor
 from src.app_logic.device_logic_manager.devices.deep_arm.deep_arm import DeepArm
-
-# 导入 TeachingTrajectoryManager，但其逻辑在 Manager 中会暂时跳过
-from src.app_logic.device_logic_manager.devices.deep_arm.teaching_trajectory_manager import TeachingTrajectoryManager
 
 
 class DeviceLogicManager(QObject):
@@ -58,12 +56,7 @@ class DeviceLogicManager(QObject):
         self.logger.info("DeviceLogicManager: 初始化中...")
 
         # 维护当前连接的设备实例 (示例：使用字典存储设备ID -> 设备逻辑实例)
-        # 这些实例将负责处理特定设备的命令和状态更新
         self.managed_devices: Dict[str, BaseDevice] = {}
-
-        # 实例化 TeachingTrajectoryManager (逻辑暂时跳过)
-        self.teaching_manager = TeachingTrajectoryManager(log_manager=log_manager)
-
 
         self.logger.info("DeviceLogicManager: 初始化完成。")
 
@@ -87,6 +80,8 @@ class DeviceLogicManager(QObject):
                 self.managed_devices[device_id] = DeepMotor(device_id, self.logger_instance, self.config_manager)
                 # 绑定底层设备状态更新信号
                 self.managed_devices[device_id].device_states_updated.connect(self.device_status_updated)
+                # 绑定设备向协调器发送命令的信号
+                self.managed_devices[device_id].command_to_coordinator.connect(self.send_device_abstract_command_requested)
             else:
                 self.logger.error(f"DeviceLogicManager: 无法识别的设备类型或 ID 前缀: {device_id}")
                 return None
@@ -215,6 +210,83 @@ class DeviceLogicManager(QObject):
         self.logger.info("DeviceLogicManager: 执行清理工作。")
         for device_id, instance in self.managed_devices.items():
             instance.cleanup() # 清理各个设备实例
-        if hasattr(self, 'teaching_manager') and self.teaching_manager:
-            self.teaching_manager.cleanup()
         self.logger.info("DeviceLogicManager: 清理完成。")
+
+    # --- 示教相关方法 ---
+    # 所有示教相关的方法都应该被委托给具体的设备实例处理
+
+    @Slot(str)
+    def start_teaching(self, device_id: str):
+        """开始示教模式"""
+        self.logger.info(f"DeviceLogicManager: 请求为设备 '{device_id}' 开始示教")
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'start_teaching'):
+            device.start_teaching()
+        else:
+            self.logger.error(f"设备 '{device_id}' 不支持 'start_teaching' 或不存在。")
+
+    @Slot(str, str)
+    def stop_teaching(self, device_id: str, trajectory_name: str):
+        """停止示教模式并保存轨迹"""
+        self.logger.info(f"DeviceLogicManager: 请求为设备 '{device_id}' 停止示教，轨迹名: {trajectory_name}")
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'stop_teaching'):
+            # 这里需要一个机制来获取保存成功与否的返回结果，并可能需要更新UI
+            # 例如，可以发射一个信号
+            was_saved = device.stop_teaching(trajectory_name)
+            if was_saved:
+                # 可以在这里发射一个信号，通知UI轨迹列表已更新
+                # self.signal_bus.trajectory_list_updated.emit(self.get_trajectory_list(device_id))
+                pass
+            return was_saved  # 返回保存结果
+        else:
+            self.logger.error(f"设备 '{device_id}' 不支持 'stop_teaching' 或不存在。")
+            return False  # 返回失败
+
+    @Slot(str, str)
+    def execute_trajectory(self, device_id: str, trajectory_name: str):
+        """执行示教轨迹"""
+        self.logger.info(f"DeviceLogicManager: 请求为设备 '{device_id}' 执行轨迹 '{trajectory_name}'")
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'execute_trajectory'):
+            device.execute_trajectory(trajectory_name)
+        else:
+            self.logger.error(f"设备 '{device_id}' 不支持 'execute_trajectory' 或不存在。")
+
+    def get_trajectory_list(self, device_id: str) -> List[str]:
+        """获取可用轨迹列表"""
+        self.logger.debug(f"请求获取设备 '{device_id}' 的轨迹列表")
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'get_trajectory_list'):
+            return device.get_trajectory_list()
+        else:
+            self.logger.warning(f"设备 '{device_id}' 不支持 'get_trajectory_list' 或不存在。")
+            return []
+            
+    def get_historical_data(self, device_id: str, parameter: str, options: dict) -> Optional[pd.DataFrame]:
+        """获取历史数据"""
+        self.logger.debug(f"请求获取设备 '{device_id}' 的历史数据，参数: {parameter}")
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'get_historical_data'):
+            return device.get_historical_data(parameter, options)
+        else:
+            self.logger.warning(f"设备 '{device_id}' 不支持 'get_historical_data' 或不存在。")
+            return None
+
+    def reload_trajectories(self, device_id: str) -> List[str]:
+        """重新加载轨迹"""
+        self.logger.info(f"请求为设备 '{device_id}' 重新加载轨迹")
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'reload_trajectories'):
+            return device.reload_trajectories()
+        else:
+            self.logger.warning(f"设备 '{device_id}' 不支持 'reload_trajectories' 或不存在。")
+            return []
+
+    def replan_trajectory(self, device_id: str, trajectory_name: str, duration: float):
+        """
+        请求设备使用新的时长重新规划轨迹
+        """
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'replan_trajectory'):
+            device.replan_trajectory(trajectory_name, duration)

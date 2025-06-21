@@ -167,9 +167,17 @@ class DeviceInterface(GalleryInterface):
         self.vBoxLayout.addWidget(self.stackWidget)
 
         # 创建状态栏
-        self.status_bar = QLabel()
+        self.status_bar = QLabel("就绪")
         self.status_bar.setObjectName('statusBar')
-        self.status_bar.setStyleSheet('padding: 5px; background-color: #f5f5f5; border-top: 1px solid #e0e0e0;')
+        self.status_bar.setAlignment(Qt.AlignCenter)
+        self.status_bar.setStyleSheet("""
+            QLabel#statusBar {
+                background-color: #f3f3f3;
+                padding: 8px;
+                border-top: 1px solid #e0e0e0;
+                color: #606060;
+            }
+        """)
         self.vBoxLayout.addWidget(self.status_bar)
 
         # 连接信号
@@ -213,10 +221,6 @@ class DeviceInterface(GalleryInterface):
         """当前页面改变处理"""
         widget = self.stackWidget.widget(index)
         self.pivot.setCurrentItem(widget.objectName())
-
-    def show_status_message(self, message: str):
-        """显示状态消息"""
-        self.status_bar.setText(message)
 
     def update_motor_history_data(self, history_data):
         """更新电机历史数据"""

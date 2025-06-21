@@ -327,46 +327,27 @@ class DeepMotorProtocol:
             Dict[str, Any]: 解码后的响应数据
         """
         try:
-            # if not data or len(data) < len(self.AT_HEADER) + 4 + 1 + len(self.END_BYTES):
-            #     self.logger.debug(f"Received data too short or incomplete: {data.hex()}")
-            #     return {'success': False, 'error': "无效的数据帧格式"}
-            
-            # # 检查帧头和帧尾
-            # if not data.startswith(self.AT_HEADER) or not data.endswith(self.END_BYTES):
-            #     self.logger.debug(f"Invalid frame header or end bytes. Raw: {data.hex()}")
-            #     return {'success': False, 'error': "无效的帧头或帧尾"}
-            
-            # offset = len(self.AT_HEADER)
-            # can_id_bytes = data[offset : offset + 4]
-            # can_id = struct.unpack('>I', can_id_bytes)[0]
-
-            # # 如果使用 USB 转 CAN 模块，需要进行转换
-            # if self.config.get('communication', {}).get('use_uart2can', True):
-            #     can_id = can_id >> 3
-
-            # offset += 4
-            # data_length = data[offset]
-            # offset += 1
-            # payload = data[offset : offset + data_length]
-            
-            # response_mode = (can_id >> 24) & 0xFF
-            # motor_id = (can_id >> 8) & 0xFF
-
-            # feedback = self.update_from_feedback(payload)
-            
-            # response_data = {
-            #     'success': True,
-            #     'motor_id': motor_id,
-            #     'mode': response_mode,
-            #     'data': can_id & 0xFF,
-            # }
-            # response_data.update(feedback)
-            # print(f"------------------response_data: {response_data}")
-
             can_id, payload = self._ser2can(data)
             ext_can_id_info = self._decode_ext_can_id(can_id)
             response_data = self._decode_can_data(payload)
             response_data.update(ext_can_id_info)
+            
+            # 根据故障信息设置 error_code
+            error_code = 0
+            if ext_can_id_info.get('flt_uninitialized', 0):
+                error_code |= 0x01
+            if ext_can_id_info.get('flt_hall_encoding', 0):
+                error_code |= 0x02
+            if ext_can_id_info.get('flt_magnetic_encoding', 0):
+                error_code |= 0x04
+            if ext_can_id_info.get('flt_over_temperature', 0):
+                error_code |= 0x08
+            if ext_can_id_info.get('flt_over_current', 0):
+                error_code |= 0x10
+            if ext_can_id_info.get('flt_voltage_drop', 0):
+                error_code |= 0x20
+            
+            response_data['error_code'] = error_code
             response_data['success'] = True
             
             # 对于其他响应模式，只返回基本信息
