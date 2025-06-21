@@ -10,19 +10,30 @@ import matplotlib.dates as mdates
 from datetime import datetime
 import time
 
+# 添加日志管理
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
+
 class SerialConfigWidget(CardWidget):
     """串口配置组件"""
     serial_connect_requested = Signal(str, int)  # 串口名, 波特率
     serial_disconnect_requested = Signal(str)  # 串口名
     request_ports = Signal()  # 请求获取可用端口列表的信号
 
-    def __init__(self, parent=None):
+    def __init__(self, log_manager: LogManager = None, config_manager: ConfigManager = None, parent=None):
         super().__init__(parent=parent)
+        self.log_manager = log_manager
+        self.logger = self.log_manager.get_logger(__name__) if self.log_manager else None
+        self.config_manager = config_manager
+        
         self.setup_ui()
         # 使用QTimer延迟发送刷新信号，确保信号连接已经建立
         QTimer.singleShot(100, self.request_ports.emit)
         self.is_connected = False  # 添加连接状态标志
         self.current_port = ""  # 当前连接的串口
+        
+        if self.logger:
+            self.logger.info("串口配置组件初始化完成")
 
     def setup_ui(self):
         self.v_layout = QVBoxLayout(self)
@@ -83,17 +94,24 @@ class SerialConfigWidget(CardWidget):
         index = self.port_combo.findText(current_port)
         if index >= 0:
             self.port_combo.setCurrentIndex(index)
+        
+        if self.logger:
+            self.logger.info(f"串口列表更新完成，可用端口: {ports}")
 
     def toggle_connection(self):
         """切换连接状态"""
         if self.is_connected:
             # 如果已连接，发送断开请求
+            if self.logger:
+                self.logger.info(f"请求断开串口连接: {self.current_port}")
             self.serial_disconnect_requested.emit(self.current_port)
         else:
             # 如果未连接，发送连接请求
             port = self.port_combo.currentText()
             baud = int(self.baud_combo.currentText())
             self.current_port = port  # 保存当前连接的串口
+            if self.logger:
+                self.logger.info(f"请求连接串口: {port}, 波特率: {baud}")
             self.serial_connect_requested.emit(port, baud)
 
     def update_connection_status(self, is_connected: bool):
@@ -113,6 +131,8 @@ class SerialConfigWidget(CardWidget):
             # 禁用串口和波特率选择
             self.port_combo.setEnabled(False)
             self.baud_combo.setEnabled(False)
+            if self.logger:
+                self.logger.info(f"串口连接成功: {self.current_port}")
         else:
             self.connect_button.setText('连接')
             self.connect_button.setStyleSheet("""
@@ -128,6 +148,8 @@ class SerialConfigWidget(CardWidget):
             self.port_combo.setEnabled(True)
             self.baud_combo.setEnabled(True)
             self.current_port = ""  # 清除当前连接的串口
+            if self.logger:
+                self.logger.info("串口连接已断开")
 
 class DeepMotorPage(QWidget):
     """DeepMotor 控制页面"""
@@ -144,8 +166,12 @@ class DeepMotorPage(QWidget):
     replan_requested = Signal(str, str, float)  # 重规划信号 (设备名, 轨迹名, 新时长)
     restore_default_requested = Signal(str, str) # 恢复默认信号 (设备名, 轨迹名)
 
-    def __init__(self, parent=None):
+    def __init__(self, log_manager: LogManager = None, config_manager: ConfigManager = None, parent=None):
         super().__init__(parent=parent)
+        self.log_manager = log_manager
+        self.logger = self.log_manager.get_logger(__name__) if self.log_manager else None
+        self.config_manager = config_manager
+        
         self.DeviceName = "DeepMotor"
         self.current_motor_id = 1  # 当前选中的电机ID
         self._is_jogging = False  # 添加点动状态标志
@@ -154,13 +180,23 @@ class DeepMotorPage(QWidget):
         self._current_trajectory = ""  # 当前选中的轨迹
         self._show_trajectory = False  # 是否显示轨迹模式
         self._original_total_time = 5.0  # 保存轨迹的原始时长
+        
+        if self.logger:
+            self.logger.info("DeepMotor页面初始化开始")
+        
         self.setup_ui()
         
         # 初始化轨迹列表
         self.init_trajectory_list()
+        
+        if self.logger:
+            self.logger.info("DeepMotor页面初始化完成")
 
     def setup_ui(self):
         """初始化界面"""
+        if self.logger:
+            self.logger.info("开始设置DeepMotor页面UI")
+            
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(10)
@@ -370,6 +406,9 @@ class DeepMotorPage(QWidget):
 
         # 初始化示教按钮状态
         self.update_teaching_buttons_state()
+        
+        if self.logger:
+            self.logger.info("DeepMotor页面UI设置完成")
 
     def select_trajectory(self, trajectory_name: str):
         """在下拉框中选中指定的轨迹"""
@@ -377,9 +416,11 @@ class DeepMotorPage(QWidget):
         index = self.trajectory_combo.findText(trajectory_name)
         if index >= 0:
             self.trajectory_combo.setCurrentIndex(index)
-            print(f"UI: 已自动选中新轨迹 '{trajectory_name}'")
+            if self.logger:
+                self.logger.info(f"UI: 已自动选中新轨迹 '{trajectory_name}'")
         else:
-            print(f"UI: 尝试选中轨迹 '{trajectory_name}' 但在下拉框中未找到。")
+            if self.logger:
+                self.logger.warning(f"UI: 尝试选中轨迹 '{trajectory_name}' 但在下拉框中未找到。")
 
     def update_teaching_buttons_state(self):
         """更新示教按钮状态"""
@@ -409,19 +450,23 @@ class DeepMotorPage(QWidget):
             # 优先选择最新的轨迹（列表中的最后一个）
             newest_trajectory = trajectory_names[-1]
             self.trajectory_combo.setCurrentText(newest_trajectory)
-            print(f"UI: 优先选中最新轨迹 '{newest_trajectory}'")
+            if self.logger:
+                self.logger.info(f"UI: 优先选中最新轨迹 '{newest_trajectory}'")
         elif current_selection and current_selection in trajectory_names:
             # 尝试恢复之前选中的轨迹
             self.trajectory_combo.setCurrentText(current_selection)
-            print(f"UI: 保持选中轨迹 '{current_selection}'")
+            if self.logger:
+                self.logger.info(f"UI: 保持选中轨迹 '{current_selection}'")
         else:
             # 如果没有之前选中的轨迹或轨迹不存在，清空选择
             self._current_trajectory = None
-            print("UI: 清空轨迹选择")
+            if self.logger:
+                self.logger.info("UI: 清空轨迹选择")
 
     def on_start_teaching_clicked(self):
         """开始示教按钮点击处理函数"""
-        print(f"--------------------------------------------------on_start_teaching_clicked")
+        if self.logger:
+            self.logger.info("开始示教按钮被点击")
         self._is_teaching = True
         self.update_teaching_buttons_state()
         
@@ -439,7 +484,8 @@ class DeepMotorPage(QWidget):
 
     def on_stop_teaching_clicked(self):
         """结束示教按钮点击处理函数"""
-        print(f"--------------------------------------------------on_stop_teaching_clicked")
+        if self.logger:
+            self.logger.info("结束示教按钮被点击")
         self._is_teaching = False
         self.update_teaching_buttons_state()
         
@@ -448,11 +494,14 @@ class DeepMotorPage(QWidget):
 
     def on_execute_teaching_clicked(self):
         """执行示教按钮点击处理函数"""
-        print(f"--------------------------------------------------on_execute_teaching_clicked")
         trajectory_name = self.trajectory_combo.currentText()
         if not trajectory_name:
-            print("请先选择要执行的轨迹")
+            if self.logger:
+                self.logger.warning("请先选择要执行的轨迹")
             return
+        
+        if self.logger:
+            self.logger.info(f"执行示教按钮被点击，轨迹: {trajectory_name}")
         
         # 发送执行示教信号
         self.execute_teaching_requested.emit(self.DeviceName, trajectory_name)
@@ -460,6 +509,8 @@ class DeepMotorPage(QWidget):
     def on_motor_id_changed(self, value):
         """电机ID改变时的处理函数"""
         self.current_motor_id = value
+        if self.logger:
+            self.logger.info(f"电机ID已更改为: {value}")
 
     def on_trajectory_selection_changed(self, text: str):
         """轨迹选择改变时的处理函数"""
@@ -467,6 +518,9 @@ class DeepMotorPage(QWidget):
             return
 
         self._current_trajectory = text
+        
+        if self.logger:
+            self.logger.info(f"轨迹选择已更改为: {text}")
         
         # 自动切换到轨迹视图并刷新
         # 1. 确保视图在正确的参数模式
@@ -485,6 +539,9 @@ class DeepMotorPage(QWidget):
         if not self._current_trajectory:
             return
         
+        if self.logger:
+            self.logger.info(f"执行时长已更改为: {value}秒")
+        
         # 启用刷新按钮，让用户确认重规划
         self.refresh_button.setEnabled(True)
         # 同时启用恢复按钮
@@ -494,6 +551,9 @@ class DeepMotorPage(QWidget):
         """恢复默认时长按钮点击处理函数"""
         if not self._current_trajectory:
             return
+        
+        if self.logger:
+            self.logger.info("恢复默认时长按钮被点击")
         
         # 1. 立即在UI上恢复时长输入框的值
         self.duration_spin.blockSignals(True)
@@ -531,6 +591,9 @@ class DeepMotorPage(QWidget):
         
         self.current_selected_param = param_map.get(param_text, 'position')
         
+        if self.logger:
+            self.logger.info(f"参数选择已更改为: {param_text} -> {self.current_selected_param}")
+        
         # 检查是否是轨迹数据参数
         if self.current_selected_param.startswith('trajectory_'):
             self._show_trajectory = True
@@ -563,11 +626,15 @@ class DeepMotorPage(QWidget):
         if self.current_selected_param.startswith('trajectory_') and self._current_trajectory:
             # 轨迹模式：发送重规划请求
             duration = self.duration_spin.value()
+            if self.logger:
+                self.logger.info(f"刷新轨迹曲线，重规划时长: {duration}秒")
             self.replan_requested.emit(self.DeviceName, self._current_trajectory, duration)
             # 点击后禁用，等待新数据
             self.refresh_button.setEnabled(False)
         else:
             # 普通模式：发送普通刷新请求
+            if self.logger:
+                self.logger.info(f"刷新历史曲线，参数: {self.current_selected_param}")
             self.request_history_data.emit(self.DeviceName, self.current_selected_param)
 
     def update_history_curve(self, history_data_dict: dict):
@@ -596,6 +663,8 @@ class DeepMotorPage(QWidget):
             self.ax.grid(True)
             self.ax.text(0.5, 0.5, '暂无数据', ha='center', va='center', transform=self.ax.transAxes)
             self.canvas.draw()
+            if self.logger:
+                self.logger.warning("历史曲线数据为空")
             return
         
         # 清空当前图形
@@ -639,6 +708,9 @@ class DeepMotorPage(QWidget):
         
         # 刷新画布
         self.canvas.draw()
+        
+        if self.logger:
+            self.logger.info(f"历史曲线更新完成，参数: {self.current_selected_param}")
 
     def _plot_trajectory_comparison(self, df):
         """绘制轨迹对比数据"""
@@ -747,6 +819,8 @@ class DeepMotorPage(QWidget):
             self.ax.grid(True)
             self.ax.text(0.5, 0.5, '暂无轨迹数据', ha='center', va='center', transform=self.ax.transAxes)
             self.canvas.draw()
+            if self.logger:
+                self.logger.warning("轨迹数据为空")
             return
         
         # 清空当前图形
@@ -798,45 +872,62 @@ class DeepMotorPage(QWidget):
         
         # 刷新画布
         self.canvas.draw()
+        
+        if self.logger:
+            self.logger.info(f"轨迹曲线更新完成，轨迹名: {trajectory_name}")
 
     def on_jog_pressed(self):
         """点动按钮按下时的处理函数"""
-        print(f"--------------------------------------------------on_jog_pressed")
+        if self.logger:
+            self.logger.info(f"点动按钮按下，电机ID: {self.current_motor_id}, 速度: {self.speed_spin.value()}")
         self.send_command('jog_motor', [self.current_motor_id, self.speed_spin.value()])
         
 
     def on_jog_released(self):
         """点动按钮释放时的处理函数"""
-        print(f"--------------------------------------------------on_jog_released")
+        if self.logger:
+            self.logger.info(f"点动按钮释放，电机ID: {self.current_motor_id}")
         self.send_command('stop_jog_motor', [self.current_motor_id])
 
     def on_init_clicked(self):
         """初始化按钮点击处理函数"""
+        if self.logger:
+            self.logger.info(f"初始化按钮被点击，电机ID: {self.id_spin.value()}")
         self.send_command('init_motor', [self.id_spin.value()])
 
     def on_enable_clicked(self):
         """使能按钮点击处理函数"""
-        self.send_command('enable_motor', [self.id_spin.value()])
+        if self.logger:
+            self.logger.info(f"使能按钮被点击，电机ID: {self.id_spin.value()}")
+        self.send_command('enable_motor', [self.id_spin.value()])   
 
     def on_disable_clicked(self):
         """失能按钮点击处理函数"""
+        if self.logger:
+            self.logger.info(f"失能按钮被点击，电机ID: {self.id_spin.value()}")
         self.send_command('disable_motor', [self.id_spin.value()])
 
     def on_set_pos_clicked(self):
         """设置位置按钮点击处理函数"""
+        if self.logger:
+            self.logger.info(f"设置位置按钮被点击，电机ID: {self.id_spin.value()}, 位置: {self.pos_spin.value()}")
         self.send_command('set_motor_position', [self.id_spin.value(), self.pos_spin.value()])
 
     def on_set_pos_speed_clicked(self):
         """设置位置和速度按钮点击处理函数"""
+        if self.logger:
+            self.logger.info(f"设置位置和速度按钮被点击，电机ID: {self.id_spin.value()}, 位置: {self.pos_spin.value()}, 速度: {self.speed_spin.value()}")
         self.send_command('set_motor_pos_speed', [self.id_spin.value(), self.pos_spin.value(), self.speed_spin.value()])
 
     def on_sim_data_clicked(self):
         """模拟数据按钮点击处理函数"""
+        if self.logger:
+            self.logger.info(f"模拟数据按钮被点击，电机ID: {self.id_spin.value()}")
         self.request_sim_data.emit(self.DeviceName)
 
     def update_motor_data(self, state_dict: dict):
-        print(f"--------------------------------------------------update_motor_data")
-        print(f"state_dict: {state_dict}")
+        if self.logger:
+            self.logger.info(f"更新电机数据: {state_dict}")
         position = state_dict.get('position', 0.0)
         speed = state_dict.get('velocity', 0.0)
         torque = state_dict.get('torque', 0.0)
@@ -848,9 +939,9 @@ class DeepMotorPage(QWidget):
 
     def send_command(self, command: str, args: list):
         """发送设备命令"""
-        print(f"--------------------------------------------------send_command")
         command_str = command + "(" + ",".join(str(arg) for arg in args) + ")"
-        print(f"DeepMotorPage: 发送命令: {command_str}")
+        if self.logger:
+            self.logger.info(f"DeepMotorPage: 发送命令: {command_str}")
         self.ui_deepmotor_command.emit(self.DeviceName, command_str)
 
     def init_trajectory_list(self):
@@ -862,9 +953,17 @@ class DeepArmPage(QWidget):
     """DeepArm 控制页面"""
     ui_device_command = Signal(str, str)  # 设备命令信号
 
-    def __init__(self, parent=None):
+    def __init__(self, log_manager: LogManager = None, config_manager: ConfigManager = None, parent=None):
         super().__init__(parent=parent)
+        self.log_manager = log_manager
+        self.logger = self.log_manager.get_logger(__name__) if self.log_manager else None
+        self.config_manager = config_manager
+        
+        if self.logger:
+            self.logger.info("DeepArm页面初始化开始")
         self.setup_ui()
+        if self.logger:
+            self.logger.info("DeepArm页面初始化完成")
 
     def setup_ui(self):
         """初始化界面"""
@@ -887,14 +986,25 @@ class DeepArmPage(QWidget):
         
         layout.addWidget(control_group)
         layout.addStretch()
+        
+        if self.logger:
+            self.logger.info("DeepArm页面UI设置完成")
 
 class DeepToyPage(QWidget):
     """DeepToy 控制页面"""
     ui_device_command = Signal(str, str)  # 设备命令信号
 
-    def __init__(self, parent=None):
+    def __init__(self, log_manager: LogManager = None, config_manager: ConfigManager = None, parent=None):
         super().__init__(parent=parent)
+        self.log_manager = log_manager
+        self.logger = self.log_manager.get_logger(__name__) if self.log_manager else None
+        self.config_manager = config_manager
+        
+        if self.logger:
+            self.logger.info("DeepToy页面初始化开始")
         self.setup_ui()
+        if self.logger:
+            self.logger.info("DeepToy页面初始化完成")
 
     def setup_ui(self):
         """初始化界面"""
@@ -916,4 +1026,7 @@ class DeepToyPage(QWidget):
         # TODO: 实现玩具控制界面
         
         layout.addWidget(control_group)
-        layout.addStretch() 
+        layout.addStretch()
+        
+        if self.logger:
+            self.logger.info("DeepToy页面UI设置完成") 

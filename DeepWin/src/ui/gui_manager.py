@@ -37,6 +37,7 @@ class GuiManager():
 
     def __init__(self, log_manager: LogManager, config_manager: ConfigManager):
         self.logger = log_manager.get_logger(__name__)
+        self.log_manager = log_manager
         self.config_manager = config_manager
         self.logger.info("GuiManager: 初始化中...")
 
@@ -70,7 +71,7 @@ class GuiManager():
         self.app.installTranslator(galleryTranslator)
 
         # create main window
-        window = MainWindow()
+        window = MainWindow(log_manager=self.log_manager, config_manager=self.config_manager)
         
         # 启用无边框窗口模式
         # window.setWindowFlags(window.windowFlags() | Qt.FramelessWindowHint)

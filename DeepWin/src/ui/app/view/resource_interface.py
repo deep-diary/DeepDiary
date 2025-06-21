@@ -7,6 +7,8 @@ from qfluentwidgets import (ScrollArea, FlowLayout, CardWidget, PrimaryPushButto
 from qfluentwidgets import FluentStyleSheet
 
 from ..common.translator import Translator
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 
 class ResourceCard(CardWidget):
@@ -14,7 +16,7 @@ class ResourceCard(CardWidget):
 
     def __init__(self, name: str, resource_type: str, status: str, usage: int, parent=None):
         super().__init__(parent=parent)
-        self.setFixedSize(300, 200)
+        self.setFixedSize(300, 150)
         
         # 创建布局
         layout = QVBoxLayout(self)
@@ -37,19 +39,11 @@ class ResourceCard(CardWidget):
         layout.addWidget(status_label)
         
         # 使用率
-        usage_layout = QHBoxLayout()
-        usage_layout.setContentsMargins(0, 0, 0, 0)
-        usage_layout.setSpacing(8)
+        usage_label = QLabel(f'使用率: {usage}%')
+        usage_label.setObjectName('usageLabel')
+        layout.addWidget(usage_label)
         
-        usage_label = QLabel(Translator().resourceUsage)
-        self.usage_bar = ProgressBar()
-        self.usage_bar.setValue(usage)
-        
-        usage_layout.addWidget(usage_label)
-        usage_layout.addWidget(self.usage_bar)
-        layout.addLayout(usage_layout)
-        
-        # 操作按钮
+        # 控制按钮
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, 0, 0, 0)
         button_layout.setSpacing(8)
@@ -108,11 +102,19 @@ class DemandCard(CardWidget):
 class ResourceInterface(ScrollArea):
     """ 资源需求界面 """
 
-    def __init__(self, parent=None):
+    def __init__(self, log_manager: LogManager = None, config_manager: ConfigManager = None, parent=None):
         super().__init__(parent=parent)
+        self.log_manager = log_manager
+        self.logger = self.log_manager.get_logger(__name__) if self.log_manager else None
+        self.config_manager = config_manager
         self.translator = Translator()
         self.setObjectName('resourceInterface')
+        
+        if self.logger:
+            self.logger.info("资源管理界面初始化开始")
         self.setup_ui()
+        if self.logger:
+            self.logger.info("资源管理界面初始化完成")
 
     def setup_ui(self):
         """ 初始化界面 """
@@ -150,6 +152,9 @@ class ResourceInterface(ScrollArea):
     def on_tab_changed(self, index):
         """ 标签切换处理 """
         self.stacked_widget.setCurrentIndex(index)
+        if self.logger:
+            tab_names = ["资源列表", "需求列表"]
+            self.logger.info(f"切换到标签页: {tab_names[index] if index < len(tab_names) else f'未知标签({index})'}")
 
     def setup_resource_tab(self):
         """ 设置资源列表标签页 """
@@ -157,55 +162,31 @@ class ResourceInterface(ScrollArea):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # 搜索和筛选区域
-        search_widget = QWidget()
-        search_layout = QHBoxLayout(search_widget)
-        search_layout.setContentsMargins(0, 0, 0, 0)
-        search_layout.setSpacing(10)
-
-        # 搜索框
-        self.resource_search = SearchLineEdit(self)
-        self.resource_search.setPlaceholderText(self.translator.tr('搜索资源...'))
-        search_layout.addWidget(self.resource_search)
-
-        # 类型筛选
-        self.resource_type_combo = ComboBox(self)
-        self.resource_type_combo.addItems([self.translator.resourceType, '计算资源', '存储资源', '网络资源'])
-        search_layout.addWidget(self.resource_type_combo)
-
-        # 状态筛选
-        self.resource_status_combo = ComboBox(self)
-        self.resource_status_combo.addItems([self.translator.resourceStatus, '可用', '使用中', '维护中'])
-        search_layout.addWidget(self.resource_status_combo)
-
-        # 添加按钮
-        add_button = PrimaryPushButton(self.translator.addResource)
-        add_button.setIcon(FIF.ADD)
-        search_layout.addWidget(add_button)
-
-        layout.addWidget(search_widget)
-
-        # 资源列表
-        self.resource_flow_layout = FlowLayout()
-        self.resource_flow_layout.setContentsMargins(0, 0, 0, 0)
-        self.resource_flow_layout.setSpacing(10)
+        # 创建流式布局
+        flow_layout = FlowLayout()
+        flow_layout.setContentsMargins(0, 0, 0, 0)
+        flow_layout.setSpacing(10)
 
         # 添加示例资源卡片
         resources = [
-            ('CPU-001', '计算资源', '可用', 30),
-            ('GPU-001', '计算资源', '使用中', 80),
-            ('Storage-001', '存储资源', '可用', 45),
-            ('Network-001', '网络资源', '维护中', 0),
+            ('CPU', '计算资源', '运行中', 75),
+            ('内存', '存储资源', '运行中', 60),
+            ('GPU', '图形资源', '空闲', 20),
+            ('网络', '网络资源', '运行中', 45),
+            ('磁盘', '存储资源', '运行中', 80),
         ]
-        
+
         for name, resource_type, status, usage in resources:
             card = ResourceCard(name, resource_type, status, usage, self)
-            self.resource_flow_layout.addWidget(card)
+            flow_layout.addWidget(card)
 
         # 创建容器窗口部件
         container = QWidget()
-        container.setLayout(self.resource_flow_layout)
+        container.setLayout(flow_layout)
         layout.addWidget(container)
+        
+        if self.logger:
+            self.logger.info(f"资源列表标签页设置完成，添加了 {len(resources)} 个资源卡片")
 
     def setup_demand_tab(self):
         """ 设置需求列表标签页 """
@@ -213,52 +194,27 @@ class ResourceInterface(ScrollArea):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        # 搜索和筛选区域
-        search_widget = QWidget()
-        search_layout = QHBoxLayout(search_widget)
-        search_layout.setContentsMargins(0, 0, 0, 0)
-        search_layout.setSpacing(10)
-
-        # 搜索框
-        self.demand_search = SearchLineEdit(self)
-        self.demand_search.setPlaceholderText(self.translator.tr('搜索需求...'))
-        search_layout.addWidget(self.demand_search)
-
-        # 类型筛选
-        self.demand_type_combo = ComboBox(self)
-        self.demand_type_combo.addItems([self.translator.demandType, '计算需求', '存储需求', '网络需求'])
-        search_layout.addWidget(self.demand_type_combo)
-
-        # 优先级筛选
-        self.demand_priority_combo = ComboBox(self)
-        self.demand_priority_combo.addItems([self.translator.demandPriority, '高', '中', '低'])
-        search_layout.addWidget(self.demand_priority_combo)
-
-        # 添加按钮
-        add_button = PrimaryPushButton(self.translator.addDemand)
-        add_button.setIcon(FIF.ADD)
-        search_layout.addWidget(add_button)
-
-        layout.addWidget(search_widget)
-
-        # 需求列表
-        self.demand_flow_layout = FlowLayout()
-        self.demand_flow_layout.setContentsMargins(0, 0, 0, 0)
-        self.demand_flow_layout.setSpacing(10)
+        # 创建流式布局
+        flow_layout = FlowLayout()
+        flow_layout.setContentsMargins(0, 0, 0, 0)
+        flow_layout.setSpacing(10)
 
         # 添加示例需求卡片
         demands = [
-            ('训练任务-001', '计算需求', '高', '进行中'),
-            ('数据备份-001', '存储需求', '中', '等待中'),
-            ('模型部署-001', '网络需求', '高', '已完成'),
-            ('数据同步-001', '网络需求', '低', '已取消'),
+            ('深度学习训练', '计算需求', '等待中', 90),
+            ('图像处理', '图形需求', '进行中', 70),
+            ('数据备份', '存储需求', '完成', 100),
+            ('实时监控', '网络需求', '运行中', 85),
         ]
-        
-        for title, demand_type, priority, status in demands:
-            card = DemandCard(title, demand_type, priority, status, self)
-            self.demand_flow_layout.addWidget(card)
+
+        for name, demand_type, status, priority in demands:
+            card = ResourceCard(name, demand_type, status, priority, self)
+            flow_layout.addWidget(card)
 
         # 创建容器窗口部件
         container = QWidget()
-        container.setLayout(self.demand_flow_layout)
-        layout.addWidget(container) 
+        container.setLayout(flow_layout)
+        layout.addWidget(container)
+        
+        if self.logger:
+            self.logger.info(f"需求列表标签页设置完成，添加了 {len(demands)} 个需求卡片") 

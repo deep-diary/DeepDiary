@@ -9,6 +9,7 @@ from ..common.translator import Translator
 import os
 from PySide6.QtCore import Slot
 from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 
 class MemoryCard(CardWidget):
@@ -51,13 +52,19 @@ class MemoryInterface(ScrollArea):
 
     process_image_request = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, log_manager: LogManager = None, config_manager: ConfigManager = None, parent=None):
         super().__init__(parent=parent)
-        self.log_manager = LogManager(log_file_name="memory_interface")
-        self.logger = self.log_manager.get_logger(__name__)
+        self.log_manager = log_manager
+        self.logger = self.log_manager.get_logger(__name__) if self.log_manager else None
+        self.config_manager = config_manager
         self.translator = Translator()
         self.setObjectName('memoryInterface')
+        
+        if self.logger:
+            self.logger.info("记忆管理界面初始化开始")
         self.setup_ui()
+        if self.logger:
+            self.logger.info("记忆管理界面初始化完成")
 
     def setup_ui(self):
         """ 初始化界面 """
@@ -114,7 +121,8 @@ class MemoryInterface(ScrollArea):
         """ 添加记忆 """
         project_root = 'd:/BlueDoc/DeepDiary'
         image_path = os.path.join(project_root, 'DeepWin', 'media', 'images', 'IMG_20210905_163757.jpg')
-        print(f"MemoryInterface: 添加记忆，路径：{image_path}")
+        if self.logger:
+            self.logger.info(f"MemoryInterface: 添加记忆，路径：{image_path}")
         self.process_image_request.emit(image_path)
 
 

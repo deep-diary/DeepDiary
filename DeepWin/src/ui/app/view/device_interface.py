@@ -10,6 +10,8 @@ from qfluentwidgets import FluentStyleSheet
 from ..common.translator import Translator
 from .gallery_interface import GalleryInterface
 from .device_pages import DeepMotorPage, DeepArmPage, DeepToyPage, SerialConfigWidget
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 class DeviceCard(CardWidget):
     """ 设备卡片 """
@@ -113,8 +115,11 @@ class DeviceInterface(GalleryInterface):
     ui_request_history_data = Signal(str, str)  # 请求历史数据信号 (设备名, 参数名)
     # ui_serial_connect = Signal(str, int)  # 串口连接信号
 
-    def __init__(self, parent=None):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent=None):
         self.translator = Translator()
+        self.log_manager = log_manager
+        self.logger = self.log_manager.get_logger(__name__)
+        self.config_manager = config_manager
 
         super().__init__(
             title=self.translator.device,
@@ -129,10 +134,14 @@ class DeviceInterface(GalleryInterface):
         self.deep_arm_page = None
         self.deep_toy_page = None
         
+        self.logger.info("设备界面初始化开始")
         self.setup_ui()
+        self.logger.info("设备界面初始化完成")
 
     def setup_ui(self):
         """ 初始化界面 """
+        self.logger.info("开始设置设备界面UI")
+        
         # 创建主窗口部件
         self.view = QWidget(self)
         self.setWidget(self.view)
@@ -144,7 +153,7 @@ class DeviceInterface(GalleryInterface):
         self.vBoxLayout.setSpacing(10)
 
         # 创建串口配置组件
-        self.serial_config = SerialConfigWidget()
+        self.serial_config = SerialConfigWidget(log_manager=self.log_manager, config_manager=self.config_manager)
         self.vBoxLayout.addWidget(self.serial_config)
 
         # 创建顶部导航
@@ -187,14 +196,17 @@ class DeviceInterface(GalleryInterface):
         # 设置默认页面
         self.stackWidget.setCurrentWidget(self.deep_motor_page)
         self.pivot.setCurrentItem(self.deep_motor_page.objectName())
+        
+        self.logger.info("设备界面UI设置完成")
 
     def _create_pages(self):
         """创建并初始化所有页面"""
+        self.logger.info("开始创建设备页面")
 
         # 创建新的页面实例
-        self.deep_motor_page = DeepMotorPage()
-        self.deep_arm_page = DeepArmPage()
-        self.deep_toy_page = DeepToyPage()
+        self.deep_motor_page = DeepMotorPage(log_manager=self.log_manager, config_manager=self.config_manager)
+        self.deep_arm_page = DeepArmPage(log_manager=self.log_manager, config_manager=self.config_manager)
+        self.deep_toy_page = DeepToyPage(log_manager=self.log_manager, config_manager=self.config_manager)
 
         # 连接信号
         self.deep_motor_page.ui_deepmotor_command.connect(self.ui_device_command)
@@ -206,6 +218,8 @@ class DeviceInterface(GalleryInterface):
         self.stackWidget.addWidget(self.deep_motor_page)
         self.stackWidget.addWidget(self.deep_arm_page)
         self.stackWidget.addWidget(self.deep_toy_page)
+        
+        self.logger.info("设备页面创建完成")
 
     def addSubInterface(self, widget: QWidget, objectName: str, text: str):
         """添加子界面"""
@@ -216,14 +230,19 @@ class DeviceInterface(GalleryInterface):
             text=text,
             onClick=lambda: self.stackWidget.setCurrentWidget(widget)
         )
+        self.logger.info(f"添加子界面: {text} (对象名: {objectName})")
 
     def onCurrentIndexChanged(self, index):
         """当前页面改变处理"""
         widget = self.stackWidget.widget(index)
         self.pivot.setCurrentItem(widget.objectName())
+        self.logger.info(f"页面切换: 当前页面索引 {index}, 对象名: {widget.objectName()}")
 
     def update_motor_history_data(self, history_data):
         """更新电机历史数据"""
         if self.deep_motor_page:
             self.deep_motor_page.update_history_curve(history_data)
+            self.logger.info("电机历史数据更新完成")
+        else:
+            self.logger.warning("DeepMotor页面未初始化，无法更新历史数据")
         

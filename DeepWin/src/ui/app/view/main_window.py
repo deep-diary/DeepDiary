@@ -31,12 +31,19 @@ from ..common.icon import Icon
 from ..common.signal_bus import signalBus
 from ..common.translator import Translator
 from ..common import resource
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 
 class MainWindow(FluentWindow):
 
-    def __init__(self):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager):
         super().__init__()
+        self.log_manager = log_manager
+        self.logger = self.log_manager.get_logger(__name__)
+        self.config_manager = config_manager
+        
+        self.logger.info("主窗口初始化开始")
         self.initWindow()
 
         # create system theme listener
@@ -44,9 +51,9 @@ class MainWindow(FluentWindow):
 
         # create sub interface
         self.homeInterface = HomeInterface(self)
-        self.memoryInterface = MemoryInterface(self)
-        self.deviceInterface = DeviceInterface(self)
-        self.resourceInterface = ResourceInterface(self)
+        self.memoryInterface = MemoryInterface(log_manager=self.log_manager, config_manager=self.config_manager, parent=self)
+        self.deviceInterface = DeviceInterface(log_manager=self.log_manager, config_manager=self.config_manager, parent=self)
+        self.resourceInterface = ResourceInterface(log_manager=self.log_manager, config_manager=self.config_manager, parent=self)
         self.iconInterface = IconInterface(self)
         self.basicInputInterface = BasicInputInterface(self)
         self.dateTimeInterface = DateTimeInterface(self)
@@ -76,6 +83,8 @@ class MainWindow(FluentWindow):
 
         # start theme listener
         self.themeListener.start()
+        
+        self.logger.info("主窗口初始化完成")
 
     def connectSignalToSlot(self):
         signalBus.micaEnableChanged.connect(self.setMicaEffectEnabled)
@@ -121,6 +130,8 @@ class MainWindow(FluentWindow):
         # 设置设备页面为默认页面
         self.stackedWidget.setCurrentWidget(self.deviceInterface)
         self.navigationInterface.setCurrentItem(self.deviceInterface.objectName())
+        
+        self.logger.info("导航界面初始化完成，默认页面设置为设备界面")
 
     def initWindow(self):
         self.resize(960, 780)
@@ -140,6 +151,8 @@ class MainWindow(FluentWindow):
         self.move(w//2 - self.width()//2, h//2 - self.height()//2)
         self.show()
         QApplication.processEvents()
+        
+        self.logger.info("主窗口UI初始化完成")
 
     def create_status_bar(self):
         """创建状态栏"""
@@ -175,12 +188,15 @@ class MainWindow(FluentWindow):
         # 将状态栏添加到主窗口底部
         # self.layout().addWidget(self.status_bar_container)
         self.status_bar_container.setVisible(False)
+        
+        self.logger.info("状态栏创建完成")
 
     def show_status_message(self, message: str):
         """显示状态消息"""
         if hasattr(self, 'status_bar'):
             self.status_bar.setText(message)
-            print(f"Status: {message}")
+            if hasattr(self, 'logger'):
+                self.logger.info(f"状态消息: {message}")
 
     def onSupport(self):
         language = cfg.get(cfg.language).value
@@ -188,6 +204,7 @@ class MainWindow(FluentWindow):
             QDesktopServices.openUrl(QUrl(ZH_SUPPORT_URL))
         else:
             QDesktopServices.openUrl(QUrl(EN_SUPPORT_URL))
+        self.logger.info("打开支持页面")
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -195,6 +212,7 @@ class MainWindow(FluentWindow):
             self.splashScreen.resize(self.size())
 
     def closeEvent(self, e):
+        self.logger.info("主窗口关闭事件触发")
         self.themeListener.terminate()
         self.themeListener.deleteLater()
         super().closeEvent(e)
@@ -213,3 +231,5 @@ class MainWindow(FluentWindow):
             if w.objectName() == routeKey:
                 self.stackedWidget.setCurrentWidget(w, False)
                 w.scrollToCard(index)
+                self.logger.info(f"切换到示例页面: {routeKey}, 索引: {index}")
+                break
