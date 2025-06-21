@@ -188,23 +188,8 @@ class TeachingTrajectoryManager(QObject):
             'original_positions': original_positions,
             'planned_times': planned_times,
             'planned_positions': planned_positions,
-            'trajectory_name': trajectory_name,
-            'total_time': planned_data.get('total_time', 5.0)  # 返回总时长
+            'trajectory_name': trajectory_name
         }
-
-    def replan_trajectory_with_duration(self, trajectory_name: str, duration: float):
-        """
-        使用新的时长重新规划轨迹。
-        :param trajectory_name: 轨迹名称。
-        :param duration: 新的总执行时长。
-        """
-        self.logger.info(f"正在以 {duration}秒 的新时长重新规划轨迹: '{trajectory_name}'")
-        # 直接调用内部规划函数，并强制使用均匀时间模式
-        self._plan_trajectory(
-            trajectory_name, 
-            keep_original_time=False, 
-            uniform_duration=duration
-        )
 
     @Slot(str)
     def start_teaching(self, device_id: str):

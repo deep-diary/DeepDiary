@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QDoubleSpinBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout
 from qfluentwidgets import (PrimaryPushButton, ComboBox, SpinBox, FluentIcon as FIF, CardWidget, FlowLayout)
 
 # 添加matplotlib支持
@@ -141,7 +141,6 @@ class DeepMotorPage(QWidget):
     # 新增：轨迹可视化相关信号
     request_trajectory_data = Signal(str, str)  # 请求轨迹数据信号 (设备名, 轨迹名)
     request_trajectory_list = Signal(str)  # 请求轨迹列表信号
-    replan_requested = Signal(str, str, float)  # 重规划信号 (设备名, 轨迹名, 新时长)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -236,21 +235,11 @@ class DeepMotorPage(QWidget):
         self.trajectory_combo = ComboBox()
         self.trajectory_combo.setMinimumWidth(150)
         
-        # 新增：执行时间控制
-        duration_label = QLabel('执行时间:')
-        self.duration_spin = QDoubleSpinBox(self)
-        self.duration_spin.setRange(2.0, 10.0)
-        self.duration_spin.setSingleStep(0.1)
-        self.duration_spin.setSuffix(" s")
-        self.duration_spin.setValue(5.0) # 默认值
-
         teaching_controls_layout.addWidget(self.start_teaching_button)
         teaching_controls_layout.addWidget(self.stop_teaching_button)
         teaching_controls_layout.addWidget(self.execute_teaching_button)
         teaching_controls_layout.addWidget(trajectory_label)
         teaching_controls_layout.addWidget(self.trajectory_combo)
-        teaching_controls_layout.addWidget(duration_label)
-        teaching_controls_layout.addWidget(self.duration_spin)
         teaching_controls_layout.addStretch()
         teaching_layout_v.addLayout(teaching_controls_layout)
 
@@ -369,9 +358,6 @@ class DeepMotorPage(QWidget):
         # 连接轨迹选择信号
         self.trajectory_combo.currentTextChanged.connect(self.on_trajectory_selection_changed)
         
-        # 新增：连接执行时间变化信号
-        self.duration_spin.valueChanged.connect(self.on_duration_changed)
-        
         # 初始化示教按钮状态
         self.update_teaching_buttons_state()
 
@@ -444,20 +430,9 @@ class DeepMotorPage(QWidget):
 
         self._current_trajectory = text
         
-        # 禁用时长控制器，直到新数据加载完成
-        self.duration_spin.setEnabled(False)
-
         # 如果当前参数是轨迹相关的，则自动请求新选择的轨迹数据
         if self.current_selected_param.startswith('trajectory_'):
             self.request_trajectory_data.emit(self.DeviceName, self._current_trajectory)
-
-    def on_duration_changed(self, value: float):
-        """执行时长改变时的处理函数"""
-        if not self._current_trajectory:
-            return
-        
-        # 发送重规划请求
-        self.replan_requested.emit(self.DeviceName, self._current_trajectory, value)
 
     def on_param_changed(self, param_text: str):
         """参数选择改变时的处理函数"""
@@ -679,14 +654,6 @@ class DeepMotorPage(QWidget):
         planned_times = trajectory_data.get('planned_times', [])
         planned_positions = trajectory_data.get('planned_positions', [])
         trajectory_name = trajectory_data.get('trajectory_name', '')
-        total_time = trajectory_data.get('total_time')
-
-        # 更新并启用时长控制器
-        if total_time is not None:
-            self.duration_spin.blockSignals(True)
-            self.duration_spin.setValue(total_time)
-            self.duration_spin.blockSignals(False)
-            self.duration_spin.setEnabled(True)
         
         # 根据选择的参数类型绘制不同的曲线
         if self.current_selected_param == 'trajectory_original' and original_times:

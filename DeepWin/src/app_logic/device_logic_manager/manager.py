@@ -282,11 +282,3 @@ class DeviceLogicManager(QObject):
         else:
             self.logger.warning(f"设备 '{device_id}' 不支持 'reload_trajectories' 或不存在。")
             return []
-
-    def replan_trajectory(self, device_id: str, trajectory_name: str, duration: float):
-        """
-        请求设备使用新的时长重新规划轨迹
-        """
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'replan_trajectory'):
-            device.replan_trajectory(trajectory_name, duration)

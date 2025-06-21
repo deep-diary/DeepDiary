@@ -216,8 +216,6 @@ class Coordinator(QObject):
         
         # 连接轨迹列表请求信号
         self.gui_manager.window.deviceInterface.deep_motor_page.request_trajectory_list.connect(self.handle_trajectory_list_request)
-        # 新增：连接重规划请求信号
-        self.gui_manager.window.deviceInterface.deep_motor_page.replan_requested.connect(self.handle_replan_requested)
 
         # 连接测试按钮信号
         self.gui_manager.window.basicInputInterface.test_button_clicked.connect(self.handle_test_button_click)
@@ -880,26 +878,22 @@ class Coordinator(QObject):
 
     @Slot(str, str)
     def handle_execute_teaching_request(self, device_name: str, trajectory_name: str):
-        """处理UI发出的执行示教请求"""
-        self.logger.info(f"收到对设备 '{device_name}' 的示教执行请求，轨迹: '{trajectory_name}'")
-        self.device_logic_manager.execute_trajectory(device_name, trajectory_name)
-
-    @Slot(str, str, float)
-    def handle_replan_requested(self, device_name: str, trajectory_name: str, duration: float):
-        """
-        处理UI发出的轨迹重规划请求
-        """
-        self.logger.info(f"收到对轨迹 '{trajectory_name}' 的重规划请求，新时长: {duration}s")
-        # 1. 请求设备逻辑管理器执行重规划
-        self.device_logic_manager.replan_trajectory(device_name, trajectory_name, duration)
+        """处理执行示教请求"""
+        self.logger.info(f"Coordinator: 收到执行示教请求，设备: {device_name}, 轨迹: {trajectory_name}")
         
-        # 2. 规划后，立即请求新的轨迹数据以更新UI
-        self.handle_trajectory_data_request(device_name, trajectory_name)
+        try:
+            # 执行示教轨迹
+            self.device_logic_manager.execute_trajectory(device_name, trajectory_name)
+            self.app_status_message.emit(f"正在执行轨迹: {trajectory_name}")
+        except Exception as e:
+            error_msg = f"执行轨迹失败: {str(e)}"
+            self.logger.error(f"Coordinator: {error_msg}")
+            self.app_status_message.emit(error_msg)
 
     @Slot(str, float, float)
     def handle_trajectory_point_ready(self, device_id: str, position: float, velocity: float):
-        """处理轨迹播放器发出的轨迹点，并转发为电机命令"""
-        self.logger.debug(f"Trajectory point ready: pos={position}, speed={velocity}")
+        """处理轨迹点就绪信号"""
+        self.logger.debug(f"Coordinator: 轨迹点就绪，设备: {device_id}, 位置: {position:.2f}, 速度: {velocity:.2f}")
         
         # 发送位置控制命令到设备
         command = f"set_motor_position(1, {position:.2f})"
