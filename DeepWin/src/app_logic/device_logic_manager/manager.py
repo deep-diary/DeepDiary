@@ -42,6 +42,11 @@ class DeviceLogicManager(QObject):
     trajectory_playback_finished = Signal(str, str)
     trajectory_playback_error = Signal(str, str)
 
+    # 新增：DeepMotor 轨迹执行相关信号
+    trajectory_execution_progress_updated = Signal(str, dict)  # (device_id, progress_data)
+    trajectory_execution_finished = Signal(str, str)  # (device_id, trajectory_name)
+    trajectory_execution_error = Signal(str, str)  # (device_id, error_message)
+
 
     def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         """
@@ -86,6 +91,14 @@ class DeviceLogicManager(QObject):
                 else:
                     # 兼容旧版本，使用 command_to_coordinator 信号
                     self.managed_devices[device_id].command_to_coordinator.connect(self.send_device_abstract_command_requested)
+                
+                # 新增：连接DeepMotor的轨迹执行相关信号
+                if hasattr(self.managed_devices[device_id], 'trajectory_execution_progress_updated'):
+                    self.managed_devices[device_id].trajectory_execution_progress_updated.connect(self.trajectory_execution_progress_updated)
+                if hasattr(self.managed_devices[device_id], 'trajectory_execution_finished'):
+                    self.managed_devices[device_id].trajectory_execution_finished.connect(self.trajectory_execution_finished)
+                if hasattr(self.managed_devices[device_id], 'trajectory_execution_error'):
+                    self.managed_devices[device_id].trajectory_execution_error.connect(self.trajectory_execution_error)
             else:
                 self.logger.error(f"DeviceLogicManager: 无法识别的设备类型或 ID 前缀: {device_id}")
                 return None

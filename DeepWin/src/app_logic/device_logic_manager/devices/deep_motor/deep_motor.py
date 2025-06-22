@@ -23,6 +23,9 @@ class DeepMotor(BaseDevice):
     """
     # 新增：轨迹执行相关信号
     send_command_request = Signal(str, str, list)  # (device_id, command_name, args)
+    trajectory_execution_progress_updated = Signal(str, dict)  # (device_id, progress_data)
+    trajectory_execution_finished = Signal(str, str)  # (device_id, trajectory_name)
+    trajectory_execution_error = Signal(str, str)  # (device_id, error_message)
     
     def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         super().__init__(device_id, log_manager, parent)
@@ -58,6 +61,11 @@ class DeepMotor(BaseDevice):
         
         # 连接 TeachingTrajectoryManager 的命令发送信号到 DeepMotor 的信号
         self.teaching_manager._send_command_request.connect(self.send_command_request.emit)
+        
+        # 连接执行进度信号
+        self.teaching_manager._trajectory_execution_progress_detailed.connect(self._on_trajectory_execution_progress)
+        self.teaching_manager._trajectory_execution_finished.connect(self._on_trajectory_execution_finished)
+        self.teaching_manager._trajectory_execution_error.connect(self._on_trajectory_execution_error)
         
         self.logger.info(f"DeepMotor '{device_id}': 初始化完成，历史记录长度设置为 {self.buffer_size}。")
 
@@ -139,6 +147,16 @@ class DeepMotor(BaseDevice):
                 position=semantic_data.get('position'),
                 velocity=semantic_data.get('velocity')
             )
+
+        # 如果正在执行轨迹，记录反馈数据
+        if self.teaching_manager and hasattr(self.teaching_manager, 'get_execution_data'):
+            execution_data = self.teaching_manager.get_execution_data(self.device_id)
+            if execution_data and execution_data.get('current_point', 0) > 0:
+                # 正在执行轨迹，记录反馈数据
+                self.teaching_manager.record_feedback_data(
+                    device_id=self.device_id,
+                    position=semantic_data.get('position', 0.0)
+                )
 
         self.logger.debug(f"DeepMotor '{self.device_id}': 特定状态更新完成。")
         self.device_states_updated.emit(self.device_id, current_state_dict)
@@ -418,3 +436,27 @@ class DeepMotor(BaseDevice):
         if self.teaching_manager:
             self.teaching_manager.load_all_trajectories()
             self.logger.info(f"设备 '{self.device_id}' 的轨迹已重新加载。")
+
+    def _on_trajectory_execution_progress(self, device_id: str, progress_data: dict):
+        """
+        处理轨迹执行进度信号
+        """
+        self.logger.info(f"DeepMotor '{self.device_id}': 收到轨迹执行进度信号: {progress_data}")
+        # 转发给DeviceLogicManager
+        self.trajectory_execution_progress_updated.emit(device_id, progress_data)
+
+    def _on_trajectory_execution_finished(self, device_id: str, trajectory_name: str):
+        """
+        处理轨迹执行完成信号
+        """
+        self.logger.info(f"DeepMotor '{self.device_id}': 收到轨迹执行完成信号: {trajectory_name}")
+        # 转发给DeviceLogicManager
+        self.trajectory_execution_finished.emit(device_id, trajectory_name)
+
+    def _on_trajectory_execution_error(self, device_id: str, error_message: str):
+        """
+        处理轨迹执行错误信号
+        """
+        self.logger.error(f"DeepMotor '{self.device_id}': 收到轨迹执行错误信号: {error_message}")
+        # 转发给DeviceLogicManager
+        self.trajectory_execution_error.emit(device_id, error_message)

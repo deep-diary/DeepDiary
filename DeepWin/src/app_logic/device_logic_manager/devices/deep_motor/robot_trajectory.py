@@ -92,7 +92,7 @@ class RobotTrajectory:
             cs = CubicSpline(times, waypoints)
         
         # 生成插值轨迹
-        t_interp = np.linspace(times[0], times[-1], 100)
+        t_interp = np.linspace(times[0], times[-1], 50)
         pos_interp = cs(t_interp)
         vel_interp = cs(t_interp, 1)
         acc_interp = cs(t_interp, 2)

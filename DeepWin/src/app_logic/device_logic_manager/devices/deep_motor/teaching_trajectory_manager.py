@@ -38,6 +38,9 @@ class TeachingTrajectoryManager(QObject):
     _trajectory_execution_error = Signal(str, str) # (device_id, error_message) 轨迹执行错误
     _trajectory_execution_progress = Signal(str, int) # (device_id, progress_percentage) 轨迹执行进度
     
+    # 新增：执行进度详细信号
+    _trajectory_execution_progress_detailed = Signal(str, dict) # (device_id, progress_data) 详细执行进度数据
+    
     # 新增：命令发送信号
     _send_command_request = Signal(str, str, list) # (device_id, command_name, args) 请求发送命令
 
@@ -78,6 +81,10 @@ class TeachingTrajectoryManager(QObject):
         self._trajectory_execution_thread = None
         self._stop_trajectory_execution = threading.Event()
         self._current_execution: Dict[str, Any] = {}  # 当前执行状态
+        
+        # 新增：执行数据管理
+        self._execution_data: Dict[str, Dict[str, Any]] = {}  # {device_id: {executed_times, executed_positions, feedback_times, feedback_positions}}
+        self._execution_start_time: Dict[str, float] = {}  # {device_id: start_time}
         
         # 加载已保存的轨迹
         self._load_saved_trajectories()
@@ -614,6 +621,17 @@ class TeachingTrajectoryManager(QObject):
         """
         self.logger.info(f"TeachingTrajectoryManager: 开始执行轨迹 '{trajectory_name}' for device '{device_id}', motor_id: {motor_id}, 使用规划轨迹: {use_planned_trajectory}")
         
+        # 初始化执行数据
+        self._execution_data[device_id] = {
+            'executed_times': [],
+            'executed_positions': [],
+            'feedback_times': [],
+            'feedback_positions': [],
+            'total_points': 0,
+            'current_point': 0
+        }
+        self._execution_start_time[device_id] = time.time()
+        
         if use_planned_trajectory:
             # 使用规划轨迹执行
             self._execute_planned_trajectory(device_id, trajectory_name, motor_id)
@@ -740,6 +758,10 @@ class TeachingTrajectoryManager(QObject):
             # 发送轨迹执行开始信号
             self._trajectory_execution_started.emit(device_id, trajectory_name)
             
+            # 更新执行数据
+            if device_id in self._execution_data:
+                self._execution_data[device_id]['total_points'] = len(times)
+            
             start_time = time.time()
             
             for i, (t, position) in enumerate(zip(times, positions)):
@@ -770,11 +792,31 @@ class TeachingTrajectoryManager(QObject):
                 # 发送命令请求信号
                 self._send_command_request.emit(device_id, command_name, args)
                 
+                # 更新执行数据
+                if device_id in self._execution_data:
+                    current_time = time.time() - self._execution_start_time[device_id]
+                    self._execution_data[device_id]['current_point'] = i + 1
+                    self._execution_data[device_id]['executed_times'].append(current_time)
+                    self._execution_data[device_id]['executed_positions'].append(position)
+                    
+                    # 发送详细进度信号
+                    progress_data = {
+                        'current_point': i + 1,
+                        'total_points': len(times),
+                        'executed_times': self._execution_data[device_id]['executed_times'].copy(),
+                        'executed_positions': self._execution_data[device_id]['executed_positions'].copy(),
+                        'feedback_times': self._execution_data[device_id]['feedback_times'].copy(),
+                        'feedback_positions': self._execution_data[device_id]['feedback_positions'].copy()
+                    }
+                    self.logger.info(f"TeachingTrajectoryManager: 发送详细进度信号: {progress_data}")
+                    self._trajectory_execution_progress_detailed.emit(device_id, progress_data)
+                
                 # 发送进度信号
                 progress = int((i + 1) / len(times) * 100)
                 self._trajectory_execution_progress.emit(device_id, progress)
             
             # 发送轨迹执行完成信号
+            self.logger.info(f"TeachingTrajectoryManager: 发送轨迹执行完成信号: {trajectory_name}")
             self._trajectory_execution_finished.emit(device_id, trajectory_name)
             
             total_time = time.time() - start_time
@@ -800,6 +842,40 @@ class TeachingTrajectoryManager(QObject):
                 self._trajectory_execution_thread.join(timeout=2.0)  # 等待最多2秒
                 self._stop_trajectory_execution.clear()
                 self.logger.info(f"TeachingTrajectoryManager: 轨迹执行已停止")
+
+    def record_feedback_data(self, device_id: str, position: float):
+        """
+        记录轨迹执行过程中的反馈数据
+        :param device_id: 设备ID
+        :param position: 反馈的位置数据
+        """
+        if device_id in self._execution_data and self._execution_data[device_id]['current_point'] > 0:
+            # 只有在执行过程中才记录反馈数据
+            current_time = time.time() - self._execution_start_time[device_id]
+            self._execution_data[device_id]['feedback_times'].append(current_time)
+            self._execution_data[device_id]['feedback_positions'].append(position)
+            
+            # 发送详细进度信号（包含反馈数据）
+            progress_data = {
+                'current_point': self._execution_data[device_id]['current_point'],
+                'total_points': self._execution_data[device_id]['total_points'],
+                'executed_times': self._execution_data[device_id]['executed_times'].copy(),
+                'executed_positions': self._execution_data[device_id]['executed_positions'].copy(),
+                'feedback_times': self._execution_data[device_id]['feedback_times'].copy(),
+                'feedback_positions': self._execution_data[device_id]['feedback_positions'].copy()
+            }
+            self.logger.info(f"TeachingTrajectoryManager: 发送反馈数据进度信号: {progress_data}")
+            self._trajectory_execution_progress_detailed.emit(device_id, progress_data)
+            
+            self.logger.debug(f"TeachingTrajectoryManager: 记录反馈数据 for device '{device_id}': time={current_time:.2f}s, position={position:.2f}")
+
+    def get_execution_data(self, device_id: str) -> Dict[str, Any]:
+        """
+        获取执行数据
+        :param device_id: 设备ID
+        :return: 执行数据字典
+        """
+        return self._execution_data.get(device_id, {})
 
     def cleanup(self):
         """

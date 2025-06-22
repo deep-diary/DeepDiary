@@ -156,12 +156,10 @@ class Coordinator(QObject):
         self.device_logic_manager.device_error.connect(lambda msg: self.app_status_message.emit(f"设备错误: {msg}"))
         self.device_logic_manager.send_device_abstract_command_requested.connect(self._on_device_abstract_command_requested)
         
-        # 移除对已删除的 teaching_manager 的引用
-        # 轨迹播放相关信号现在由具体的设备实例处理
-        # self.device_logic_manager.teaching_manager._trajectory_point_ready.connect(self.handle_trajectory_point_ready)
-        # self.device_logic_manager.teaching_manager._trajectory_playback_started.connect(self.handle_trajectory_playback_started)
-        # self.device_logic_manager.teaching_manager._trajectory_playback_finished.connect(self.handle_trajectory_playback_finished)
-        # self.device_logic_manager.teaching_manager._trajectory_playback_error.connect(self.handle_trajectory_playback_error)
+        # 连接DeviceLogicManager的轨迹执行相关信号
+        self.device_logic_manager.trajectory_execution_progress_updated.connect(self.handle_trajectory_execution_progress)
+        self.device_logic_manager.trajectory_execution_finished.connect(self.handle_trajectory_execution_finished)
+        self.device_logic_manager.trajectory_execution_error.connect(self.handle_trajectory_execution_error)
         
         self.logger.debug("Coordinator: 设备逻辑管理器信号连接完成。")
 
@@ -984,4 +982,39 @@ class Coordinator(QObject):
             self.app_status_message.emit(f"轨迹列表已更新，共 {len(trajectory_list)} 条轨迹")
         else:
             self.app_status_message.emit("暂无轨迹数据")
+
+    @Slot(str, dict)
+    def handle_trajectory_execution_progress(self, device_id: str, progress_data: dict):
+        """处理轨迹执行进度信号"""
+        self.logger.info(f"Coordinator: 收到轨迹执行进度信号，设备: {device_id}, 数据: {progress_data}")
+        
+        # 转发给UI
+        if self.gui_manager and self.gui_manager.window:
+            self.gui_manager.window.deviceInterface.deep_motor_page.update_trajectory_execution_progress(progress_data)
+        else:
+            self.logger.warning("Coordinator: GUI管理器不可用，无法转发进度信号")
+
+    @Slot(str, str)
+    def handle_trajectory_execution_finished(self, device_id: str, trajectory_name: str):
+        """处理轨迹执行完成信号"""
+        self.logger.info(f"Coordinator: 轨迹执行完成，设备: {device_id}, 轨迹: {trajectory_name}")
+        self.app_status_message.emit(f"轨迹执行完成: {trajectory_name}")
+        
+        # 转发给UI
+        if self.gui_manager and self.gui_manager.window:
+            self.gui_manager.window.deviceInterface.deep_motor_page.on_trajectory_execution_finished()
+        else:
+            self.logger.warning("Coordinator: GUI管理器不可用，无法转发完成信号")
+
+    @Slot(str, str)
+    def handle_trajectory_execution_error(self, device_id: str, error_message: str):
+        """处理轨迹执行错误信号"""
+        self.logger.error(f"Coordinator: 轨迹执行错误，设备: {device_id}, 错误: {error_message}")
+        self.app_status_message.emit(f"轨迹执行错误: {error_message}")
+        
+        # 转发给UI
+        if self.gui_manager and self.gui_manager.window:
+            self.gui_manager.window.deviceInterface.deep_motor_page.on_trajectory_execution_error(error_message)
+        else:
+            self.logger.warning("Coordinator: GUI管理器不可用，无法转发错误信号")
 

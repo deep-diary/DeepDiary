@@ -181,6 +181,7 @@ class DeepMotorPage(QWidget):
         self._show_trajectory = False  # 是否显示轨迹模式
         self._original_total_time = 5.0  # 保存轨迹的原始时长
         self.use_planned_trajectory = False  # 是否使用规划轨迹
+        self._is_executing_trajectory = False  # 轨迹执行状态标志
         
         if self.logger:
             self.logger.info("DeepMotor页面初始化开始")
@@ -356,7 +357,7 @@ class DeepMotorPage(QWidget):
             'motor_can_id (CAN ID)', 'mode_state (模式状态)', 'flt_uninitialized (未初始化故障)',
             'flt_hall_encoding (霍尔编码故障)', 'flt_magnetic_encoding (磁编码故障)', 'flt_over_temperature (过温故障)',
             'flt_over_current (过流故障)', 'flt_voltage_drop (电压跌落故障)',
-            '--- 示教与轨迹 ---', '示教轨迹', 'trajectory_original (原始轨迹)', 'trajectory_planned (规划轨迹)', 'trajectory_both (原始+规划)'
+            '--- 示教与轨迹 ---', 'trajectory_original (示教轨迹)', 'trajectory_original (原始轨迹)', 'trajectory_planned (规划轨迹)', 'trajectory_both (原始+规划)', 'trajectory_executed (执行轨迹)'
         ])
         self.param_combo.setCurrentText('position (位置)')
         
@@ -512,6 +513,19 @@ class DeepMotorPage(QWidget):
         if self.logger:
             self.logger.info(f"执行示教按钮被点击，轨迹: {trajectory_name}, 使用规划轨迹: {self.planning_switch.isChecked()}")
         
+        # 设置执行状态
+        self._is_executing_trajectory = True
+        self.update_execution_buttons_state()
+        
+        # 自动切换到执行轨迹视图并清空画布
+        self.param_combo.setCurrentText('trajectory_executed (执行轨迹)')
+        self.ax.clear()
+        self.ax.set_xlabel('时间 (s)')
+        self.ax.set_ylabel('位置 (°)')
+        self.ax.set_title('轨迹执行实时监控')
+        self.ax.grid(True, alpha=0.3)
+        self.canvas.draw()
+        
         # 发送执行示教信号，使用开关的状态
         self.execute_teaching_requested.emit(self.DeviceName, trajectory_name, self.planning_switch.isChecked(), self.current_motor_id)
 
@@ -595,7 +609,8 @@ class DeepMotorPage(QWidget):
             'trajectory_original (示教轨迹)': 'trajectory_original',
             'trajectory_original (原始轨迹)': 'trajectory_original',
             'trajectory_planned (规划轨迹)': 'trajectory_planned',
-            'trajectory_both (原始+规划)': 'trajectory_both'
+            'trajectory_both (原始+规划)': 'trajectory_both',
+            'trajectory_executed (执行轨迹)': 'trajectory_executed'
         }
         
         self.current_selected_param = param_map.get(param_text, 'position')
@@ -965,6 +980,123 @@ class DeepMotorPage(QWidget):
         self.planning_switch.setText('开启' if checked else '关闭')
         if self.logger:
             self.logger.info(f"轨迹规划开关已更改为: {'开启' if checked else '关闭'}")
+
+    def update_execution_buttons_state(self):
+        """更新执行按钮状态"""
+        if self._is_executing_trajectory:
+            self.execute_teaching_button.setEnabled(False)
+            self.teaching_status_label.setText('示教状态: 执行中')
+            self.teaching_status_label.setStyleSheet("color: blue;")
+        else:
+            self.execute_teaching_button.setEnabled(True)
+            self.teaching_status_label.setText('示教状态: 未开始')
+            self.teaching_status_label.setStyleSheet("color: gray;")
+
+    def update_trajectory_execution_progress(self, progress_data: dict):
+        """
+        更新轨迹执行进度显示
+        :param progress_data: 包含执行进度信息的字典
+        """
+        if self.logger:
+            self.logger.info(f"收到轨迹执行进度信号: {progress_data}")
+        
+        if not self._is_executing_trajectory:
+            if self.logger:
+                self.logger.warning("收到进度信号但不在执行状态，忽略")
+            return
+            
+        # 获取进度信息
+        current_point = progress_data.get('current_point', 0)
+        total_points = progress_data.get('total_points', 1)
+        executed_times = progress_data.get('executed_times', [])
+        executed_positions = progress_data.get('executed_positions', [])
+        feedback_times = progress_data.get('feedback_times', [])
+        feedback_positions = progress_data.get('feedback_positions', [])
+        
+        # 计算进度百分比
+        progress_percent = int((current_point / total_points) * 100) if total_points > 0 else 0
+        
+        # 更新状态标签
+        self.teaching_status_label.setText(f'示教状态: 执行中 ({progress_percent}%)')
+        
+        # 更新曲线显示
+        self._update_execution_curve(executed_times, executed_positions, feedback_times, feedback_positions)
+
+    def _update_execution_curve(self, executed_times, executed_positions, feedback_times, feedback_positions):
+        """
+        更新执行轨迹曲线
+        """
+        if self.logger:
+            self.logger.info(f"更新执行曲线: 执行点={len(executed_times)}, 反馈点={len(feedback_times)}")
+        
+        if not self._is_executing_trajectory:
+            if self.logger:
+                self.logger.warning("尝试更新执行曲线但不在执行状态，忽略")
+            return
+            
+        # 清空当前图形
+        self.ax.clear()
+        
+        # 绘制已执行的规划轨迹（蓝色实线）
+        if executed_times and executed_positions:
+            self.ax.plot(executed_times, executed_positions, 'b-', linewidth=2, label='规划轨迹')
+        
+        # 绘制实时反馈轨迹（红色实线）
+        if feedback_times and feedback_positions:
+            self.ax.plot(feedback_times, feedback_positions, 'r-', linewidth=2, label='实际反馈')
+        
+        # 设置标签和网格
+        self.ax.set_xlabel('时间 (s)')
+        self.ax.set_ylabel('位置 (°)')
+        self.ax.set_title('轨迹执行实时监控')
+        self.ax.grid(True, alpha=0.3)
+        
+        # 添加图例
+        if (executed_times and executed_positions) or (feedback_times and feedback_positions):
+            self.ax.legend()
+        
+        # 自动调整布局
+        self.figure.tight_layout()
+        
+        # 刷新画布
+        self.canvas.draw()
+        
+        if self.logger:
+            self.logger.info("执行曲线更新完成")
+
+    def on_trajectory_execution_finished(self):
+        """轨迹执行完成时的处理函数"""
+        if self.logger:
+            self.logger.info("轨迹执行完成")
+        
+        # 恢复执行状态
+        self._is_executing_trajectory = False
+        self.update_execution_buttons_state()
+        
+        # 更新状态标签
+        self.teaching_status_label.setText('示教状态: 执行完成')
+        self.teaching_status_label.setStyleSheet("color: green;")
+        
+        # 3秒后恢复默认状态
+        QTimer.singleShot(3000, lambda: self.teaching_status_label.setText('示教状态: 未开始'))
+        QTimer.singleShot(3000, lambda: self.teaching_status_label.setStyleSheet("color: gray;"))
+
+    def on_trajectory_execution_error(self, error_message: str):
+        """轨迹执行错误时的处理函数"""
+        if self.logger:
+            self.logger.error(f"轨迹执行错误: {error_message}")
+        
+        # 恢复执行状态
+        self._is_executing_trajectory = False
+        self.update_execution_buttons_state()
+        
+        # 更新状态标签
+        self.teaching_status_label.setText(f'示教状态: 执行失败')
+        self.teaching_status_label.setStyleSheet("color: red;")
+        
+        # 3秒后恢复默认状态
+        QTimer.singleShot(3000, lambda: self.teaching_status_label.setText('示教状态: 未开始'))
+        QTimer.singleShot(3000, lambda: self.teaching_status_label.setStyleSheet("color: gray;"))
 
 class DeepArmPage(QWidget):
     """DeepArm 控制页面"""
