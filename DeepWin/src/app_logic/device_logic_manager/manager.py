@@ -47,6 +47,9 @@ class DeviceLogicManager(QObject):
     trajectory_execution_finished = Signal(str, str)  # (device_id, trajectory_name)
     trajectory_execution_error = Signal(str, str)  # (device_id, error_message)
 
+    # 新增：示教轨迹实时更新信号
+    teaching_trajectory_updated = Signal(str, list, list)  # 示教轨迹实时更新
+
 
     def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         """
@@ -99,6 +102,10 @@ class DeviceLogicManager(QObject):
                     self.managed_devices[device_id].trajectory_execution_finished.connect(self.trajectory_execution_finished)
                 if hasattr(self.managed_devices[device_id], 'trajectory_execution_error'):
                     self.managed_devices[device_id].trajectory_execution_error.connect(self.trajectory_execution_error)
+                
+                # 新增：连接DeepMotor的示教轨迹实时更新信号
+                if hasattr(self.managed_devices[device_id], 'teaching_trajectory_updated'):
+                    self.managed_devices[device_id].teaching_trajectory_updated.connect(self.teaching_trajectory_updated)
             else:
                 self.logger.error(f"DeviceLogicManager: 无法识别的设备类型或 ID 前缀: {device_id}")
                 return None

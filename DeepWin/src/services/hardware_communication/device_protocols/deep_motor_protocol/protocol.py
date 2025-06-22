@@ -279,7 +279,8 @@ class DeepMotorProtocol:
                 position = kwargs.get('position')
                 if position is None: raise ValueError("set_motor_position 命令需要 'position' 参数。")
                 loc_index = self.index['LOC_REF']
-                limited_position = self._limit_position(motor_id, position)
+                # limited_position = self._limit_position(motor_id, position) # 对单电机来说，取消限制
+                limited_position = position
                 return self.encode_command('write_motor_param', motor_id=motor_id, index=loc_index, value=limited_position)
             elif command_type == 'set_all_motors_position':
                 motor_ids = kwargs.get('motor_ids', [])

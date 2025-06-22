@@ -54,7 +54,9 @@ class ConfigManager(QObject):
                 "deeparm_dbc_path": "deeparm.dbc", # 相对路径或绝对路径
                 "deepmotor_serial_port": "COM2",
                 "deepmotor_baud_rate": 115200,
-                "deepmotor_history_length": 100
+                "deepmotor_history_length": 100,
+                "deepmotor_teaching_interval": 0.1,
+                "deepmotor_trajectory_interp_points": 50
             },
             "network": {
                 "server_address": "localhost:8000",

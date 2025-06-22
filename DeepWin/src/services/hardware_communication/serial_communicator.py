@@ -156,7 +156,7 @@ class SerialCommunicator(QObject):
 
         timer = QTimer(self)
         timer.timeout.connect(lambda: self._read_serial_data(port_name))
-        timer.start(50) # 每 50ms 尝试读取一次，适应 readline 的阻塞
+        timer.start(10) # 每 10ms 尝试读取一次，适应 readline 的阻塞
         self._read_timers[port_name] = timer
         self.logger.info(f"SerialCommunicator: 开始从串口 '{port_name}' 读取数据。")
 

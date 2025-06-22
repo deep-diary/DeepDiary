@@ -18,7 +18,7 @@ class RobotTrajectory:
         # 移除重复的字体配置，使用全局配置
         # setup_chinese_font()
     
-    def quintic_polynomial_trajectory(self, t0, tf, q0, qf, v0=0, vf=0, a0=0, af=0):
+    def quintic_polynomial_trajectory(self, t0, tf, q0, qf, v0=0, vf=0, a0=0, af=0, interp_points=50):
         """
         五次多项式轨迹规划
         
@@ -52,7 +52,7 @@ class RobotTrajectory:
         coeffs = np.linalg.solve(A, b)
         
         # 生成轨迹
-        t = np.linspace(t0, tf, 100)
+        t = np.linspace(t0, tf, interp_points)
         pos = np.zeros_like(t)
         vel = np.zeros_like(t)
         acc = np.zeros_like(t)
@@ -68,7 +68,7 @@ class RobotTrajectory:
         
         return t, pos, vel, acc
     
-    def cubic_spline_trajectory(self, waypoints, times, bc_type='clamped'):
+    def cubic_spline_trajectory(self, waypoints, times, bc_type='clamped', interp_points=50):
         """
         三次样条轨迹插值
         
@@ -76,6 +76,7 @@ class RobotTrajectory:
             waypoints: 路径点数组
             times: 时间点数组
             bc_type: 边界条件类型 ('natural', 'clamped', 'periodic')
+            interp_points: 插值点数
             
         Returns:
             tuple: (时间数组, 位置数组, 速度数组, 加速度数组)
@@ -92,14 +93,14 @@ class RobotTrajectory:
             cs = CubicSpline(times, waypoints)
         
         # 生成插值轨迹
-        t_interp = np.linspace(times[0], times[-1], 50)
+        t_interp = np.linspace(times[0], times[-1], interp_points)
         pos_interp = cs(t_interp)
         vel_interp = cs(t_interp, 1)
         acc_interp = cs(t_interp, 2)
         
         return t_interp, pos_interp, vel_interp, acc_interp
     
-    def linear_trajectory_with_parabolic_blends(self, waypoints, times, blend_time=0.1):
+    def linear_trajectory_with_parabolic_blends(self, waypoints, times, blend_time=0.1, interp_points=50):
         """
         带抛物线过渡的线性轨迹
         
@@ -107,13 +108,14 @@ class RobotTrajectory:
             waypoints: 路径点数组
             times: 时间点数组
             blend_time: 过渡时间
+            interp_points: 插值点数
             
         Returns:
             tuple: (时间数组, 位置数组, 速度数组, 加速度数组)
         """
         # 实现带抛物线过渡的线性轨迹
         # 这里简化实现，实际应用中需要更复杂的算法
-        return self.cubic_spline_trajectory(waypoints, times, 'clamped')
+        return self.cubic_spline_trajectory(waypoints, times, 'clamped', interp_points=interp_points)
     
     def plot_trajectory(self, t, pos, vel, acc, title="轨迹规划结果", original_waypoints=None, original_times=None):
         """
@@ -156,7 +158,7 @@ class RobotTrajectory:
         plt.tight_layout()
         plt.show()
     
-    def generate_waypoint_trajectory(self, waypoints, times, stop_in_point=True):
+    def generate_waypoint_trajectory(self, waypoints, times, stop_in_point=True, interp_points=50):
         """
         生成多路径点轨迹
         
@@ -165,6 +167,7 @@ class RobotTrajectory:
             times: 每个路径点对应的时间点数组
             stop_in_point (bool): 如果为 True, 使用五次多项式在每个路径点停止。
                                   如果为 False, 使用三次样条插值平滑经过路径点。
+            interp_points: 插值点数
             
         Returns:
             tuple: (时间数组, 位置数组, 速度数组, 加速度数组)
@@ -182,7 +185,8 @@ class RobotTrajectory:
             for i in range(n_waypoints - 1):
                 t, pos, vel, acc = self.quintic_polynomial_trajectory(
                     times[i], times[i+1], 
-                    waypoints[i], waypoints[i+1] # v0, vf, a0, af all default to 0
+                    waypoints[i], waypoints[i+1], # v0, vf, a0, af all default to 0
+                    interp_points=interp_points # 插值点数
                 )
                 
                 if i < n_waypoints - 2:
@@ -200,7 +204,7 @@ class RobotTrajectory:
         
         else:
             # 使用三次样条插值平滑经过
-            return self.cubic_spline_trajectory(waypoints, times)
+            return self.cubic_spline_trajectory(waypoints, times, interp_points=interp_points)
 
 def demo_trajectory_planning():
     """演示轨迹规划功能"""

@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Callable, Optional
 import numpy as np
 
 from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 from .robot_trajectory import RobotTrajectory
 
 
@@ -43,11 +44,15 @@ class TeachingTrajectoryManager(QObject):
     
     # 新增：命令发送信号
     _send_command_request = Signal(str, str, list) # (device_id, command_name, args) 请求发送命令
+    
+    # 新增：示教轨迹实时更新信号
+    _teaching_trajectory_updated = Signal(str, list, list) # (device_id, times, positions) 示教轨迹实时更新
 
-    def __init__(self, log_manager: LogManager, trajectory_folder: str = None, parent: Optional[QObject] = None):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, trajectory_folder: str = None, parent: Optional[QObject] = None):
         super().__init__(parent)
         self.logger = log_manager.get_logger(__name__)
         self.logger.info("TeachingTrajectoryManager: 初始化中...")
+        self.config_manager = config_manager
         
         # 示教状态管理 - 修改为支持motor_id
         self._teaching_sessions: Dict[str, Dict[str, Any]] = {} # {device_id: {'is_teaching': bool, 'motor_id': int}}
@@ -81,6 +86,10 @@ class TeachingTrajectoryManager(QObject):
         self._trajectory_execution_thread = None
         self._stop_trajectory_execution = threading.Event()
         self._current_execution: Dict[str, Any] = {}  # 当前执行状态
+        
+        # 新增：线程锁
+        self._state_lock = threading.Lock() # 保护 _current_execution
+        self._execution_data_lock = threading.Lock() # 保护 _execution_data
         
         # 新增：执行数据管理
         self._execution_data: Dict[str, Dict[str, Any]] = {}  # {device_id: {executed_times, executed_positions, feedback_times, feedback_positions}}
@@ -116,20 +125,15 @@ class TeachingTrajectoryManager(QObject):
         try:
             if trajectory_name not in self._stored_trajectories:
                 return
-            
             trajectory_data = self._stored_trajectories[trajectory_name]
             points = trajectory_data.get('points', [])
-            
             # 过滤出有效的轨迹点（排除开始和结束标记）
             valid_points = [p for p in points if p.get('type') == 'point']
-            
             if len(valid_points) < 2:
                 self.logger.warning(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 有效点不足，无法规划")
                 return
-            
             # 提取位置和时间数据
             positions = [p['position'] for p in valid_points]
-            
             # 根据选项决定使用哪个时间向量
             if keep_original_time:
                 timestamps = [p['timestamp'] for p in valid_points]
@@ -139,19 +143,15 @@ class TeachingTrajectoryManager(QObject):
             else:
                 time_vector = np.linspace(0, uniform_duration, len(positions))
                 self.logger.info(f"使用统一时间进行轨迹规划, 总时长: {uniform_duration}s")
-
             if time_vector[-1] < 0.1:
                 self.logger.warning(f"轨迹 '{trajectory_name}' 时间过短 ({time_vector[-1]:.2f}s)，无法规划。")
                 return
-            
+            # 从配置读取插值点数
+            interp_points = self.config_manager.get('device_settings.deepmotor_trajectory_interp_points', 50)
             # 生成规划后的轨迹
             planned_t, planned_pos, planned_vel, planned_acc = self._trajectory_planner.generate_waypoint_trajectory(
-                positions, time_vector, stop_in_point=False
+                positions, time_vector, stop_in_point=False, interp_points=interp_points
             )
-            # 按需规划时，不再自动弹出绘图窗口
-            # self._trajectory_planner.plot_trajectory(planned_t, planned_pos, planned_vel, planned_acc, f"轨迹规划: {trajectory_name}",
-            #                                          original_waypoints=positions, original_times=time_vector)
-            
             # 存储规划后的轨迹
             planned_data = {
                 'original_points': valid_points,
@@ -163,10 +163,8 @@ class TeachingTrajectoryManager(QObject):
                 'total_time': time_vector[-1],
                 'point_count': len(planned_t)
             }
-            
             self._planned_trajectories[trajectory_name] = planned_data
             self.logger.info(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 规划完成，生成 {len(planned_t)} 个点")
-            
         except Exception as e:
             self.logger.error(f"TeachingTrajectoryManager: 轨迹规划失败 '{trajectory_name}': {e}")
 
@@ -289,11 +287,16 @@ class TeachingTrajectoryManager(QObject):
         示教线程函数，每隔一定的时间发送set_motor_position(0) 指令，使电机响应指令返回当前状态
         """
         self.logger.info(f"TeachingTrajectoryManager: 示教线程启动 for device '{device_id}', motor_id: {motor_id}")
+        
+        # 从配置文件读取示教间隔时间，默认为0.1秒
+        teaching_interval = self.config_manager.get('device_settings.deepmotor_teaching_interval', 0.1)
+        self.logger.info(f"TeachingTrajectoryManager: 示教间隔时间设置为 {teaching_interval}秒")
+        
         try:
             while self._teaching_sessions.get(device_id, {}).get('is_teaching', False):
                 # 使用传入的motor_id
                 self._send_command_request.emit(device_id, "set_motor_position", [motor_id, 0])
-                time.sleep(1)  # 1秒间隔
+                time.sleep(teaching_interval)  # 使用配置文件中的间隔时间
         except Exception as e:
             self.logger.error(f"TeachingTrajectoryManager: 示教线程出错 for device '{device_id}': {e}")
         finally:
@@ -403,6 +406,21 @@ class TeachingTrajectoryManager(QObject):
         self._last_recorded_points[device_id] = {'position': position, 'velocity': velocity}
         self._last_record_time[device_id] = current_time
         
+        # 发送示教轨迹实时更新信号
+        if device_id in self._recording_sessions:
+            points = self._recording_sessions[device_id]['points']
+            # 过滤出有效的轨迹点（排除开始和结束标记）
+            valid_points = [p for p in points if p.get('type') == 'point']
+            
+            if len(valid_points) > 1:  # 至少需要2个点才能绘制
+                # 提取时间和位置数据
+                start_time = valid_points[0]['timestamp']
+                times = [p['timestamp'] - start_time for p in valid_points]
+                positions = [p['position'] for p in valid_points]
+                
+                # 发送实时更新信号
+                self._teaching_trajectory_updated.emit(device_id, times, positions)
+        
         self.logger.debug(f"TeachingTrajectoryManager: 记录轨迹点 for device '{device_id}': pos={position:.2f}, vel={velocity:.2f}")
 
     @Slot(str, str)
@@ -500,16 +518,24 @@ class TeachingTrajectoryManager(QObject):
     @Slot(str)
     def is_teaching(self, device_id: str) -> bool:
         """
-        检查指定设备是否在示教模式
-        :param device_id: 设备ID
-        :return: 是否在示教模式
+        检查指定设备是否正在示教
         """
+        # 检查 _teaching_sessions 是否存在且 is_teaching 为 True
         return self._teaching_sessions.get(device_id, {}).get('is_teaching', False)
+
+    def is_executing(self, device_id: str) -> bool:
+        """
+        检查指定设备是否正在执行轨迹。
+        这是判断执行状态的唯一权威来源。
+        """
+        with self._state_lock:
+            # _current_execution 在线程结束时会被清空，是准确的状态标志
+            return bool(self._current_execution and self._current_execution.get('device_id') == device_id)
 
     @Slot(str, str)
     def play_trajectory(self, device_id: str, trajectory_name: str):
         """
-        播放指定设备的示教轨迹。
+        播放指定的示教轨迹（旧版，暂不使用）
         :param device_id: 播放轨迹的设备ID。
         :param trajectory_name: 要播放的轨迹名称。
         """
@@ -666,16 +692,17 @@ class TeachingTrajectoryManager(QObject):
         # 停止之前的轨迹执行
         self.stop_trajectory_execution(device_id)
         
-        # 设置执行状态
-        self._current_execution = {
-            'device_id': device_id,
-            'trajectory_name': trajectory_name,
-            'times': planned_times,
-            'positions': planned_positions,
-            'total_points': len(planned_times),
-            'is_planned': True,
-            'motor_id': motor_id
-        }
+        # 设置执行状态 (加锁)
+        with self._state_lock:
+            self._current_execution = {
+                'device_id': device_id,
+                'trajectory_name': trajectory_name,
+                'times': planned_times,
+                'positions': planned_positions,
+                'total_points': len(planned_times),
+                'is_planned': True,
+                'motor_id': motor_id
+            }
         
         # 创建新线程执行轨迹
         self._trajectory_execution_thread = threading.Thread(
@@ -722,16 +749,17 @@ class TeachingTrajectoryManager(QObject):
         # 停止之前的轨迹执行
         self.stop_trajectory_execution(device_id)
         
-        # 设置执行状态
-        self._current_execution = {
-            'device_id': device_id,
-            'trajectory_name': trajectory_name,
-            'times': times,
-            'positions': positions,
-            'total_points': len(times),
-            'is_planned': False,
-            'motor_id': motor_id
-        }
+        # 设置执行状态 (加锁)
+        with self._state_lock:
+            self._current_execution = {
+                'device_id': device_id,
+                'trajectory_name': trajectory_name,
+                'times': times,
+                'positions': positions,
+                'total_points': len(times),
+                'is_planned': False,
+                'motor_id': motor_id
+            }
         
         # 创建新线程执行轨迹
         self._trajectory_execution_thread = threading.Thread(
@@ -755,6 +783,18 @@ class TeachingTrajectoryManager(QObject):
             trajectory_type = "规划轨迹" if is_planned else "原始轨迹"
             self.logger.info(f"TeachingTrajectoryManager: 轨迹执行线程开始，{trajectory_type}: '{trajectory_name}' for device '{device_id}', motor_id: {motor_id}")
             
+            # 初始化执行数据结构 (加锁)
+            with self._execution_data_lock:
+                self._execution_data[device_id] = {
+                    'current_point': 0,
+                    'total_points': len(times),
+                    'executed_times': [],
+                    'executed_positions': [],
+                    'feedback_times': [],
+                    'feedback_positions': []
+                }
+                self._execution_start_time[device_id] = time.time()
+            
             # 发送轨迹执行开始信号
             self._trajectory_execution_started.emit(device_id, trajectory_name)
             
@@ -762,26 +802,25 @@ class TeachingTrajectoryManager(QObject):
             if device_id in self._execution_data:
                 self._execution_data[device_id]['total_points'] = len(times)
             
-            start_time = time.time()
+            # --- 精确时间控制 ---
+            # 记录执行开始的绝对时间戳
+            execution_start_time = time.time()
             
             for i, (t, position) in enumerate(zip(times, positions)):
-                self.logger.info(f"TeachingTrajectoryManager: ----------{trajectory_type}执行轨迹点: '{i+1}/{len(times)}', 位置: {position:.2f}")
-                
                 # 检查是否需要停止执行
                 if self._stop_trajectory_execution.is_set():
                     self.logger.info(f"TeachingTrajectoryManager: 轨迹执行被中断")
                     break
                 
-                # 计算需要等待的时间
-                if i == 0:
-                    # 第一个点立即执行
-                    wait_time = 0
-                else:
-                    # 后续点根据时间间隔等待
-                    wait_time = t - times[i-1]
+                # --- 精确延时计算 ---
+                # 1. 计算当前轨迹点按计划应在何时执行
+                target_execution_time = execution_start_time + t
                 
-                if wait_time > 0:
-                    time.sleep(wait_time)
+                # 2. 计算需要休眠的时间，以弥补循环开销
+                sleep_duration = target_execution_time - time.time()
+                
+                if sleep_duration > 0:
+                    time.sleep(sleep_duration)
                 
                 # 发送位置控制命令，使用传入的motor_id
                 command_name = "set_motor_position"
@@ -792,56 +831,62 @@ class TeachingTrajectoryManager(QObject):
                 # 发送命令请求信号
                 self._send_command_request.emit(device_id, command_name, args)
                 
-                # 更新执行数据
-                if device_id in self._execution_data:
-                    current_time = time.time() - self._execution_start_time[device_id]
+                # 更新执行数据和发送信号 (加锁)
+                progress_data_to_emit = None
+                with self._execution_data_lock:
+                    current_time_relative = time.time() - self._execution_start_time[device_id]
                     self._execution_data[device_id]['current_point'] = i + 1
-                    self._execution_data[device_id]['executed_times'].append(current_time)
+                    self._execution_data[device_id]['executed_times'].append(current_time_relative)
                     self._execution_data[device_id]['executed_positions'].append(position)
                     
-                    # 发送详细进度信号
-                    progress_data = {
-                        'current_point': i + 1,
-                        'total_points': len(times),
+                    # 准备要发送的数据副本
+                    progress_data_to_emit = {
+                        'current_point': self._execution_data[device_id]['current_point'],
+                        'total_points': self._execution_data[device_id]['total_points'],
                         'executed_times': self._execution_data[device_id]['executed_times'].copy(),
                         'executed_positions': self._execution_data[device_id]['executed_positions'].copy(),
                         'feedback_times': self._execution_data[device_id]['feedback_times'].copy(),
                         'feedback_positions': self._execution_data[device_id]['feedback_positions'].copy()
                     }
-                    self.logger.info(f"TeachingTrajectoryManager: 发送详细进度信号: {progress_data}")
-                    self._trajectory_execution_progress_detailed.emit(device_id, progress_data)
-                
+
                 # 发送进度信号
                 progress = int((i + 1) / len(times) * 100)
                 self._trajectory_execution_progress.emit(device_id, progress)
+                
+                # 在锁外发射详细信号，避免死锁
+                if progress_data_to_emit:
+                    self._trajectory_execution_progress_detailed.emit(device_id, progress_data_to_emit)
             
             # 发送轨迹执行完成信号
-            self.logger.info(f"TeachingTrajectoryManager: 发送轨迹执行完成信号: {trajectory_name}")
             self._trajectory_execution_finished.emit(device_id, trajectory_name)
             
-            total_time = time.time() - start_time
-            self.logger.info(f"TeachingTrajectoryManager: {trajectory_type}执行完成，实际耗时: {total_time:.2f}s")
+            total_time_actual = time.time() - execution_start_time
+            self.logger.info(f"TeachingTrajectoryManager: {trajectory_type}执行完成。计划时长: {times[-1]:.2f}s, 实际耗时: {total_time_actual:.2f}s")
             
         except Exception as e:
             self.logger.error(f"TeachingTrajectoryManager: 轨迹执行出错: {e}")
             self._trajectory_execution_error.emit(device_id, str(e))
         finally:
             self._trajectory_execution_thread = None
-            self._current_execution = {}
+            with self._state_lock:
+                self._current_execution = {}
 
     def stop_trajectory_execution(self, device_id: str = None):
         """
         停止轨迹执行
         :param device_id: 设备ID，如果为None则停止所有设备的执行
         """
-        if self._trajectory_execution_thread and self._trajectory_execution_thread.is_alive():
-            # 检查是否是目标设备的执行
+        is_target_device = False
+        with self._state_lock:
             if device_id is None or self._current_execution.get('device_id') == device_id:
-                self.logger.info(f"TeachingTrajectoryManager: 正在停止轨迹执行...")
-                self._stop_trajectory_execution.set()
-                self._trajectory_execution_thread.join(timeout=2.0)  # 等待最多2秒
-                self._stop_trajectory_execution.clear()
-                self.logger.info(f"TeachingTrajectoryManager: 轨迹执行已停止")
+                is_target_device = True
+
+        if self._trajectory_execution_thread and self._trajectory_execution_thread.is_alive() and is_target_device:
+            self.logger.info(f"TeachingTrajectoryManager: 正在停止轨迹执行...")
+            self._stop_trajectory_execution.set()
+            self._trajectory_execution_thread.join(timeout=2.0)  # 等待最多2秒
+            self._stop_trajectory_execution.clear()
+            self.logger.info(f"TeachingTrajectoryManager: 轨迹执行已停止")
 
     def record_feedback_data(self, device_id: str, position: float):
         """
@@ -849,25 +894,14 @@ class TeachingTrajectoryManager(QObject):
         :param device_id: 设备ID
         :param position: 反馈的位置数据
         """
-        if device_id in self._execution_data and self._execution_data[device_id]['current_point'] > 0:
-            # 只有在执行过程中才记录反馈数据
-            current_time = time.time() - self._execution_start_time[device_id]
-            self._execution_data[device_id]['feedback_times'].append(current_time)
-            self._execution_data[device_id]['feedback_positions'].append(position)
-            
-            # 发送详细进度信号（包含反馈数据）
-            progress_data = {
-                'current_point': self._execution_data[device_id]['current_point'],
-                'total_points': self._execution_data[device_id]['total_points'],
-                'executed_times': self._execution_data[device_id]['executed_times'].copy(),
-                'executed_positions': self._execution_data[device_id]['executed_positions'].copy(),
-                'feedback_times': self._execution_data[device_id]['feedback_times'].copy(),
-                'feedback_positions': self._execution_data[device_id]['feedback_positions'].copy()
-            }
-            self.logger.info(f"TeachingTrajectoryManager: 发送反馈数据进度信号: {progress_data}")
-            self._trajectory_execution_progress_detailed.emit(device_id, progress_data)
-            
-            self.logger.debug(f"TeachingTrajectoryManager: 记录反馈数据 for device '{device_id}': time={current_time:.2f}s, position={position:.2f}")
+        with self._execution_data_lock:
+            # The check `is_executing` is done before calling this, but we lock here to ensure data integrity
+            if device_id in self._execution_data and self._execution_data.get(device_id, {}).get('current_point', 0) > 0:
+                current_time = time.time() - self._execution_start_time[device_id]
+                self._execution_data[device_id]['feedback_times'].append(current_time)
+                self._execution_data[device_id]['feedback_positions'].append(position)
+                
+                self.logger.debug(f"TeachingTrajectoryManager: 记录反馈数据 for device '{device_id}': time={current_time:.2f}s, position={position:.2f}")
 
     def get_execution_data(self, device_id: str) -> Dict[str, Any]:
         """
@@ -875,7 +909,9 @@ class TeachingTrajectoryManager(QObject):
         :param device_id: 设备ID
         :return: 执行数据字典
         """
-        return self._execution_data.get(device_id, {})
+        with self._execution_data_lock:
+            # 返回一个副本以增加线程安全性
+            return self._execution_data.get(device_id, {}).copy()
 
     def cleanup(self):
         """

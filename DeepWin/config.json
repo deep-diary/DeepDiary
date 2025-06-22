@@ -13,7 +13,9 @@
     "deepmotor_serial_port": "COM16",
     "deepmotor_baud_rate": 115200,
     "deepmotor_can_bustype": "virtual",
-    "deepmotor_dbc_name": "deep_motor"
+    "deepmotor_dbc_name": "deep_motor",
+    "deepmotor_teaching_interval": 0.1,
+    "deepmotor_trajectory_interp_points": 500
   },
   "network": {
     "server_address": "localhost:8000",
