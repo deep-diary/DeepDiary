@@ -134,8 +134,8 @@ class MainWindow(FluentWindow):
         self.logger.info("导航界面初始化完成，默认页面设置为设备界面")
 
     def initWindow(self):
-        self.resize(960, 780)
-        self.setMinimumWidth(760)
+        self.resize(1280, 960)
+        self.setMinimumWidth(1280)
         self.setWindowIcon(QIcon(':/gallery/images/logo.png'))
         self.setWindowTitle('DeepWin')
 

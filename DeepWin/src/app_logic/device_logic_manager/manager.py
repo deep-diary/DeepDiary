@@ -80,8 +80,12 @@ class DeviceLogicManager(QObject):
                 self.managed_devices[device_id] = DeepMotor(device_id, self.logger_instance, self.config_manager)
                 # 绑定底层设备状态更新信号
                 self.managed_devices[device_id].device_states_updated.connect(self.device_status_updated)
-                # 绑定设备向协调器发送命令的信号
-                self.managed_devices[device_id].command_to_coordinator.connect(self.send_device_abstract_command_requested)
+                # 绑定设备向协调器发送命令的信号 - 修复：使用正确的信号名称
+                if hasattr(self.managed_devices[device_id], 'send_command_request'):
+                    self.managed_devices[device_id].send_command_request.connect(self.send_device_abstract_command_requested)
+                else:
+                    # 兼容旧版本，使用 command_to_coordinator 信号
+                    self.managed_devices[device_id].command_to_coordinator.connect(self.send_device_abstract_command_requested)
             else:
                 self.logger.error(f"DeviceLogicManager: 无法识别的设备类型或 ID 前缀: {device_id}")
                 return None
@@ -149,7 +153,7 @@ class DeviceLogicManager(QObject):
         :param device_id: 发送数据的设备ID。
         :param parsed_semantic_data: 已解析的业务语义数据字典。
         """
-        self.logger.debug(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
+        # self.logger.debug(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
         self.logger.info(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
         device_instance = self._get_or_create_device_instance(device_id)
         if not device_instance:
@@ -215,21 +219,24 @@ class DeviceLogicManager(QObject):
     # --- 示教相关方法 ---
     # 所有示教相关的方法都应该被委托给具体的设备实例处理
 
-    @Slot(str)
-    def start_teaching(self, device_id: str):
+    @Slot(str, int)
+    def start_teaching(self, device_id: str, motor_id: int = 1):
         """
         请求设备开始示教
+        :param device_id: 设备ID
+        :param motor_id: 电机ID
         """
-        self.logger.info(f"请求为设备 '{device_id}' 开始示教")
+        self.logger.info(f"请求为设备 '{device_id}' 开始示教，motor_id: {motor_id}")
         device = self._get_or_create_device_instance(device_id)
         if device and hasattr(device, 'start_teaching'):
-            # 修复：将 device_id 传递给设备
-            device.start_teaching(device_id)
+            # 修复：将 device_id 和 motor_id 传递给设备
+            device.start_teaching(device_id, motor_id)
 
     @Slot(str)
     def stop_teaching(self, device_id: str) -> Optional[str]:
         """
         请求设备停止示教
+        :param device_id: 设备ID
         :return: 保存的轨迹文件名
         """
         self.logger.info(f"请求为设备 '{device_id}' 停止示教。")
@@ -239,13 +246,18 @@ class DeviceLogicManager(QObject):
             return device.stop_teaching(device_id)
         return None
 
-    @Slot(str, str)
-    def execute_trajectory(self, device_id: str, trajectory_name: str):
-        """执行示教轨迹"""
-        self.logger.info(f"DeviceLogicManager: 请求为设备 '{device_id}' 执行轨迹 '{trajectory_name}'")
+    @Slot(str, str, int, bool)
+    def execute_trajectory(self, device_id: str, trajectory_name: str, motor_id: int, use_planned_trajectory: bool = True):
+        """
+        执行指定设备的轨迹
+        :param device_id: 设备ID
+        :param trajectory_name: 轨迹名称
+        :param motor_id: 电机ID
+        :param use_planned_trajectory: 是否使用规划轨迹，True使用规划轨迹（平滑控制），False使用原始轨迹（便于调试）
+        """
         device = self._get_or_create_device_instance(device_id)
         if device and hasattr(device, 'execute_trajectory'):
-            device.execute_trajectory(trajectory_name)
+            device.execute_trajectory(trajectory_name, motor_id, use_planned_trajectory)
         else:
             self.logger.error(f"设备 '{device_id}' 不支持 'execute_trajectory' 或不存在。")
 

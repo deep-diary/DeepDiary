@@ -840,18 +840,18 @@ class Coordinator(QObject):
         except Exception as e:
             self.logger.error(f"Coordinator: 处理CAN帧失败: {e}")
 
-    @Slot(str)
-    def handle_start_teaching_request(self, device_name: str):
+    @Slot(str, int)
+    def handle_start_teaching_request(self, device_name: str, motor_id: int = 1):
         """处理开始示教请求"""
-        self.logger.info(f"Coordinator: 收到开始示教请求，设备: {device_name}")
+        self.logger.info(f"Coordinator: 收到开始示教请求，设备: {device_name}, motor_id: {motor_id}")
         
         # 先发送失能命令
-        self.device_logic_manager.send_command_to_device(device_name, "disable_motor(1)")
-        self.app_status_message.emit(f"电机已失能，开始示教模式")
+        self.device_logic_manager.send_command_to_device(device_name, f"disable_motor({motor_id})")
+        self.app_status_message.emit(f"电机{motor_id}已失能，开始示教模式")
         
         # 启动示教模式
-        self.device_logic_manager.start_teaching(device_name)
-        self.app_status_message.emit(f"已开始示教，设备: {device_name}")
+        self.device_logic_manager.start_teaching(device_name, motor_id)
+        self.app_status_message.emit(f"已开始示教，设备: {device_name}, motor_id: {motor_id}")
 
     @Slot(str)
     def handle_stop_teaching_request(self, device_name: str):
@@ -877,11 +877,17 @@ class Coordinator(QObject):
         
         self.app_status_message.emit(f"已停止示教，设备: {device_name}")
 
-    @Slot(str, str)
-    def handle_execute_teaching_request(self, device_name: str, trajectory_name: str):
-        """处理UI发出的执行示教请求"""
-        self.logger.info(f"收到对设备 '{device_name}' 的示教执行请求，轨迹: '{trajectory_name}'")
-        self.device_logic_manager.execute_trajectory(device_name, trajectory_name)
+    @Slot(str, str, bool, int)
+    def handle_execute_teaching_request(self, device_name: str, trajectory_name: str, use_planned_trajectory: bool = True, motor_id: int = 1):
+        """
+        处理UI发出的执行示教请求
+        :param device_name: 设备名称
+        :param trajectory_name: 轨迹名称
+        :param use_planned_trajectory: 是否使用规划轨迹，True使用规划轨迹（平滑控制），False使用原始轨迹（便于调试）
+        :param motor_id: 电机ID
+        """
+        self.logger.info(f"收到对设备 '{device_name}' 的示教执行请求，轨迹: '{trajectory_name}', motor_id: {motor_id}, 使用规划轨迹: {use_planned_trajectory}")
+        self.device_logic_manager.execute_trajectory(device_name, trajectory_name, motor_id, use_planned_trajectory)
 
     @Slot(str, str)
     def handle_restore_default_requested(self, device_name: str, trajectory_name: str):

@@ -19,7 +19,11 @@ class DeepMotor(BaseDevice):
     """
     DeepMotor 无刷电机的逻辑实现。
     管理单个电机的状态和响应特定命令。
+    轨迹相关功能委托给 TeachingTrajectoryManager 处理。
     """
+    # 新增：轨迹执行相关信号
+    send_command_request = Signal(str, str, list)  # (device_id, command_name, args)
+    
     def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         super().__init__(device_id, log_manager, parent)
         self._state: DeepMotorState = DeepMotorState(device_id=device_id)
@@ -51,8 +55,9 @@ class DeepMotor(BaseDevice):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         trajectory_folder = os.path.join(current_dir, 'trajectories')
         self.teaching_manager = TeachingTrajectoryManager(log_manager=log_manager, trajectory_folder=trajectory_folder)
-        # 将轨迹点就绪信号连接到发送电机指令的方法
-        self.teaching_manager._trajectory_point_ready.connect(self._on_trajectory_point_ready)
+        
+        # 连接 TeachingTrajectoryManager 的命令发送信号到 DeepMotor 的信号
+        self.teaching_manager._send_command_request.connect(self.send_command_request.emit)
         
         self.logger.info(f"DeepMotor '{device_id}': 初始化完成，历史记录长度设置为 {self.buffer_size}。")
 
@@ -97,7 +102,7 @@ class DeepMotor(BaseDevice):
         for semantic_key, buffer_key in parameter_mapping.items():
             if semantic_key in semantic_data:
                 value = semantic_data[semantic_key]
-                self.logger.debug(f"DeepMotor '{self.device_id}': 处理参数 {semantic_key} = {value} (类型: {type(value)})")
+                # self.logger.debug(f"DeepMotor '{self.device_id}': 处理参数 {semantic_key} = {value} (类型: {type(value)})")
                 
                 # 对于 mode_state，支持字符串类型；对于其他参数，只接受数值类型
                 if value is not None:
@@ -105,12 +110,12 @@ class DeepMotor(BaseDevice):
                         # mode_state 是字符串类型，直接存储
                         new_data = pd.DataFrame([{'time': relative_time, 'value': value}])
                         self.data_buffer[buffer_key] = pd.concat([self.data_buffer[buffer_key], new_data], ignore_index=True)
-                        self.logger.debug(f"DeepMotor '{self.device_id}': 存储 mode_state 数据: {value}")
+                        # self.logger.debug(f"DeepMotor '{self.device_id}': 存储 mode_state 数据: {value}")
                     elif isinstance(value, (int, float)):
                         # 其他参数必须是数值类型
                         new_data = pd.DataFrame([{'time': relative_time, 'value': value}])
                         self.data_buffer[buffer_key] = pd.concat([self.data_buffer[buffer_key], new_data], ignore_index=True)
-                        self.logger.debug(f"DeepMotor '{self.device_id}': 存储数值数据 {semantic_key}: {value}")
+                        # self.logger.debug(f"DeepMotor '{self.device_id}': 存储数值数据 {semantic_key}: {value}")
                     else:
                         self.logger.warning(f"DeepMotor '{self.device_id}': 参数 {semantic_key} 的值 {value} 不是支持的格式")
                 else:
@@ -124,7 +129,8 @@ class DeepMotor(BaseDevice):
         # 添加调试日志，显示每个缓冲区中的数据点数
         for key in self.data_buffer:
             if len(self.data_buffer[key]) > 0:
-                self.logger.debug(f"DeepMotor '{self.device_id}': 缓冲区 {key} 有 {len(self.data_buffer[key])} 个数据点")
+                # self.logger.debug(f"DeepMotor '{self.device_id}': 缓冲区 {key} 有 {len(self.data_buffer[key])} 个数据点")
+                pass
 
         # 如果正在示教，则记录状态
         if self.teaching_manager.is_teaching(self.device_id):
@@ -251,7 +257,11 @@ class DeepMotor(BaseDevice):
         """
         清理资源，例如停止正在执行的轨迹。
         """
-        self.teaching_manager.stop_playback()
+        # 停止轨迹执行
+        if self.teaching_manager:
+            self.teaching_manager.stop_trajectory_execution(self.device_id)
+            self.teaching_manager.cleanup()
+        
         self.logger.info(f"DeepMotor '{self.device_id}': 清理完成。")
         super().cleanup()
 
@@ -324,18 +334,19 @@ class DeepMotor(BaseDevice):
             self.logger.warning(f"DeepMotor '{self.device_id}': 请求了未知的历史数据参数 '{parameter}'")
             return {'data': pd.DataFrame(columns=['time', 'value'])}
 
-    def start_teaching(self, device_id: str):
+    def start_teaching(self, device_id: str, motor_id: int = 1):
         """
         开始示教
         :param device_id: 开始示教的设备ID
+        :param motor_id: 要示教的电机ID
         """
-        self.logger.info(f"正在为设备 '{self.device_id}' 清空历史位置数据并开始示教。")
+        self.logger.info(f"正在为设备 '{self.device_id}' 清空历史位置数据并开始示教，motor_id: {motor_id}")
         # 清空当前的位置历史数据，以便实时显示示教轨迹
         if 'position' in self.data_buffer:
             self.data_buffer['position'] = pd.DataFrame(columns=['time', 'value'])
         
         if self.teaching_manager:
-            return self.teaching_manager.start_teaching(device_id)
+            return self.teaching_manager.start_teaching(device_id, motor_id)
 
     def stop_teaching(self, device_id: str) -> Optional[str]:
         """
@@ -381,27 +392,24 @@ class DeepMotor(BaseDevice):
             return self.teaching_manager.get_trajectory_visualization_data(trajectory_name)
         return {}
 
-    def execute_trajectory(self, trajectory_name: str):
+    def execute_trajectory(self, trajectory_name: str, motor_id: int, use_planned_trajectory: bool = True):
         """
         执行指定的示教轨迹
+        :param trajectory_name: 轨迹名称
+        :param motor_id: 电机ID
+        :param use_planned_trajectory: 是否使用规划轨迹，True使用规划轨迹（平滑控制），False使用原始轨迹（便于调试）
         """
+        self.logger.info(f"DeepMotor '{self.device_id}': 委托 TeachingTrajectoryManager 执行轨迹 '{trajectory_name}', motor_id: {motor_id}, 使用规划轨迹: {use_planned_trajectory}")
         if self.teaching_manager:
-            self.teaching_manager.execute_trajectory(trajectory_name)
+            self.teaching_manager.execute_trajectory(self.device_id, trajectory_name, motor_id, use_planned_trajectory)
 
-    @Slot(float, float)
-    def _on_trajectory_point_ready(self, position: float, speed: float):
+    def stop_trajectory_execution(self):
         """
-        接收到规划轨迹点后的槽函数，用于发送电机指令
+        停止轨迹执行
         """
-        # 假设电机ID为1，后续可根据需要修改
-        motor_id = 1
-        # 使用 set_motor_pos_speed 指令发送轨迹点
-        command_name = "set_motor_pos_speed"
-        args = [motor_id, position, speed]
-        
-        # 此方法由TeachingManager的信号触发，在DeviceLogicManager层面连接。
-        # 我们在这里发射一个信号，让上层（DeviceLogicManager）来处理命令发送。
-        self.send_command_request.emit(self.device_id, command_name, args)
+        self.logger.info(f"DeepMotor '{self.device_id}': 委托 TeachingTrajectoryManager 停止轨迹执行")
+        if self.teaching_manager:
+            self.teaching_manager.stop_trajectory_execution(self.device_id)
 
     def reload_trajectories(self):
         """

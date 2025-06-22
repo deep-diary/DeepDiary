@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGridLayout, QDoubleSpinBox
-from qfluentwidgets import (PrimaryPushButton, ComboBox, SpinBox, FluentIcon as FIF, CardWidget, FlowLayout)
+from qfluentwidgets import (PrimaryPushButton, ComboBox, SpinBox, FluentIcon as FIF, CardWidget, FlowLayout, SwitchButton)
 
 # 添加matplotlib支持
 import matplotlib.pyplot as plt
@@ -157,9 +157,9 @@ class DeepMotorPage(QWidget):
     request_sim_data = Signal(str)  # 请求模拟数据的信号
     request_history_data = Signal(str, str)  # 请求历史数据信号 (设备名, 参数名)
     # 示教相关信号
-    start_teaching_requested = Signal(str)  # 开始示教信号
+    start_teaching_requested = Signal(str, int)  # 开始示教信号 (设备名, motor_id)
     stop_teaching_requested = Signal(str)   # 停止示教信号
-    execute_teaching_requested = Signal(str, str)  # 执行示教信号 (设备名, 轨迹名)
+    execute_teaching_requested = Signal(str, str, bool, int)  # 执行示教信号 (设备名, 轨迹名, 是否使用规划轨迹, motor_id)
     # 新增：轨迹可视化相关信号
     request_trajectory_data = Signal(str, str)  # 请求轨迹数据信号 (设备名, 轨迹名)
     request_trajectory_list = Signal(str)  # 请求轨迹列表信号
@@ -180,6 +180,7 @@ class DeepMotorPage(QWidget):
         self._current_trajectory = ""  # 当前选中的轨迹
         self._show_trajectory = False  # 是否显示轨迹模式
         self._original_total_time = 5.0  # 保存轨迹的原始时长
+        self.use_planned_trajectory = False  # 是否使用规划轨迹
         
         if self.logger:
             self.logger.info("DeepMotor页面初始化开始")
@@ -277,10 +278,16 @@ class DeepMotorPage(QWidget):
         # 执行时间控制
         duration_label = QLabel('执行时间:')
         self.duration_spin = QDoubleSpinBox(self)
-        self.duration_spin.setRange(2.0, 10.0)
+        self.duration_spin.setRange(2.0, 30.0)
         self.duration_spin.setSingleStep(0.5)
         self.duration_spin.setSuffix(" s")
         self.duration_spin.setValue(5.0)
+        
+        # 轨迹规划开关
+        planning_label = QLabel('轨迹规划:')
+        self.planning_switch = SwitchButton('关闭')
+        self.planning_switch.setChecked(False)  # 默认关闭
+        self.planning_switch.checkedChanged.connect(self.on_planning_switch_changed)
         
         teaching_controls_layout.addWidget(self.start_teaching_button)
         teaching_controls_layout.addWidget(self.stop_teaching_button)
@@ -289,6 +296,8 @@ class DeepMotorPage(QWidget):
         teaching_controls_layout.addWidget(self.trajectory_combo)
         teaching_controls_layout.addWidget(duration_label)
         teaching_controls_layout.addWidget(self.duration_spin)
+        teaching_controls_layout.addWidget(planning_label)
+        teaching_controls_layout.addWidget(self.planning_switch)
         teaching_controls_layout.addStretch()
         teaching_layout_v.addLayout(teaching_controls_layout)
 
@@ -480,7 +489,7 @@ class DeepMotorPage(QWidget):
         self.canvas.draw()
         
         # 发送开始示教信号
-        self.start_teaching_requested.emit(self.DeviceName)
+        self.start_teaching_requested.emit(self.DeviceName, self.current_motor_id)
 
     def on_stop_teaching_clicked(self):
         """结束示教按钮点击处理函数"""
@@ -501,10 +510,10 @@ class DeepMotorPage(QWidget):
             return
         
         if self.logger:
-            self.logger.info(f"执行示教按钮被点击，轨迹: {trajectory_name}")
+            self.logger.info(f"执行示教按钮被点击，轨迹: {trajectory_name}, 使用规划轨迹: {self.planning_switch.isChecked()}")
         
-        # 发送执行示教信号
-        self.execute_teaching_requested.emit(self.DeviceName, trajectory_name)
+        # 发送执行示教信号，使用开关的状态
+        self.execute_teaching_requested.emit(self.DeviceName, trajectory_name, self.planning_switch.isChecked(), self.current_motor_id)
 
     def on_motor_id_changed(self, value):
         """电机ID改变时的处理函数"""
@@ -583,7 +592,7 @@ class DeepMotorPage(QWidget):
             'flt_magnetic_encoding (磁编码故障)': 'flt_magnetic_encoding',
             'flt_over_temperature (过温故障)': 'flt_over_current',
             'flt_voltage_drop (电压跌落故障)': 'flt_voltage_drop',
-            '示教轨迹': 'teaching_trajectory',
+            'trajectory_original (示教轨迹)': 'trajectory_original',
             'trajectory_original (原始轨迹)': 'trajectory_original',
             'trajectory_planned (规划轨迹)': 'trajectory_planned',
             'trajectory_both (原始+规划)': 'trajectory_both'
@@ -948,6 +957,14 @@ class DeepMotorPage(QWidget):
         """初始化轨迹列表"""
         # 使用QTimer延迟发送请求信号，确保所有组件都已初始化
         QTimer.singleShot(100, lambda: self.request_trajectory_list.emit(self.DeviceName))
+
+    def on_planning_switch_changed(self, checked: bool):
+        """轨迹规划开关改变时的处理函数"""
+        self.use_planned_trajectory = checked
+        # 更新开关文本
+        self.planning_switch.setText('开启' if checked else '关闭')
+        if self.logger:
+            self.logger.info(f"轨迹规划开关已更改为: {'开启' if checked else '关闭'}")
 
 class DeepArmPage(QWidget):
     """DeepArm 控制页面"""

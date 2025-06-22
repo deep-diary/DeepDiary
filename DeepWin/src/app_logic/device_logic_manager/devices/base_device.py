@@ -49,12 +49,12 @@ class BaseDevice(QObject):
         这是由 DeviceLogicManager 调用的核心方法。
         :param semantic_data: 来自 DeviceProtocolParser 的业务语义数据字典。
         """
-        self.logger.debug(f"Device '{self.device_id}': 收到语义数据更新: {semantic_data}")
+        # self.logger.debug(f"Device '{self.device_id}': 收到语义数据更新: {semantic_data}")
         # 更新基类状态
         self._state.update_from_dict(semantic_data)
         self._state.is_online = True # 收到数据表明在线
         self._state.connection_status = DeviceStatus.CONNECTED
-        self.logger.debug(f"Device '{self.device_id}': 状态已更新。")
+        # self.logger.debug(f"Device '{self.device_id}': 状态已更新。")
         self.device_states_updated.emit(self.device_id, self._state.to_dict())
 
 
