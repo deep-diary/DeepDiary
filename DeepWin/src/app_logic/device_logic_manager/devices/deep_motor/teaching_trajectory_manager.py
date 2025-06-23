@@ -148,6 +148,24 @@ class TeachingTrajectoryManager(QObject):
                 return
             # 从配置读取插值点数
             interp_points = self.config_manager.get('device_settings.deepmotor_trajectory_interp_points', 50)
+            
+            # 动态调整插值点数：根据轨迹时长和控制频率计算
+            # 控制频率50Hz，每个点间隔20ms，确保系统能稳定处理
+            control_freq = 50  # Hz
+            total_time = time_vector[-1] - time_vector[0] if len(time_vector) > 1 else 1.0
+            dynamic_interp_points = int(total_time * control_freq)
+            
+            # 最小点数保护：至少要有原始轨迹点数的2倍，确保轨迹平滑
+            min_points = max(len(positions) * 2, 20)
+            dynamic_interp_points = max(dynamic_interp_points, min_points)
+            
+            # 最大点数限制：避免过长轨迹产生过多点
+            max_points = 1000
+            dynamic_interp_points = min(dynamic_interp_points, max_points)
+            
+            # 使用动态计算的插值点数
+            interp_points = dynamic_interp_points
+            
             # 生成规划后的轨迹
             planned_t, planned_pos, planned_vel, planned_acc = self._trajectory_planner.generate_waypoint_trajectory(
                 positions, time_vector, stop_in_point=False, interp_points=interp_points

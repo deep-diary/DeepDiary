@@ -489,7 +489,11 @@ class Coordinator(QObject):
 
             if not target_port_name:
                 self.logger.warning(f"Coordinator: 无法确定设备 '{device_id}' 对应的串口。")
-                raise ValueError(f"无法确定设备 '{device_id}' 对应的串口。")
+                self.app_status_message.emit(f"无法确定设备 '{device_id}' 对应的串口。")
+                # 反馈模拟数据
+                position = args[1]
+                self.serial_communicator.sim_read_serial_data(position = position)
+                return
 
             # 处理多帧命令
             if isinstance(low_level_command_bytes, list):

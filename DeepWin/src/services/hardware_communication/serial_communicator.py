@@ -206,7 +206,7 @@ class SerialCommunicator(QObject):
             processed_line = line[2:-2]
             self.raw_frame_received.emit(port_name, processed_line)
 
-            self.ser2can(port_name,processed_line)
+            # self.ser2can(port_name,processed_line) # 暂时不经过Can 层，临时屏蔽
 
         except serial.SerialException as e:
             error_msg = f"从串口 '{port_name}' 读取数据失败: {e}"
@@ -256,19 +256,42 @@ class SerialCommunicator(QObject):
             port_name, arbitration_id, data_bytes, is_extended_id
         )
 
-    def sim_read_serial_data(self, port_name: str = None):
+    def sim_read_serial_data(self, port_name: str = None, position: float = None):
         """
         模拟从串口读取数据。
         :param port_name: 串口名称。
+        :param position: 位置。
         """
         # 检查数据格式：AT开头，\r\n结尾
         # 扩展CAN ID 为 0x00000001，数据长度为 0x08，数据为 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11
 
-        decoded_line = [0x41, 0x54, 0x14, 0x00, 0x37, 0xEC, 0x08, 0xFF, 0xFF, 0x82, 0x0F, 0x81, 0x51, 0x01, 0x36, 0x0D, 0x0A]
+        decoded_line = [0x41, 0x54, 0x14, 0x00, 0x37, 0xEC, 0x08, 0x80, 0xFF, 0x82, 0x0F, 0x81, 0x51, 0x01, 0x36, 0x0D, 0x0A]
         # 发送原始帧数据
         frame = decoded_line[2:-2]
         # 最后一个自己增加一个随机数
-        frame[6] = random.randint(0, 255)
+        if not position:
+            frame[6] = random.randint(0, 255)
+        else:
+            # 根据_decode_can_data方法的解码逻辑进行逆运算
+            # 1. 首先将位置限制在POSITION_RANGE范围内
+            POSITION_RANGE = (-4 * 3.14159, 4 * 3.14159)  # -4π ~ 4π
+            position = min(max(position, POSITION_RANGE[0]), POSITION_RANGE[1])
+            
+            # 2. 使用_scale_value的逆运算，将位置映射到-32768到32767范围
+            # _scale_value: (value - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
+            # 逆运算: (position - out_min) * (in_max - in_min) / (out_max - out_min) + in_min
+            position_raw = (position - POSITION_RANGE[0]) * (32767 - (-32768)) / (POSITION_RANGE[1] - POSITION_RANGE[0]) + (-32768)
+            position_raw = int(position_raw)
+            
+            # 3. 加上32767得到无符号值（对应_decode_can_data中的减法逆运算）
+            position_uint = position_raw + 32767
+            
+            self.logger.info(f"SerialCommunicator: 位置 '{position}' 转换为原始值: {position_raw}, 无符号值: {position_uint}")
+
+            # 4. 将无符号值写入frame[5:6]（大端序，对应_decode_can_data中的struct.unpack('>H', data_bytes[0:2])）
+            frame[5] = (position_uint >> 8) & 0xFF  # 高字节
+            frame[6] = position_uint & 0xFF         # 低字节
+
         frame[8] = random.randint(0, 255)
         frame[10] = random.randint(0, 255)
         frame[12] = random.randint(0, 255)
@@ -278,19 +301,19 @@ class SerialCommunicator(QObject):
         self.logger.info(f"SerialCommunicator: 数据: {frame.hex()}")
 
         arbitration_id = 0x140037ec
-        data_bytes = bytes([0xFF, 0xFF, 0x82, 0x0F, 0x81, 0x51, 0x01, 0x36])
+        # 使用修改后的frame中的数据，而不是硬编码的值
+        data_bytes = frame[5:13]  # 从frame中提取8字节的数据部分
         is_extended_id = True
 
         if port_name is None:
             port_name = self.active_port
 
-
         self.raw_frame_received.emit('DeepMotor', frame)  # 去掉 AT 和 \r\n
 
         # 发送 CAN 帧组件
-        self.can_frame_components_received.emit(
-            port_name, arbitration_id, data_bytes, is_extended_id
-        )
+        # self.can_frame_components_received.emit(
+        #     port_name, arbitration_id, data_bytes, is_extended_id
+        # )
 
     def cleanup(self):
         """

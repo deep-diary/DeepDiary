@@ -553,42 +553,57 @@ class DeepMotorPage(QWidget):
             if self.logger:
                 self.logger.warning("请先选择要执行的轨迹")
             return
-        
         if self.logger:
             self.logger.info(f"执行示教按钮被点击，轨迹: {trajectory_name}, 使用规划轨迹: {self.planning_switch.isChecked()}")
-        
         # 设置执行状态
         self._is_executing_trajectory = True
         self.update_execution_buttons_state()
-        
-        # 自动切换到执行轨迹视图并清空画布
+        # 自动切换到执行轨迹视图
         self.param_combo.setCurrentText('trajectory_executed (执行轨迹)')
-        self.ax.clear()
         
-        # 使用预存的坐标轴范围，这是实现blitting的关键
-        if self._last_xlim and self._last_ylim:
-            self.ax.set_xlim(self._last_xlim)
-            self.ax.set_ylim(self._last_ylim)
-
+        # 显示当前坐标轴范围信息
+        current_xlim = self.ax.get_xlim()
+        current_ylim = self.ax.get_ylim()
+        if self.logger:
+            self.logger.info(f"执行轨迹时当前X轴范围: {current_xlim}")
+            self.logger.info(f"执行轨迹时当前Y轴范围: {current_ylim}")
+            if hasattr(self, '_last_xlim') and self._last_xlim:
+                self.logger.info(f"保存的X轴范围: {self._last_xlim}")
+            if hasattr(self, '_last_ylim') and self._last_ylim:
+                self.logger.info(f"保存的Y轴范围: {self._last_ylim}")
+        
+        # 不清空画布，只清除现有的线条，保持坐标轴范围不变
+        for line in self.ax.lines:
+            line.remove()
+        for text in self.ax.texts:
+            text.remove()
+        if self.ax.legend_:
+            self.ax.legend_.remove()
+        
         self.ax.set_xlabel('时间 (s)')
         self.ax.set_ylabel('位置 (°)')
         self.ax.set_title('轨迹执行实时监控')
         self.ax.grid(True, alpha=0.3)
         
-        # 创建空的Line2D对象用于动画
+        # 使用保存的坐标轴范围，如果没有保存的范围则使用当前范围
+        if hasattr(self, '_last_xlim') and self._last_xlim:
+            self.ax.set_xlim(self._last_xlim)
+            if self.logger:
+                self.logger.info(f"使用保存的X轴范围: {self._last_xlim}")
+        if hasattr(self, '_last_ylim') and self._last_ylim:
+            self.ax.set_ylim(self._last_ylim)
+            if self.logger:
+                self.logger.info(f"使用保存的Y轴范围: {self._last_ylim}")
+        
         self.planned_line, = self.ax.plot([], [], 'b-', animated=True, label='规划轨迹')
         self.feedback_line, = self.ax.plot([], [], 'r-', animated=True, label='实际反馈')
         self.ax.legend()
-        
-        # 绘制一次，捕获背景
         self.canvas.draw()
         self.background = self.canvas.copy_from_bbox(self.ax.bbox)
-        
-        # 启动UI更新定时器
         self.latest_progress_data = None # 清空旧数据
+        # --- 启动高频定时器（如20ms/50Hz）---
+        self.plot_update_timer.setInterval(50)
         self.plot_update_timer.start()
-        
-        # 发送执行示教信号，使用开关的状态
         self.execute_teaching_requested.emit(self.DeviceName, trajectory_name, self.planning_switch.isChecked(), self.current_motor_id)
 
     def on_motor_id_changed(self, value):
@@ -837,6 +852,7 @@ class DeepMotorPage(QWidget):
         if self.logger:
             self.logger.info(f"历史曲线更新完成，参数: {self.current_selected_param}")
 
+
     def _plot_trajectory_comparison(self, df):
         """绘制轨迹对比数据"""
         # 分离原始轨迹和规划轨迹
@@ -859,6 +875,39 @@ class DeepMotorPage(QWidget):
         
         # 设置标题
         self.ax.set_title('轨迹对比')
+        
+        # 正确设置和保存坐标轴范围
+        all_times = []
+        all_values = []
+        
+        # 收集所有时间点和位置点
+        if not original_data.empty:
+            all_times.extend(original_data['time'].tolist())
+            all_values.extend(original_data['value'].tolist())
+        if not planned_data.empty:
+            all_times.extend(planned_data['time'].tolist())
+            all_values.extend(planned_data['value'].tolist())
+        
+        # 设置X轴范围
+        if all_times:
+            x_min, x_max = min(all_times), max(all_times)
+            x_margin = (x_max - x_min) * 0.05 if x_max > x_min else 0.1
+            self.ax.set_xlim(x_min - x_margin, x_max + x_margin)
+            self._last_xlim = (x_min - x_margin, x_max + x_margin)
+            
+            # 设置Y轴范围
+            if all_values:
+                y_min, y_max = min(all_values), max(all_values)
+                if y_min == y_max:
+                    y_margin = 1.0
+                else:
+                    y_margin = (y_max - y_min) * 0.1
+                self.ax.set_ylim(y_min - y_margin, y_max + y_margin)
+                self._last_ylim = (y_min - y_margin, y_max + y_margin)
+                
+                if self.logger:
+                    self.logger.info(f"轨迹对比设置X轴范围: {self._last_xlim}")
+                    self.logger.info(f"轨迹对比设置Y轴范围: {self._last_ylim}")
 
     def _plot_dataframe_history(self, df):
         """绘制DataFrame格式的历史数据"""
@@ -905,12 +954,26 @@ class DeepMotorPage(QWidget):
                     margin = (max_val - min_val) * 0.1
                     self.ax.set_ylim(min_val - margin, max_val + margin)
 
-        # 记录坐标轴范围，为执行动画做准备
-        self._last_xlim = self.ax.get_xlim()
-        y_min, y_max = self.ax.get_ylim()
-        y_range = y_max - y_min
-        # 增加一点Y轴的缓冲，以容纳可能的反馈误差
-        self._last_ylim = (y_min - 0.1 * y_range, y_max + 0.1 * y_range)
+        # 正确设置和保存坐标轴范围
+        if times and values:
+            # 设置X轴范围
+            x_min, x_max = min(times), max(times)
+            x_margin = (x_max - x_min) * 0.05 if x_max > x_min else 0.1
+            self.ax.set_xlim(x_min - x_margin, x_max + x_margin)
+            self._last_xlim = (x_min - x_margin, x_max + x_margin)
+            
+            # 设置Y轴范围
+            y_min, y_max = min(values), max(values)
+            if y_min == y_max:
+                y_margin = 1.0
+            else:
+                y_margin = (y_max - y_min) * 0.1
+            self.ax.set_ylim(y_min - y_margin, y_max + y_margin)
+            self._last_ylim = (y_min - y_margin, y_max + y_margin)
+            
+            if self.logger:
+                self.logger.info(f"DataFrame历史数据设置X轴范围: {self._last_xlim}")
+                self.logger.info(f"DataFrame历史数据设置Y轴范围: {self._last_ylim}")
 
     def _plot_list_history(self, history_data):
         """绘制列表格式的历史数据"""
@@ -998,6 +1061,39 @@ class DeepMotorPage(QWidget):
         self.ax.set_xlabel('时间 (s)')
         self.ax.set_ylabel('位置 (°)')
         self.ax.grid(True, alpha=0.3)
+        
+        # --- 设置坐标轴范围，确保曲线完整可见 ---
+        all_times = []
+        all_positions = []
+        
+        # 收集所有时间点和位置点
+        if original_times and original_positions:
+            all_times.extend(original_times)
+            all_positions.extend(original_positions)
+        if planned_times and planned_positions:
+            all_times.extend(planned_times)
+            all_positions.extend(planned_positions)
+        
+        # 设置X轴范围
+        if all_times:
+            x_min, x_max = min(all_times), max(all_times)
+            x_margin = (x_max - x_min) * 0.05 if x_max > x_min else 0.1
+            self.ax.set_xlim(x_min - x_margin, x_max + x_margin)
+            self._last_xlim = (x_min - x_margin, x_max + x_margin)
+            if self.logger:
+                self.logger.info(f"设置X轴范围: {self._last_xlim}")
+        
+        # 设置Y轴范围
+        if all_positions:
+            y_min, y_max = min(all_positions), max(all_positions)
+            if y_min == y_max:
+                y_margin = 1.0
+            else:
+                y_margin = (y_max - y_min) * 0.1
+            self.ax.set_ylim(y_min - y_margin, y_max + y_margin)
+            self._last_ylim = (y_min - y_margin, y_max + y_margin)
+            if self.logger:
+                self.logger.info(f"设置Y轴范围: {self._last_ylim}")
         
         # 自动调整布局
         self.figure.tight_layout()
@@ -1095,7 +1191,7 @@ class DeepMotorPage(QWidget):
         :param device_id: 设备ID (从信号接收，当前未使用)
         :param progress_data: 包含执行进度信息的字典
         """
-        # 保存最新数据，用于节流更新和最终显示
+        # 只保存最新数据，不主动刷新UI，彻底解耦
         self._last_execution_data = progress_data.copy()
         self.latest_progress_data = progress_data
 
@@ -1119,7 +1215,7 @@ class DeepMotorPage(QWidget):
             data = self.latest_progress_data
             
             # 恢复背景
-            self.canvas.restore_region(self.background)
+            # self.canvas.restore_region(self.background)
 
             # 更新曲线数据
             self.planned_line.set_data(data.get('executed_times', []), data.get('executed_positions', []))
@@ -1137,30 +1233,21 @@ class DeepMotorPage(QWidget):
         """轨迹执行完成时的处理函数"""
         if self.logger:
             self.logger.info("轨迹执行完成")
-        
-        # 停止UI更新定时器
+        # 恢复定时器为默认频率（如50ms/20Hz）
+        self.plot_update_timer.setInterval(50)
         self.plot_update_timer.stop()
-        
-        # 恢复执行状态和按钮
         self._is_executing_trajectory = False
         self.update_execution_buttons_state()
-        
-        # 恢复Line2D为非动画模式，并清除背景缓存
         if self.planned_line:
             self.planned_line.set_animated(False)
         if self.feedback_line:
             self.feedback_line.set_animated(False)
         self.background = None
-        
-        # 更新状态标签
         self.teaching_status_label.setText('示教状态: 执行完成')
         self.teaching_status_label.setStyleSheet("color: green;")
-        
-        # 执行一次最终的绘图，确保显示完整轨迹
+        # --- 强制全量刷新一次，确保所有反馈点都显示 ---
         if self._last_execution_data:
             self._display_execution_data(self._last_execution_data)
-        
-        # 3秒后恢复默认状态
         QTimer.singleShot(3000, lambda: self.teaching_status_label.setText('示教状态: 未开始'))
         QTimer.singleShot(3000, lambda: self.teaching_status_label.setStyleSheet("color: gray;"))
 
