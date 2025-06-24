@@ -224,6 +224,8 @@ class Coordinator(QObject):
         self.gui_manager.window.deviceInterface.deep_motor_page.replan_requested.connect(self.handle_replan_requested)
         # 新增：连接恢复默认请求信号
         self.gui_manager.window.deviceInterface.deep_motor_page.restore_default_requested.connect(self.handle_restore_default_requested)
+        # 新增：连接删除轨迹请求信号
+        self.gui_manager.window.deviceInterface.deep_motor_page.delete_trajectory_requested.connect(self.handle_delete_trajectory_requested)
 
         # 连接测试按钮信号
         self.gui_manager.window.basicInputInterface.test_button_clicked.connect(self.handle_test_button_click)
@@ -1035,4 +1037,18 @@ class Coordinator(QObject):
             self.gui_manager.window.deviceInterface.deep_motor_page.update_teaching_trajectory(times, positions)
         else:
             self.logger.warning("Coordinator: GUI管理器不可用，无法转发示教轨迹更新信号")
+
+    @Slot(str, str)
+    def handle_delete_trajectory_requested(self, device_name: str, trajectory_name: str):
+        """处理删除轨迹请求"""
+        self.logger.info(f"收到对轨迹 '{trajectory_name}' 的删除请求")
+        # 1. 请求设备逻辑管理器删除轨迹
+        success = self.device_logic_manager.delete_trajectory(device_name, trajectory_name)
+        
+        if success:
+            self.app_status_message.emit(f"轨迹 '{trajectory_name}' 已删除")
+            # 2. 删除成功后，刷新轨迹列表并显示最新轨迹
+            self.handle_trajectory_list_request(device_name, prefer_newest=True)
+        else:
+            self.app_status_message.emit(f"删除轨迹 '{trajectory_name}' 失败")
 

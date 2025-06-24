@@ -326,3 +326,18 @@ class DeviceLogicManager(QObject):
         device = self._get_or_create_device_instance(device_id)
         if device and hasattr(device, 'replan_with_original_time'):
             device.replan_with_original_time(trajectory_name)
+
+    def delete_trajectory(self, device_id: str, trajectory_name: str) -> bool:
+        """
+        删除指定设备的轨迹
+        :param device_id: 设备ID
+        :param trajectory_name: 轨迹名称
+        :return: 是否删除成功
+        """
+        self.logger.info(f"请求删除设备 '{device_id}' 的轨迹 '{trajectory_name}'")
+        device = self._get_or_create_device_instance(device_id)
+        if device and hasattr(device, 'delete_trajectory'):
+            return device.delete_trajectory(trajectory_name)
+        else:
+            self.logger.warning(f"设备 '{device_id}' 不支持 'delete_trajectory' 或不存在。")
+            return False

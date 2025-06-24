@@ -77,4 +77,5 @@ DeepMotor/**/*.app
 *.swp
 *.swo
 .DS_Store
+start.ps1
 

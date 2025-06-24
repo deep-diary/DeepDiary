@@ -440,6 +440,17 @@ class DeepMotor(BaseDevice):
             self.teaching_manager.load_all_trajectories()
             self.logger.info(f"设备 '{self.device_id}' 的轨迹已重新加载。")
 
+    def delete_trajectory(self, trajectory_name: str) -> bool:
+        """
+        删除指定的轨迹
+        :param trajectory_name: 轨迹名称
+        :return: 是否删除成功
+        """
+        self.logger.info(f"DeepMotor '{self.device_id}': 委托 TeachingTrajectoryManager 删除轨迹 '{trajectory_name}'")
+        if self.teaching_manager:
+            return self.teaching_manager.delete_trajectory(trajectory_name)
+        return False
+
     def _on_trajectory_execution_progress(self, device_id: str, progress_data: dict):
         """
         处理轨迹执行进度信号

@@ -165,6 +165,7 @@ class DeepMotorPage(QWidget):
     request_trajectory_list = Signal(str)  # 请求轨迹列表信号
     replan_requested = Signal(str, str, float)  # 重规划信号 (设备名, 轨迹名, 新时长)
     restore_default_requested = Signal(str, str) # 恢复默认信号 (设备名, 轨迹名)
+    delete_trajectory_requested = Signal(str, str) # 删除轨迹信号 (设备名, 轨迹名)
 
     def __init__(self, log_manager: LogManager = None, config_manager: ConfigManager = None, parent=None):
         super().__init__(parent=parent)
@@ -296,6 +297,7 @@ class DeepMotorPage(QWidget):
         self.start_teaching_button = PrimaryPushButton('开始示教')
         self.stop_teaching_button = PrimaryPushButton('结束示教')
         self.execute_teaching_button = PrimaryPushButton('执行示教')
+        self.delete_trajectory_button = PrimaryPushButton('删除轨迹')
         trajectory_label = QLabel('轨迹:')
         self.trajectory_combo = ComboBox()
         self.trajectory_combo.setMinimumWidth(150)
@@ -303,7 +305,7 @@ class DeepMotorPage(QWidget):
         # 执行时间控制
         duration_label = QLabel('执行时间:')
         self.duration_spin = QDoubleSpinBox(self)
-        self.duration_spin.setRange(2.0, 30.0)
+        self.duration_spin.setRange(1.0, 30.0)
         self.duration_spin.setSingleStep(0.5)
         self.duration_spin.setSuffix(" s")
         self.duration_spin.setValue(5.0)
@@ -323,6 +325,7 @@ class DeepMotorPage(QWidget):
         teaching_controls_layout.addWidget(self.duration_spin)
         teaching_controls_layout.addWidget(planning_label)
         teaching_controls_layout.addWidget(self.planning_switch)
+        teaching_controls_layout.addWidget(self.delete_trajectory_button)
         teaching_controls_layout.addStretch()
         teaching_layout_v.addLayout(teaching_controls_layout)
 
@@ -428,6 +431,7 @@ class DeepMotorPage(QWidget):
         self.start_teaching_button.clicked.connect(self.on_start_teaching_clicked)
         self.stop_teaching_button.clicked.connect(self.on_stop_teaching_clicked)
         self.execute_teaching_button.clicked.connect(self.on_execute_teaching_clicked)
+        self.delete_trajectory_button.clicked.connect(self.on_delete_trajectory_clicked)
         
         # 连接轨迹选择信号
         self.trajectory_combo.currentTextChanged.connect(self.on_trajectory_selection_changed)
@@ -462,12 +466,15 @@ class DeepMotorPage(QWidget):
             self.start_teaching_button.setEnabled(False)
             self.stop_teaching_button.setEnabled(True)
             self.execute_teaching_button.setEnabled(False)
+            self.delete_trajectory_button.setEnabled(False)
             self.teaching_status_label.setText('示教状态: 执行中')
             self.teaching_status_label.setStyleSheet("color: blue;")
         else:
             self.start_teaching_button.setEnabled(True)
             self.stop_teaching_button.setEnabled(False)
             self.execute_teaching_button.setEnabled(True)
+            # 删除按钮只有在有选中轨迹时才启用
+            self.delete_trajectory_button.setEnabled(bool(self.trajectory_combo.currentText()))
             self.teaching_status_label.setText('示教状态: 未开始')
             self.teaching_status_label.setStyleSheet("color: gray;")
 
@@ -475,10 +482,13 @@ class DeepMotorPage(QWidget):
         """更新执行按钮状态"""
         if self._is_executing_trajectory:
             self.execute_teaching_button.setEnabled(False)
+            self.delete_trajectory_button.setEnabled(False)
             self.teaching_status_label.setText('示教状态: 执行中')
             self.teaching_status_label.setStyleSheet("color: blue;")
         else:
             self.execute_teaching_button.setEnabled(True)
+            # 删除按钮只有在有选中轨迹时才启用
+            self.delete_trajectory_button.setEnabled(bool(self.trajectory_combo.currentText()))
             self.teaching_status_label.setText('示教状态: 未开始')
             self.teaching_status_label.setStyleSheet("color: gray;")
 
@@ -507,6 +517,9 @@ class DeepMotorPage(QWidget):
             self._current_trajectory = None
             if self.logger:
                 self.logger.info("UI: 清空轨迹选择")
+        
+        # 更新删除按钮状态
+        self.delete_trajectory_button.setEnabled(bool(self.trajectory_combo.currentText()))
 
     def on_start_teaching_clicked(self):
         """开始示教按钮点击处理函数"""
@@ -621,6 +634,9 @@ class DeepMotorPage(QWidget):
         
         if self.logger:
             self.logger.info(f"轨迹选择已更改为: {text}")
+        
+        # 更新删除按钮状态
+        self.delete_trajectory_button.setEnabled(True)
         
         # 自动切换到轨迹视图并刷新
         # 1. 确保视图在正确的参数模式
@@ -1354,6 +1370,20 @@ class DeepMotorPage(QWidget):
         
         # 刷新画布
         self.canvas.draw()
+
+    def on_delete_trajectory_clicked(self):
+        """删除轨迹按钮点击处理函数"""
+        trajectory_name = self.trajectory_combo.currentText()
+        if not trajectory_name:
+            if self.logger:
+                self.logger.warning("请先选择要删除的轨迹")
+            return
+        
+        if self.logger:
+            self.logger.info(f"删除轨迹按钮被点击，轨迹: {trajectory_name}")
+        
+        # 发送删除轨迹信号
+        self.delete_trajectory_requested.emit(self.DeviceName, trajectory_name)
 
 class DeepArmPage(QWidget):
     """DeepArm 控制页面"""
