@@ -177,14 +177,12 @@ class Coordinator(QObject):
         if self.gui_manager and self.gui_manager.window:
             if device_id == "DeepMotor":
                 self.gui_manager.window.deviceInterface.deep_motor_page.update_motor_data(data)
-
-        # 检查是否需要自动刷新实时曲线
-        if device_id == "DeepMotor":
-            current_param = self.gui_manager.window.deviceInterface.deep_motor_page.current_selected_param
-            # 如果当前视图不是静态的规划轨迹视图，则自动刷新
-            if not current_param.startswith('trajectory_'):
-                self.logger.debug(f"检测到数据更新，自动刷新实时曲线，参数: {current_param}")
-                self.handle_request_history_data(device_id, current_param)
+                
+                # 如果当前显示的是历史曲线参数，自动触发历史数据请求以刷新曲线
+                current_param = self.gui_manager.window.deviceInterface.deep_motor_page.current_selected_param
+                if not current_param.startswith('trajectory_'):
+                    # 非轨迹参数，自动请求历史数据刷新曲线
+                    self.handle_request_history_data(device_id, current_param)
 
         # 转发到 AI 协调器
         if self.ai_coordinator:
