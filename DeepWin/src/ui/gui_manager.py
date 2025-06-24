@@ -114,17 +114,18 @@ class GuiManager():
         if not hasattr(self.window, 'deviceInterface'):
             self.logger.warning("GuiManager: deviceInterface 尚未初始化")
             return False
-            
-        if not hasattr(self.window.deviceInterface, 'deep_motor_page'):
+        
+        deep_motor_page = self.window.deviceInterface.get_deep_motor_page() if hasattr(self.window.deviceInterface, 'get_deep_motor_page') else None
+        if not deep_motor_page:
             self.logger.warning("GuiManager: deep_motor_page 尚未初始化")
             return False
-            
+        
         # 检查轨迹下拉框是否存在
-        if not hasattr(self.window.deviceInterface.deep_motor_page, 'trajectory_combo'):
+        if not hasattr(deep_motor_page, 'trajectory_combo'):
             self.logger.warning("GuiManager: trajectory_combo 尚未初始化")
             return False
-            
+        
         # 执行轨迹选择
-        self.window.deviceInterface.deep_motor_page.select_trajectory(trajectory_name)
+        deep_motor_page.select_trajectory(trajectory_name)
         self.logger.info(f"GuiManager: 请求UI选中轨迹 '{trajectory_name}'")
         return True

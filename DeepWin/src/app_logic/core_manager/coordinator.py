@@ -56,6 +56,9 @@ class Coordinator(QObject):
     resource_match_error = Signal(str)
     # 新增：轨迹执行详细进度信号
     trajectory_execution_progress_detailed = Signal(str, dict) # (device_id, progress_data)
+    # 新增：轨迹执行完成和错误信号
+    trajectory_execution_finished = Signal(str) # (device_id)
+    trajectory_execution_error = Signal(str, str) # (device_id, error_message)
 
 
     def __init__(self, log_manager: LogManager, parent=None):
@@ -176,13 +179,16 @@ class Coordinator(QObject):
         # 转发到 UI
         if self.gui_manager and self.gui_manager.window:
             if device_id == "DeepMotor":
-                self.gui_manager.window.deviceInterface.deep_motor_page.update_motor_data(data)
+                deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+                if deep_motor_page and hasattr(deep_motor_page, 'update_motor_data'):
+                    deep_motor_page.update_motor_data(data)
                 
                 # 如果当前显示的是历史曲线参数，自动触发历史数据请求以刷新曲线
-                current_param = self.gui_manager.window.deviceInterface.deep_motor_page.current_selected_param
-                if not current_param.startswith('trajectory_'):
-                    # 非轨迹参数，自动请求历史数据刷新曲线
-                    self.handle_request_history_data(device_id, current_param)
+                if deep_motor_page and hasattr(deep_motor_page, 'current_selected_param'):
+                    current_param = deep_motor_page.current_selected_param
+                    if not current_param.startswith('trajectory_'):
+                        # 非轨迹参数，自动请求历史数据刷新曲线
+                        self.handle_request_history_data(device_id, current_param)
 
         # 转发到 AI 协调器
         if self.ai_coordinator:
@@ -205,33 +211,54 @@ class Coordinator(QObject):
         self.gui_manager.window.deviceInterface.serial_config.request_ports.connect(self.handle_ports_request) # 连接串口列表请求信号
         self.gui_manager.window.deviceInterface.serial_config.serial_connect_requested.connect(self.handle_serial_connect)  # 添加串口连接信号绑定
         self.gui_manager.window.deviceInterface.serial_config.serial_disconnect_requested.connect(self.handle_serial_disconnect)
-        self.gui_manager.window.deviceInterface.deep_motor_page.request_sim_data.connect(self.handle_sim_data_request)
-        self.gui_manager.window.deviceInterface.deep_motor_page.request_history_data.connect(self.handle_request_history_data)
         
-        # 连接示教相关信号
-        self.gui_manager.window.deviceInterface.deep_motor_page.start_teaching_requested.connect(self.handle_start_teaching_request)
-        self.gui_manager.window.deviceInterface.deep_motor_page.stop_teaching_requested.connect(self.handle_stop_teaching_request)
-        self.gui_manager.window.deviceInterface.deep_motor_page.execute_teaching_requested.connect(self.handle_execute_teaching_request)
+        # 连接Coordinator的轨迹执行信号到DeviceInterface
+        self.trajectory_execution_progress_detailed.connect(self.gui_manager.window.deviceInterface._handle_trajectory_execution_progress)
+        self.trajectory_execution_finished.connect(self.gui_manager.window.deviceInterface._handle_trajectory_execution_finished)
+        self.trajectory_execution_error.connect(self.gui_manager.window.deviceInterface._handle_trajectory_execution_error)
         
-        # 连接轨迹数据请求信号
-        self.gui_manager.window.deviceInterface.deep_motor_page.request_trajectory_data.connect(self.handle_trajectory_data_request)
-        
-        # 连接轨迹列表请求信号
-        self.gui_manager.window.deviceInterface.deep_motor_page.request_trajectory_list.connect(self.handle_trajectory_list_request)
-        # 新增：连接重规划请求信号
-        self.gui_manager.window.deviceInterface.deep_motor_page.replan_requested.connect(self.handle_replan_requested)
-        # 新增：连接恢复默认请求信号
-        self.gui_manager.window.deviceInterface.deep_motor_page.restore_default_requested.connect(self.handle_restore_default_requested)
-        # 新增：连接删除轨迹请求信号
-        self.gui_manager.window.deviceInterface.deep_motor_page.delete_trajectory_requested.connect(self.handle_delete_trajectory_requested)
+        # 获取DeepMotor页面实例 - 使用新的架构
+        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+        if deep_motor_page:
+            self.logger.info("Coordinator: 找到DeepMotor页面，开始连接信号")
+            # 连接DeepMotor页面的信号
+            deep_motor_page.request_sim_data.connect(self.handle_sim_data_request)
+            deep_motor_page.request_history_data.connect(self.handle_request_history_data)
+            
+            # 连接示教相关信号
+            deep_motor_page.start_teaching_requested.connect(self.handle_start_teaching_request)
+            deep_motor_page.stop_teaching_requested.connect(self.handle_stop_teaching_request)
+            deep_motor_page.execute_teaching_requested.connect(self.handle_execute_teaching_request)
+            
+            # 连接轨迹数据请求信号
+            deep_motor_page.request_trajectory_data.connect(self.handle_trajectory_data_request)
+            
+            # 连接轨迹列表请求信号
+            deep_motor_page.request_trajectory_list.connect(self.handle_trajectory_list_request)
+            # 新增：连接重规划请求信号
+            deep_motor_page.replan_requested.connect(self.handle_replan_requested)
+            # 新增：连接恢复默认请求信号
+            deep_motor_page.restore_default_requested.connect(self.handle_restore_default_requested)
+            # 新增：连接删除轨迹请求信号
+            deep_motor_page.delete_trajectory_requested.connect(self.handle_delete_trajectory_requested)
+            
+            self.logger.info("Coordinator: DeepMotor页面信号连接完成")
+        else:
+            self.logger.warning("Coordinator: DeepMotor页面未找到，无法连接相关信号")
 
         # 连接测试按钮信号
         self.gui_manager.window.basicInputInterface.test_button_clicked.connect(self.handle_test_button_click)
 
         # 新增：连接轨迹执行进度信号
-        self.trajectory_execution_progress_detailed.connect(self.gui_manager.window.deviceInterface.deep_motor_page.update_trajectory_execution_progress)
+        self.trajectory_execution_progress_detailed.connect(self._forward_trajectory_execution_progress)
 
         self.logger.debug("Coordinator: GUI 信号连接完成。")
+
+    def _forward_trajectory_execution_progress(self, device_id: str, progress_data: dict):
+        """转发轨迹执行进度到对应的设备页面"""
+        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+        if deep_motor_page and hasattr(deep_motor_page, 'update_trajectory_execution_progress'):
+            deep_motor_page.update_trajectory_execution_progress(device_id, progress_data)
 
     def _connect_memory_processing_signals(self):
         """
@@ -490,8 +517,8 @@ class Coordinator(QObject):
             if not target_port_name:
                 self.logger.warning(f"Coordinator: 无法确定设备 '{device_id}' 对应的串口。")
                 self.app_status_message.emit(f"无法确定设备 '{device_id}' 对应的串口。")
-                # 反馈模拟数据
-                position = args[1]
+                # 反馈模拟数据 - 修复list index out of range错误
+                position = args[1] if len(args) > 1 else 0.0  # 如果args只有一个元素，使用默认值
                 self.serial_communicator.sim_read_serial_data(position = position)
                 return
 
@@ -811,25 +838,35 @@ class Coordinator(QObject):
         """处理历史数据请求"""
         self.logger.info(f"Coordinator: 收到历史数据请求，设备: {device_name}, 参数: {param_name}")
         if device_name == "DeepMotor":
+            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+            if not deep_motor_page:
+                self.logger.warning("DeepMotor页面未找到")
+                return
+                
             # 检查是否是轨迹相关参数
             if param_name.startswith('trajectory_'):
                 # 获取当前选中的轨迹名称
-                current_trajectory = self.gui_manager.window.deviceInterface.deep_motor_page._current_trajectory
-                if not current_trajectory:
-                    self.logger.warning("请求轨迹数据但未选择轨迹")
-                    self.app_status_message.emit("请先选择一条轨迹")
+                if hasattr(deep_motor_page, '_current_trajectory'):
+                    current_trajectory = deep_motor_page._current_trajectory
+                    if not current_trajectory:
+                        self.logger.warning("请求轨迹数据但未选择轨迹")
+                        self.app_status_message.emit("请先选择一条轨迹")
+                        return
+                    
+                    # 传递轨迹名称作为选项
+                    options = {"trajectory_name": current_trajectory}
+                    history_data = self.device_logic_manager.get_historical_data(device_name, param_name, options)
+                else:
+                    self.logger.warning("DeepMotor页面没有_current_trajectory属性")
                     return
-                
-                # 传递轨迹名称作为选项
-                options = {"trajectory_name": current_trajectory}
-                history_data = self.device_logic_manager.get_historical_data(device_name, param_name, options)
             else:
                 # 普通历史数据请求
                 history_data = self.device_logic_manager.get_historical_data(device_name, param_name, {})
             
             if history_data is not None:
                 # 发送历史数据到UI
-                self.gui_manager.window.deviceInterface.deep_motor_page.update_history_curve(history_data)
+                if hasattr(deep_motor_page, 'update_history_curve'):
+                    deep_motor_page.update_history_curve(history_data)
         self.logger.info(f"Coordinator: 历史数据请求完成，设备: {device_name}, 参数: {param_name}")
 
     def handle_can_frame(self, port_name: str, arbitration_id: int, data_bytes: bytes, is_extended_id: bool):
@@ -846,7 +883,9 @@ class Coordinator(QObject):
                         'torque': parsed_data['torque'],
                         'temperature': parsed_data['temperature']
                     }
-                    self.gui_manager.window.deviceInterface.deep_motor_page.update_motor_data(motor_data)
+                    deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+                    if deep_motor_page and hasattr(deep_motor_page, 'update_motor_data'):
+                        deep_motor_page.update_motor_data(motor_data)
         except Exception as e:
             self.logger.error(f"Coordinator: 处理CAN帧失败: {e}")
 
@@ -955,14 +994,26 @@ class Coordinator(QObject):
         """处理轨迹数据请求"""
         self.logger.info(f"Coordinator: 收到轨迹数据请求，设备: {device_name}, 轨迹: {trajectory_name}")
         
+        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+        if not deep_motor_page:
+            self.logger.warning("Coordinator: DeepMotor页面未找到")
+            return
+        
         # 获取当前选择的参数类型
-        current_param = self.gui_manager.window.deviceInterface.deep_motor_page.current_selected_param
+        if hasattr(deep_motor_page, 'current_selected_param'):
+            current_param = deep_motor_page.current_selected_param
+            self.logger.info(f"Coordinator: 当前选择的参数: {current_param}")
+        else:
+            current_param = "trajectory_both"  # 默认值
+            self.logger.warning(f"Coordinator: 页面没有current_selected_param属性，使用默认值: {current_param}")
         
         # 根据参数类型获取轨迹数据
         if not current_param.startswith('trajectory_'):
              # 如果当前不是轨迹视图，默认切换到对比视图
             current_param = "trajectory_both"
+            self.logger.info(f"Coordinator: 切换到轨迹对比视图: {current_param}")
         
+        self.logger.info(f"Coordinator: 请求轨迹数据，参数: {current_param}, 轨迹名: {trajectory_name}")
         history_data_dict = self.device_logic_manager.get_historical_data(
             device_name, 
             current_param, 
@@ -971,28 +1022,41 @@ class Coordinator(QObject):
         
         # history_data_dict 现在是一个字典, 直接传递给UI
         if history_data_dict:
-            self.gui_manager.window.deviceInterface.deep_motor_page.update_history_curve(history_data_dict)
-            self.app_status_message.emit(f"轨迹数据已获取并更新到设备: {device_name}")
+            self.logger.info(f"Coordinator: 获取到轨迹数据，数据键: {list(history_data_dict.keys())}")
+            if hasattr(deep_motor_page, 'update_history_curve'):
+                self.logger.info(f"Coordinator: 调用页面更新历史曲线方法")
+                deep_motor_page.update_history_curve(history_data_dict)
+                self.app_status_message.emit(f"轨迹数据已获取并更新到设备: {device_name}")
+            else:
+                self.logger.warning(f"Coordinator: DeepMotor页面没有update_history_curve方法")
         else:
+            self.logger.warning(f"Coordinator: 未获取到轨迹数据")
             self.app_status_message.emit(f"轨迹数据获取失败，设备: {device_name}")
 
     @Slot(str)
     def handle_trajectory_list_request(self, device_name: str, prefer_newest: bool = False):
         """处理轨迹列表请求"""
-        self.logger.info(f"Coordinator: 收到轨迹列表请求，设备: {device_name}")
+        self.logger.info(f"Coordinator: 收到轨迹列表请求，设备: {device_name}, prefer_newest: {prefer_newest}")
         
         # 获取轨迹列表
         trajectory_list = self.device_logic_manager.get_trajectory_list(device_name)
         
         if trajectory_list:
+            self.logger.info(f"Coordinator: 获取到轨迹列表，共 {len(trajectory_list)} 条轨迹: {trajectory_list}")
             # 如果是程序启动时的初始化请求（没有指定prefer_newest），默认选择最新轨迹
             if not prefer_newest and trajectory_list:
                 prefer_newest = True
                 self.logger.info(f"程序启动，默认选择最新轨迹")
             
-            self.gui_manager.window.deviceInterface.deep_motor_page.update_trajectory_list(trajectory_list, prefer_newest)
-            self.app_status_message.emit(f"轨迹列表已更新，共 {len(trajectory_list)} 条轨迹")
+            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+            if deep_motor_page and hasattr(deep_motor_page, 'update_trajectory_list'):
+                self.logger.info(f"Coordinator: 调用页面更新轨迹列表方法")
+                deep_motor_page.update_trajectory_list(trajectory_list, prefer_newest)
+                self.app_status_message.emit(f"轨迹列表已更新，共 {len(trajectory_list)} 条轨迹")
+            else:
+                self.logger.warning(f"Coordinator: DeepMotor页面未找到或没有update_trajectory_list方法")
         else:
+            self.logger.warning(f"Coordinator: 未获取到轨迹列表")
             self.app_status_message.emit("暂无轨迹数据")
 
     @Slot(str, dict)
@@ -1007,32 +1071,23 @@ class Coordinator(QObject):
 
     @Slot(str, str)
     def handle_trajectory_execution_finished(self, device_id: str, trajectory_name: str):
-        """处理轨迹执行完成信号"""
-        self.app_status_message.emit(f"轨迹执行完成: {trajectory_name}")
-        
-        # 转发给UI
-        if self.gui_manager and self.gui_manager.window:
-            self.gui_manager.window.deviceInterface.deep_motor_page.on_trajectory_execution_finished()
-        else:
-            self.logger.warning("Coordinator: GUI管理器不可用，无法转发完成信号")
+        self.logger.info(f"Coordinator: 轨迹执行完成，设备: {device_id}, 轨迹: {trajectory_name}")
+        self.trajectory_execution_finished.emit(device_id)
+        self.logger.info(f"Coordinator: 已发射 trajectory_execution_finished 信号，参数: {device_id}")
 
     @Slot(str, str)
     def handle_trajectory_execution_error(self, device_id: str, error_message: str):
-        """处理轨迹执行错误信号"""
-        self.app_status_message.emit(f"轨迹执行错误: {error_message}")
-        
-        # 转发给UI
-        if self.gui_manager and self.gui_manager.window:
-            self.gui_manager.window.deviceInterface.deep_motor_page.on_trajectory_execution_error(error_message)
-        else:
-            self.logger.warning("Coordinator: GUI管理器不可用，无法转发错误信号")
+        self.logger.error(f"Coordinator: 轨迹执行错误，设备: {device_id}, 错误: {error_message}")
+        self.trajectory_execution_error.emit(device_id, error_message)
+        self.logger.info(f"Coordinator: 已发射 trajectory_execution_error 信号，参数: {device_id}, {error_message}")
 
     @Slot(str, list, list)
     def handle_teaching_trajectory_updated(self, device_id: str, times: list, positions: list):
         """处理示教轨迹实时更新信号"""
         # 转发给UI
-        if self.gui_manager and self.gui_manager.window:
-            self.gui_manager.window.deviceInterface.deep_motor_page.update_teaching_trajectory(times, positions)
+        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+        if deep_motor_page and hasattr(deep_motor_page, 'update_teaching_trajectory'):
+            deep_motor_page.update_teaching_trajectory(times, positions)
         else:
             self.logger.warning("Coordinator: GUI管理器不可用，无法转发示教轨迹更新信号")
 

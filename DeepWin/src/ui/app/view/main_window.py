@@ -11,7 +11,7 @@ from qfluentwidgets import FluentIcon as FIF
 from .gallery_interface import GalleryInterface
 from .home_interface import HomeInterface
 from .memory_interface import MemoryInterface
-from .device_interface import DeviceInterface
+from .devices.device_interface import DeviceInterface
 from .resource_interface import ResourceInterface
 from .basic_input_interface import BasicInputInterface
 from .date_time_interface import DateTimeInterface

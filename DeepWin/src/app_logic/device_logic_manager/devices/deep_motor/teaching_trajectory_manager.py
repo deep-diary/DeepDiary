@@ -147,11 +147,11 @@ class TeachingTrajectoryManager(QObject):
                 self.logger.warning(f"轨迹 '{trajectory_name}' 时间过短 ({time_vector[-1]:.2f}s)，无法规划。")
                 return
             # 从配置读取插值点数
-            interp_points = self.config_manager.get('device_settings.deepmotor_trajectory_interp_points', 50)
+            control_freq = self.config_manager.get('device_settings.deepmotor_trajectory_interp_freq', 50)
             
             # 动态调整插值点数：根据轨迹时长和控制频率计算
             # 控制频率50Hz，每个点间隔20ms，确保系统能稳定处理
-            control_freq = 50  # Hz
+            # control_freq = 50  # Hz
             total_time = time_vector[-1] - time_vector[0] if len(time_vector) > 1 else 1.0
             dynamic_interp_points = int(total_time * control_freq)
             

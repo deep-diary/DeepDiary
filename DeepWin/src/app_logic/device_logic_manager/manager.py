@@ -1,6 +1,8 @@
 # src/app_logic/device_logic_manager/manager.py
 # 设备逻辑管理器核心实现
 
+import os
+import importlib
 import time
 from PySide6.QtCore import QObject, Signal, Slot
 from typing import Dict, Any, Optional, Union, List
@@ -10,8 +12,6 @@ from src.data_management.log_manager import LogManager
 from src.data_management.config_manager import ConfigManager
 from src.app_logic.device_logic_manager.device_models import BaseDeviceState, DeepArmState, DeepToyState, DeepMotorState, DeviceStatus
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
-from src.app_logic.device_logic_manager.devices.deep_motor.deep_motor import DeepMotor
-from src.app_logic.device_logic_manager.devices.deep_arm.deep_arm import DeepArm
 
 
 class DeviceLogicManager(QObject):
@@ -50,7 +50,6 @@ class DeviceLogicManager(QObject):
     # 新增：示教轨迹实时更新信号
     teaching_trajectory_updated = Signal(str, list, list)  # 示教轨迹实时更新
 
-
     def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         """
         初始化设备逻辑管理器。
@@ -61,12 +60,125 @@ class DeviceLogicManager(QObject):
         self.logger_instance = log_manager
         self.config_manager = config_manager
         self.logger = log_manager.get_logger(__name__)
-        self.logger.info("DeviceLogicManager: 初始化中...")
-
+        
         # 维护当前连接的设备实例 (示例：使用字典存储设备ID -> 设备逻辑实例)
         self.managed_devices: Dict[str, BaseDevice] = {}
+        
+        # 存储设备类型到设备类的映射
+        self._device_classes: Dict[str, type] = {}
+        
+        # 自动发现和注册设备逻辑类
+        self._auto_discover_and_register_devices()
 
-        self.logger.info("DeviceLogicManager: 初始化完成。")
+    def _auto_discover_and_register_devices(self):
+        """
+        自动发现并注册设备逻辑类。
+        根据 devices 目录下的子文件夹名称自动提取设备类型和设备类。
+        """
+        self.logger.info("开始自动发现设备逻辑类...")
+        
+        # 获取 devices 目录的绝对路径
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        devices_dir = os.path.join(current_dir, "devices")
+        
+        if not os.path.exists(devices_dir):
+            self.logger.error(f"设备目录不存在: {devices_dir}")
+            return
+        
+        # 遍历 devices 目录下的子文件夹
+        for item in os.listdir(devices_dir):
+            item_path = os.path.join(devices_dir, item)
+            
+            # 只处理目录，跳过文件
+            if not os.path.isdir(item_path):
+                continue
+                
+            # 跳过 __pycache__ 等特殊目录
+            if item.startswith('__') or item.startswith('.'):
+                continue
+            
+            # 根据文件夹名称提取设备类型
+            device_type = self._extract_device_type_from_folder_name(item)
+            if not device_type:
+                self.logger.warning(f"无法从文件夹名称 '{item}' 提取设备类型，跳过")
+                continue
+            
+            # 尝试导入对应的设备逻辑类
+            device_class = self._import_device_class(item, device_type)
+            if not device_class:
+                self.logger.warning(f"无法导入设备 '{device_type}' 的逻辑类，跳过")
+                continue
+            
+            # 注册设备类
+            self._device_classes[device_type] = device_class
+            self.logger.info(f"成功注册设备逻辑类: {device_type} -> {device_class.__name__}")
+        
+        registered_devices = list(self._device_classes.keys())
+        self.logger.info(f"设备逻辑类注册完成，共注册 {len(registered_devices)} 个设备类型: {registered_devices}")
+
+    def _extract_device_type_from_folder_name(self, folder_name: str) -> Optional[str]:
+        """
+        从文件夹名称提取设备类型。
+        规则：将 snake_case 转换为 PascalCase，例如：
+        - deep_motor -> DeepMotor
+        - deep_arm -> DeepArm
+        - my_device -> MyDevice
+        """
+        # 将 snake_case 转换为 PascalCase
+        words = folder_name.split('_')
+        device_type = ''.join(word.capitalize() for word in words)
+        
+        return device_type
+
+    def _import_device_class(self, folder_name: str, device_type: str) -> Optional[type]:
+        """
+        导入指定设备的逻辑类。
+        规则：假设类名为 {DeviceType}
+        """
+        try:
+            # 构建模块路径
+            module_path = f"src.app_logic.device_logic_manager.devices.{folder_name}.{folder_name}"
+            
+            # 导入模块
+            module = importlib.import_module(module_path)
+            
+            # 构建类名
+            class_name = device_type
+            
+            # 获取类
+            device_class = getattr(module, class_name, None)
+            
+            if device_class is None:
+                self.logger.warning(f"模块 {module_path} 中未找到类 {class_name}")
+                return None
+            
+            # 验证类是否继承自 BaseDevice
+            if not issubclass(device_class, BaseDevice):
+                self.logger.warning(f"类 {class_name} 未继承自 BaseDevice")
+                return None
+            
+            return device_class
+            
+        except ImportError as e:
+            self.logger.warning(f"导入模块失败 {folder_name}: {e}")
+            return None
+        except AttributeError as e:
+            self.logger.warning(f"获取类失败 {folder_name}: {e}")
+            return None
+        except Exception as e:
+            self.logger.warning(f"导入设备 {device_type} 的逻辑类时发生未知错误: {e}")
+            return None
+
+    def _get_device_type_from_id(self, device_id: str) -> Optional[str]:
+        """
+        根据设备ID确定设备类型。
+        """
+        # 遍历已注册的设备类型，查找匹配的前缀
+        for device_type in self._device_classes.keys():
+            if device_id.startswith(device_type):
+                return device_type
+        
+        return None
 
     def _get_or_create_device_instance(self, device_id: str) -> Optional[BaseDevice]:
         """
@@ -74,40 +186,56 @@ class DeviceLogicManager(QObject):
         :param device_id: 设备的唯一标识符。
         :return: 设备逻辑实例，如果无法创建则返回 None。
         """
-        # # 如果设备ID是命令而不是设备ID，则使用默认设备ID
-        # if device_id in ["init_motor", "reset_motor", "enable_motor", "set_motor_mode", "set_motor_position", "set_motor_pos_speed"]:
-        #     device_id = "DeepMotor1"  # 使用默认的电机ID
-
         if device_id not in self.managed_devices:
-            # 根据设备ID前缀创建对应的设备实例
-            if device_id.startswith("DeepArm"):
-                from .devices.deep_arm.deep_arm import DeepArm
-                self.managed_devices[device_id] = DeepArm(device_id, self.logger_instance)
-            elif device_id.startswith("DeepMotor"):
-                from .devices.deep_motor.deep_motor import DeepMotor
-                self.managed_devices[device_id] = DeepMotor(device_id, self.logger_instance, self.config_manager)
-                # 绑定底层设备状态更新信号
-                self.managed_devices[device_id].device_states_updated.connect(self.device_status_updated)
-                # 绑定设备向协调器发送命令的信号 - 修复：使用正确的信号名称
-                if hasattr(self.managed_devices[device_id], 'send_command_request'):
-                    self.managed_devices[device_id].send_command_request.connect(self.send_device_abstract_command_requested)
+            # 根据设备ID前缀确定设备类型
+            device_type = self._get_device_type_from_id(device_id)
+            if not device_type:
+                self.logger.error(f"无法识别的设备类型或 ID 前缀: {device_id}")
+                return None
+            
+            # 获取对应的设备类
+            device_class = self._device_classes.get(device_type)
+            if not device_class:
+                self.logger.error(f"设备类型 '{device_type}' 的逻辑类未注册")
+                return None
+            
+            try:
+                # 实例化设备
+                if device_type == "DeepMotor":
+                    # DeepMotor 需要额外的 config_manager 参数
+                    device_instance = device_class(device_id, self.logger_instance, self.config_manager)
                 else:
+                    # 其他设备只需要基本的参数
+                    device_instance = device_class(device_id, self.logger_instance)
+                
+                self.managed_devices[device_id] = device_instance
+                
+                # 绑定设备状态更新信号
+                device_instance.device_states_updated.connect(self.device_status_updated)
+                
+                # 绑定设备向协调器发送命令的信号
+                if hasattr(device_instance, 'send_command_request'):
+                    device_instance.send_command_request.connect(self.send_device_abstract_command_requested)
+                elif hasattr(device_instance, 'command_to_coordinator'):
                     # 兼容旧版本，使用 command_to_coordinator 信号
-                    self.managed_devices[device_id].command_to_coordinator.connect(self.send_device_abstract_command_requested)
+                    device_instance.command_to_coordinator.connect(self.send_device_abstract_command_requested)
                 
-                # 新增：连接DeepMotor的轨迹执行相关信号
-                if hasattr(self.managed_devices[device_id], 'trajectory_execution_progress_updated'):
-                    self.managed_devices[device_id].trajectory_execution_progress_updated.connect(self.trajectory_execution_progress_updated)
-                if hasattr(self.managed_devices[device_id], 'trajectory_execution_finished'):
-                    self.managed_devices[device_id].trajectory_execution_finished.connect(self.trajectory_execution_finished)
-                if hasattr(self.managed_devices[device_id], 'trajectory_execution_error'):
-                    self.managed_devices[device_id].trajectory_execution_error.connect(self.trajectory_execution_error)
+                # 绑定轨迹执行相关信号（如果设备支持）
+                if hasattr(device_instance, 'trajectory_execution_progress_updated'):
+                    device_instance.trajectory_execution_progress_updated.connect(self.trajectory_execution_progress_updated)
+                if hasattr(device_instance, 'trajectory_execution_finished'):
+                    device_instance.trajectory_execution_finished.connect(self.trajectory_execution_finished)
+                if hasattr(device_instance, 'trajectory_execution_error'):
+                    device_instance.trajectory_execution_error.connect(self.trajectory_execution_error)
                 
-                # 新增：连接DeepMotor的示教轨迹实时更新信号
-                if hasattr(self.managed_devices[device_id], 'teaching_trajectory_updated'):
-                    self.managed_devices[device_id].teaching_trajectory_updated.connect(self.teaching_trajectory_updated)
-            else:
-                self.logger.error(f"DeviceLogicManager: 无法识别的设备类型或 ID 前缀: {device_id}")
+                # 绑定示教轨迹实时更新信号（如果设备支持）
+                if hasattr(device_instance, 'teaching_trajectory_updated'):
+                    device_instance.teaching_trajectory_updated.connect(self.teaching_trajectory_updated)
+                
+                self.logger.info(f"成功创建设备实例: {device_id} ({device_type})")
+                
+            except Exception as e:
+                self.logger.error(f"创建设备 '{device_id}' 实例失败: {e}")
                 return None
 
         return self.managed_devices[device_id]
@@ -121,10 +249,10 @@ class DeviceLogicManager(QObject):
         :param abstract_command: 抽象的控制指令字符串，如 "move_to_point(100, 200, 300)"。
         :return: 模拟的设备响应。
         """
-        self.logger.info(f"DeviceLogicManager: 收到抽象指令 '{abstract_command}' for device '{device_id}'。")
+        self.logger.info(f"收到抽象指令 '{abstract_command}' for device '{device_id}'")
         device_instance = self._get_or_create_device_instance(device_id)
         if not device_instance:
-            error_msg = f"无法找到或创建设备实例 '{device_id}' 来发送命令。"
+            error_msg = f"无法找到或创建设备实例 '{device_id}' 来发送命令"
             self.device_error.emit(error_msg)
             raise ValueError(error_msg)
 
@@ -150,20 +278,17 @@ class DeviceLogicManager(QObject):
                 parsed_args = []
 
             # 设备的逻辑实例负责将抽象命令映射到实际的底层命令请求
-            # 这里假设 BaseDevice 或其子类有一个方法来处理这个请求
-            # 并通过 emit send_device_abstract_command_requested 信号
             device_instance.execute_abstract_command(
                 abstract_command_name, parsed_args, self.send_device_abstract_command_requested
             )
             
-            self.device_command_response.emit(f"命令请求已发送至设备 '{device_id}' 的逻辑实例。")
+            self.device_command_response.emit(f"命令请求已发送至设备 '{device_id}' 的逻辑实例")
             return "Command request sent to device logic instance."
         except Exception as e:
             error_msg = f"设备 '{device_id}' 处理抽象命令 '{abstract_command}' 失败: {e}"
-            self.logger.error(f"DeviceLogicManager: {error_msg}")
+            self.logger.error(error_msg)
             self.device_error.emit(error_msg)
             raise
-
 
     @Slot(str, dict) # 接收来自 DeviceProtocolParser 的业务语义数据
     def handle_device_semantic_data(self, device_id: str, parsed_semantic_data: Dict[str, Any]):
@@ -173,11 +298,10 @@ class DeviceLogicManager(QObject):
         :param device_id: 发送数据的设备ID。
         :param parsed_semantic_data: 已解析的业务语义数据字典。
         """
-        # self.logger.debug(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
-        self.logger.info(f"DeviceLogicManager: 收到设备 '{device_id}' 的语义数据: {parsed_semantic_data}")
+        self.logger.debug(f"收到设备 '{device_id}' 的语义数据")
         device_instance = self._get_or_create_device_instance(device_id)
         if not device_instance:
-            self.device_error.emit(f"无法找到或创建设备实例 '{device_id}' 来处理语义数据。")
+            self.device_error.emit(f"无法找到或创建设备实例 '{device_id}' 来处理语义数据")
             return
 
         try:
@@ -192,49 +316,36 @@ class DeviceLogicManager(QObject):
                 device_id,
                 device_instance.get_current_state().to_dict() # 获取最新状态字典
             )
-            self.logger.debug(f"DeviceLogicManager: 设备 '{device_id}' 状态已更新。")
-
-            # # 示教逻辑（暂时跳过）
-            # if self._is_teaching_mode.get(device_id, False) and isinstance(device_instance.get_current_state(), DeepArmState):
-            #     self.teaching_manager.record_trajectory_point(device_id, device_instance.get_current_state().get_current_joint_angles())
+            self.logger.debug(f"设备 '{device_id}' 状态已更新")
 
         except Exception as e:
             error_msg = f"处理设备 '{device_id}' 语义数据失败: {e}"
-            self.logger.error(f"DeviceLogicManager: {error_msg}")
+            self.logger.error(error_msg)
             self.device_error.emit(error_msg)
 
-    # # 示教模式相关槽函数 (暂时跳过实现逻辑)
-    # @Slot(str)
-    # def start_teaching_mode(self, device_id: str):
-    #     self.logger.info(f"DeviceLogicManager: 示教模式启动请求 for {device_id} (逻辑暂时跳过)")
-    #     self._is_teaching_mode[device_id] = True
-    #     self.teaching_started.emit(device_id)
-
-    # @Slot(str, str)
-    # def stop_teaching_mode(self, device_id: str, trajectory_name: str):
-    #     self.logger.info(f"DeviceLogicManager: 示教模式停止请求 for {device_id} (逻辑暂时跳过)")
-    #     self._is_teaching_mode[device_id] = False
-    #     self.teaching_stopped.emit(device_id, []) # 模拟空列表
-    #     self.device_error.emit(f"机械臂 '{device_id}' 示教模式结束，轨迹 '{trajectory_name}' 已保存。")
-
-
-    # @Slot(str, str)
-    # def play_teaching_trajectory(self, device_id: str, trajectory_name: str):
-    #     self.logger.info(f"DeviceLogicManager: 播放轨迹请求 for {device_id} (逻辑暂时跳过)")
-    #     self.trajectory_playback_started.emit(device_id, trajectory_name)
-    #     self.trajectory_playback_finished.emit(device_id, trajectory_name)
-    #     self.device_error.emit(f"机械臂 '{device_id}' 轨迹 '{trajectory_name}' 播放完成。")
-
+    def get_registered_device_types(self) -> List[str]:
+        """
+        获取已注册的设备类型列表。
+        :return: 已注册的设备类型列表。
+        """
+        return list(self._device_classes.keys())
 
     def cleanup(self):
         """
         清理设备逻辑管理器占用的资源。
         在应用程序关闭时调用。
         """
-        self.logger.info("DeviceLogicManager: 执行清理工作。")
+        self.logger.info("开始清理设备逻辑管理器")
         for device_id, instance in self.managed_devices.items():
-            instance.cleanup() # 清理各个设备实例
-        self.logger.info("DeviceLogicManager: 清理完成。")
+            try:
+                instance.cleanup() # 清理各个设备实例
+                self.logger.debug(f"已清理设备 '{device_id}' 的实例")
+            except Exception as e:
+                self.logger.warning(f"清理设备 '{device_id}' 的实例时发生错误: {e}")
+        
+        self.managed_devices.clear()
+        self._device_classes.clear()
+        self.logger.info("设备逻辑管理器清理完成")
 
     # --- 示教相关方法 ---
     # 所有示教相关的方法都应该被委托给具体的设备实例处理
@@ -249,7 +360,6 @@ class DeviceLogicManager(QObject):
         self.logger.info(f"请求为设备 '{device_id}' 开始示教，motor_id: {motor_id}")
         device = self._get_or_create_device_instance(device_id)
         if device and hasattr(device, 'start_teaching'):
-            # 修复：将 device_id 和 motor_id 传递给设备
             device.start_teaching(device_id, motor_id)
 
     @Slot(str)
@@ -259,10 +369,9 @@ class DeviceLogicManager(QObject):
         :param device_id: 设备ID
         :return: 保存的轨迹文件名
         """
-        self.logger.info(f"请求为设备 '{device_id}' 停止示教。")
+        self.logger.info(f"请求为设备 '{device_id}' 停止示教")
         device = self._get_or_create_device_instance(device_id)
         if device and hasattr(device, 'stop_teaching'):
-            # 修复：确保传递的是 device_id
             return device.stop_teaching(device_id)
         return None
 
@@ -279,7 +388,7 @@ class DeviceLogicManager(QObject):
         if device and hasattr(device, 'execute_trajectory'):
             device.execute_trajectory(trajectory_name, motor_id, use_planned_trajectory)
         else:
-            self.logger.error(f"设备 '{device_id}' 不支持 'execute_trajectory' 或不存在。")
+            self.logger.error(f"设备 '{device_id}' 不支持 'execute_trajectory' 或不存在")
 
     def get_trajectory_list(self, device_id: str) -> List[str]:
         """获取可用轨迹列表"""
@@ -288,7 +397,7 @@ class DeviceLogicManager(QObject):
         if device and hasattr(device, 'get_trajectory_list'):
             return device.get_trajectory_list()
         else:
-            self.logger.warning(f"设备 '{device_id}' 不支持 'get_trajectory_list' 或不存在。")
+            self.logger.warning(f"设备 '{device_id}' 不支持 'get_trajectory_list' 或不存在")
             return []
             
     def get_historical_data(self, device_id: str, parameter: str, options: dict) -> Optional[pd.DataFrame]:
@@ -298,7 +407,7 @@ class DeviceLogicManager(QObject):
         if device and hasattr(device, 'get_historical_data'):
             return device.get_historical_data(parameter, options)
         else:
-            self.logger.warning(f"设备 '{device_id}' 不支持 'get_historical_data' 或不存在。")
+            self.logger.warning(f"设备 '{device_id}' 不支持 'get_historical_data' 或不存在")
             return None
 
     def reload_trajectories(self, device_id: str) -> List[str]:
@@ -308,7 +417,7 @@ class DeviceLogicManager(QObject):
         if device and hasattr(device, 'reload_trajectories'):
             return device.reload_trajectories()
         else:
-            self.logger.warning(f"设备 '{device_id}' 不支持 'reload_trajectories' 或不存在。")
+            self.logger.warning(f"设备 '{device_id}' 不支持 'reload_trajectories' 或不存在")
             return []
 
     def replan_trajectory(self, device_id: str, trajectory_name: str, duration: float):
@@ -339,5 +448,5 @@ class DeviceLogicManager(QObject):
         if device and hasattr(device, 'delete_trajectory'):
             return device.delete_trajectory(trajectory_name)
         else:
-            self.logger.warning(f"设备 '{device_id}' 不支持 'delete_trajectory' 或不存在。")
+            self.logger.warning(f"设备 '{device_id}' 不支持 'delete_trajectory' 或不存在")
             return False

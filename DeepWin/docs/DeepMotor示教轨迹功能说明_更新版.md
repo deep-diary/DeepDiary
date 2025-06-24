@@ -31,6 +31,186 @@ UI界面 (DeepMotorPage)
 设备控制 (DeepMotor)
 ```
 
+### 2.3 详细软件架构
+
+#### 2.3.1 文件结构
+
+```
+DeepWin/src/
+├── app_logic/
+│   ├── device_logic_manager/
+│   │   ├── devices/
+│   │   │   └── deep_motor/
+│   │   │       ├── deep_motor.py              # DeepMotor设备逻辑
+│   │   │       └── teaching_trajectory_manager.py  # 示教轨迹管理器
+│   │   └── manager.py                         # 设备逻辑管理器
+│   └── core_manager/
+│       └── coordinator.py                     # 协调器
+├── ui/app/view/
+│   └── device_pages.py                        # DeepMotor UI界面
+└── services/
+    └── hardware_communication/
+        └── device_protocols/
+            └── deep_motor_protocol/
+                └── deep_motor_parser.py        # 设备协议解析
+```
+
+#### 2.3.2 核心类职责
+
+**DeepMotorPage (UI 界面)**
+
+- 提供示教控制按钮和轨迹可视化
+- 管理参数选择和曲线显示
+- 发送用户操作信号到协调器
+- 接收并显示设备状态和轨迹数据
+
+**Coordinator (协调器)**
+
+- 接收 UI 信号并转发到相应的处理器
+- 管理设备状态更新和历史数据请求
+- 协调示教功能的开始、结束和执行
+- 处理轨迹数据请求和播放命令
+
+**DeviceLogicManager (设备逻辑管理器)**
+
+- 管理所有设备的逻辑状态
+- 转发设备控制命令
+- 处理设备状态更新
+- 协调示教功能与设备控制
+
+**TeachingTrajectoryManager (示教轨迹管理器)**
+
+- 管理轨迹的录制、存储和加载
+- 执行轨迹规划算法
+- 提供轨迹播放功能
+- 处理轨迹文件的序列化和反序列化
+
+**DeepMotor (设备逻辑)**
+
+- 管理设备状态和历史数据
+- 处理设备控制命令
+- 提供历史数据查询接口
+- 管理数据缓存和过滤
+
+### 2.4 信号传递机制
+
+#### 2.4.1 UI 到协调器的信号
+
+**DeepMotorPage 发出的信号:**
+
+```python
+# 示教相关信号
+start_teaching_requested = Signal(str, int)      # (设备名, motor_id)
+stop_teaching_requested = Signal(str)            # (设备名)
+execute_teaching_requested = Signal(str, str, bool, int)  # (设备名, 轨迹名, 是否使用规划轨迹, motor_id)
+
+# 轨迹管理信号
+request_trajectory_data = Signal(str, str)       # (设备名, 轨迹名)
+request_trajectory_list = Signal(str)            # (设备名)
+replan_requested = Signal(str, str, float)       # (设备名, 轨迹名, 新时长)
+restore_default_requested = Signal(str, str)     # (设备名, 轨迹名)
+delete_trajectory_requested = Signal(str, str)   # (设备名, 轨迹名)
+
+# 历史数据信号
+request_history_data = Signal(str, str)          # (设备名, 参数名)
+request_sim_data = Signal(str)                   # (设备名)
+```
+
+#### 2.4.2 协调器到设备逻辑的信号
+
+**Coordinator 发出的信号:**
+
+```python
+# 设备控制信号
+device_command = Signal(str, str)                # (设备名, 命令)
+start_teaching = Signal(str, int)                # (设备名, motor_id)
+stop_teaching = Signal(str)                      # (设备名)
+execute_trajectory = Signal(str, str, bool, int) # (设备名, 轨迹名, 是否使用规划轨迹, motor_id)
+
+# 数据请求信号
+request_trajectory_data = Signal(str, str)       # (设备名, 轨迹名)
+request_trajectory_list = Signal(str)            # (设备名)
+request_history_data = Signal(str, str)          # (设备名, 参数名)
+```
+
+#### 2.4.3 设备逻辑到 UI 的信号
+
+**Coordinator 接收并转发到 UI 的信号:**
+
+```python
+# 设备状态信号
+device_status_updated = Signal(str, dict)        # (设备名, 状态字典)
+device_data_updated = Signal(str, dict)          # (设备名, 数据字典)
+
+# 轨迹相关信号
+trajectory_list_updated = Signal(str, list)      # (设备名, 轨迹列表)
+trajectory_data_updated = Signal(str, dict)      # (设备名, 轨迹数据)
+trajectory_execution_progress = Signal(str, dict) # (设备名, 执行进度)
+trajectory_execution_finished = Signal(str)      # (设备名)
+trajectory_execution_error = Signal(str, str)    # (设备名, 错误信息)
+
+# 历史数据信号
+history_data_updated = Signal(str, dict)         # (设备名, 历史数据)
+```
+
+#### 2.4.4 信号连接关系
+
+**在 Coordinator 中的信号连接:**
+
+```python
+# UI信号连接到设备逻辑
+self.gui_manager.deep_motor_page.start_teaching_requested.connect(
+    lambda device, motor_id: self._handle_start_teaching(device, motor_id))
+self.gui_manager.deep_motor_page.stop_teaching_requested.connect(
+    lambda device: self._handle_stop_teaching(device))
+self.gui_manager.deep_motor_page.execute_teaching_requested.connect(
+    lambda device, trajectory, use_planned, motor_id: self._handle_execute_teaching(device, trajectory, use_planned, motor_id))
+
+# 设备逻辑信号连接到UI
+self.device_logic_manager.device_status_updated.connect(
+    lambda device_id, status: self._handle_device_status_update(device_id, status))
+self.device_logic_manager.trajectory_list_updated.connect(
+    lambda device_id, trajectory_list: self._handle_trajectory_list_update(device_id, trajectory_list))
+self.device_logic_manager.trajectory_data_updated.connect(
+    lambda device_id, trajectory_data: self._handle_trajectory_data_update(device_id, trajectory_data))
+```
+
+### 2.5 数据流详细说明
+
+#### 2.5.1 示教录制数据流
+
+1. **用户操作**: 点击"开始示教"按钮
+2. **UI 信号**: `start_teaching_requested.emit("DeepMotor", motor_id)`
+3. **协调器处理**: `_handle_start_teaching(device, motor_id)`
+4. **设备控制**: 发送电机失能命令
+5. **轨迹管理**: 启动轨迹录制模式
+6. **数据采集**: 实时记录电机位置和速度
+7. **数据过滤**: 应用时间间隔和位置变化过滤
+8. **轨迹保存**: 自动保存轨迹文件
+9. **UI 更新**: 更新轨迹列表和可视化显示
+
+#### 2.5.2 轨迹播放数据流
+
+1. **用户操作**: 点击"执行示教"按钮
+2. **UI 信号**: `execute_teaching_requested.emit(device, trajectory, use_planned, motor_id)`
+3. **协调器处理**: `_handle_execute_teaching(device, trajectory, use_planned, motor_id)`
+4. **轨迹加载**: 从文件加载轨迹数据
+5. **轨迹规划**: 如果需要，执行轨迹规划算法
+6. **播放启动**: 启动播放定时器
+7. **命令发送**: 按时间间隔发送位置控制命令
+8. **进度更新**: 实时更新播放进度
+9. **播放完成**: 发送完成信号并更新 UI 状态
+
+#### 2.5.3 历史数据显示数据流
+
+1. **参数切换**: 用户选择不同的参数
+2. **数据请求**: `request_history_data.emit(device, param)`
+3. **协调器转发**: 转发到设备逻辑管理器
+4. **数据查询**: 从设备历史数据缓存中查询
+5. **数据返回**: 返回 DataFrame 格式的历史数据
+6. **UI 更新**: 更新历史曲线显示
+7. **定时刷新**: 定时器定期刷新曲线数据
+
 ## 3. 功能详细说明
 
 ### 3.1 示教录制
@@ -170,6 +350,13 @@ planned_data = {
 - **重试机制**: UI 初始化失败时自动重试，确保操作成功
 - **状态保持**: 轨迹列表更新时保持用户选择状态
 
+#### 3.4.4 历史曲线显示
+
+- **参数选择**: 支持位置、速度、扭矩、温度等参数显示
+- **实时更新**: 定时器每 100ms 更新一次曲线数据
+- **数据缓存**: 使用 hash 比较避免不必要的数据刷新
+- **坐标轴优化**: 自动调整坐标轴范围，确保曲线完整显示
+
 ## 4. 使用说明
 
 ### 4.1 示教录制操作
@@ -229,6 +416,25 @@ planned_data = {
    - 点击"刷新曲线"进行重规划
    - 点击"恢复默认"使用原始时间
 
+### 4.4 历史曲线操作
+
+1. **参数选择**
+
+   - 在参数下拉框中选择要显示的参数
+   - 支持位置、速度、扭矩、温度等
+   - 切换参数时自动刷新曲线
+
+2. **数据刷新**
+
+   - 系统自动定时刷新历史数据
+   - 支持手动点击"刷新曲线"按钮
+   - 使用 hash 比较优化刷新性能
+
+3. **模拟数据**
+   - 点击"发送模拟数据"按钮生成测试数据
+   - 用于验证曲线显示功能
+   - 模拟真实设备数据格式
+
 ## 5. 技术特性
 
 ### 5.1 性能优化
@@ -237,6 +443,7 @@ planned_data = {
 - **轨迹规划**: 提供平滑的运动曲线
 - **定时器优化**: 精确的时间控制
 - **按需规划**: 只在需要时进行轨迹规划，提高启动速度
+- **Hash 比较**: 避免不必要的数据刷新，提升 UI 性能
 
 ### 5.2 安全机制
 
@@ -278,8 +485,13 @@ planned_data = {
    - 解决: 确保至少 2 个有效轨迹点
 
 4. **UI 初始化失败**
+
    - 原因: 组件初始化时序问题
    - 解决: 系统会自动重试，无需手动干预
+
+5. **历史曲线不显示**
+   - 原因: 数据格式不匹配或 hash 比较问题
+   - 解决: 检查数据格式，确认 hash 计算逻辑
 
 ### 6.2 调试方法
 
@@ -287,6 +499,7 @@ planned_data = {
 2. **数据验证**: 检查轨迹文件格式和数据完整性
 3. **信号调试**: 使用信号调试工具跟踪数据流
 4. **UI 状态检查**: 查看控制台输出的 UI 状态信息
+5. **Hash 调试**: 检查数据 hash 值，确认数据变化检测
 
 ## 7. 已知问题和 TODO
 

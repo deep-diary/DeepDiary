@@ -56,7 +56,7 @@ class ConfigManager(QObject):
                 "deepmotor_baud_rate": 115200,
                 "deepmotor_history_length": 100,
                 "deepmotor_teaching_interval": 0.1,
-                "deepmotor_trajectory_interp_points": 50
+                "deepmotor_trajectory_interp_freq": 50
             },
             "network": {
                 "server_address": "localhost:8000",
