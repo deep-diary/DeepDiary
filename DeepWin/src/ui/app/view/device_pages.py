@@ -710,14 +710,10 @@ class DeepMotorPage(QWidget):
         # 停止历史曲线定时更新
         if self.history_update_timer.isActive():
             self.history_update_timer.stop()
-            if self.logger:
-                self.logger.debug("停止历史曲线定时更新")
         
         # 停止历史数据请求定时器
         if self.history_request_timer.isActive():
             self.history_request_timer.stop()
-            if self.logger:
-                self.logger.debug("停止历史数据请求定时器")
         
         # 从显示文本中提取参数名
         param_map = {
@@ -806,11 +802,6 @@ class DeepMotorPage(QWidget):
             # 启动历史数据请求定时器
             if not self.history_request_timer.isActive():
                 self.history_request_timer.start()
-                if self.logger:
-                    self.logger.debug("启动历史数据请求定时器")
-            
-            # 清空历史曲线缓存，防止显示旧内容
-            # self.latest_history_data = None  # 不要清空，否则无法立即显示已有曲线
             
             # 立即清空画布，防止残留上一个参数的曲线
             self.ax.clear()
@@ -823,8 +814,6 @@ class DeepMotorPage(QWidget):
             # 如果有历史曲线数据，立即显示
             if self.latest_history_data:
                 self._update_history_curve_direct(self.latest_history_data)
-                if self.logger:
-                    self.logger.debug(f"切换参数时立即显示历史数据，参数: {self.current_selected_param}")
             
             # 立即请求一次数据并刷新
             self._should_request_history = True
@@ -851,17 +840,6 @@ class DeepMotorPage(QWidget):
         # 从字典中提取绘图数据和元数据
         plot_data = history_data_dict.get('data')
         total_time = history_data_dict.get('total_time')
-        
-        # 添加详细的调试日志
-        if self.logger:
-            self.logger.debug(f"update_history_curve 被调用，数据格式: {type(plot_data)}")
-            self.logger.debug(f"plot_data 内容: {plot_data}")
-            if hasattr(plot_data, 'columns'):
-                self.logger.debug(f"DataFrame 列名: {plot_data.columns.tolist()}")
-            elif isinstance(plot_data, list):
-                self.logger.debug(f"列表长度: {len(plot_data)}")
-                if plot_data:
-                    self.logger.debug(f"列表第一个元素: {plot_data[0]}")
         
         # 如果是轨迹数据，更新时长控件
         if total_time is not None:
@@ -890,18 +868,12 @@ class DeepMotorPage(QWidget):
         # 检查是否是轨迹数据（DataFrame格式）
         if hasattr(plot_data, 'columns') and 'type' in plot_data.columns:
             # 这是轨迹对比数据，直接更新
-            if self.logger:
-                self.logger.debug("检测到轨迹对比数据，使用直接更新")
             self._update_history_curve_direct(history_data_dict)
         elif hasattr(plot_data, 'columns') and 'time' in plot_data.columns and 'value' in plot_data.columns:
-            # 这是DataFrame格式的历史数据，也直接更新（修改：不再使用定时更新）
-            if self.logger:
-                self.logger.debug("检测到DataFrame格式历史数据，使用直接更新")
+            # 这是DataFrame格式的历史数据，也直接更新
             self._update_history_curve_direct(history_data_dict)
         else:
             # 这是旧的列表格式数据，使用定时更新
-            if self.logger:
-                self.logger.debug("检测到列表格式历史数据，使用定时更新")
             self._update_history_curve_throttled(history_data_dict)
 
     def _update_history_curve_direct(self, history_data_dict: dict):
@@ -963,19 +935,12 @@ class DeepMotorPage(QWidget):
         # 缓存最新数据
         self.latest_history_data = history_data_dict
         
-        if self.logger:
-            self.logger.debug(f"缓存历史数据，参数: {self.current_selected_param}")
-        
         # 启动定时器（如果还没启动）
         if not self.history_update_timer.isActive():
             self.history_update_timer.start()
-            if self.logger:
-                self.logger.debug("启动历史曲线定时更新")
         
         # 如果画布是"加载中..."，立即刷新一次
         if self.ax.texts and any('加载中' in t.get_text() for t in self.ax.texts):
-            if self.logger:
-                self.logger.debug("检测到加载中状态，立即刷新历史曲线")
             self._update_history_curve_direct(history_data_dict)
 
     def _plot_trajectory_comparison(self, df):
@@ -1359,14 +1324,39 @@ class DeepMotorPage(QWidget):
         节流的历史曲线更新方法，由QTimer定时调用
         """
         if self.latest_history_data and not self._is_history_updating:
-            # 暂时屏蔽hash比较，直接刷新
+            # 计算当前数据的hash值
+            current_hash = self._calculate_history_data_hash(self.latest_history_data)
+            
+            # 如果数据没有变化，跳过更新
+            if current_hash == self._last_drawn_history_data_hash:
+                return
+            
             self._is_history_updating = True
             try:
-                if self.logger:
-                    self.logger.debug(f"定时刷新历史曲线，参数: {self.current_selected_param}")
                 self.update_history_curve(self.latest_history_data)
+                # 更新hash值
+                self._last_drawn_history_data_hash = current_hash
             finally:
                 self._is_history_updating = False
+
+    def _calculate_history_data_hash(self, history_data_dict: dict):
+        """计算历史数据的hash值，用于判断数据是否发生变化"""
+        try:
+            plot_data = history_data_dict.get('data')
+            if plot_data is None:
+                return None
+            
+            # 对于DataFrame，使用其内容的hash
+            if hasattr(plot_data, 'to_string'):
+                data_str = plot_data.to_string()
+            elif isinstance(plot_data, list):
+                data_str = str(plot_data)
+            else:
+                data_str = str(plot_data)
+            
+            return hashlib.md5(data_str.encode()).hexdigest()
+        except Exception:
+            return None
 
     def on_trajectory_execution_finished(self):
         """轨迹执行完成时的处理函数"""
@@ -1379,8 +1369,6 @@ class DeepMotorPage(QWidget):
         # 停止历史曲线定时更新
         if self.history_update_timer.isActive():
             self.history_update_timer.stop()
-            if self.logger:
-                self.logger.debug("停止历史曲线定时更新")
         
         self._is_executing_trajectory = False
         self.update_execution_buttons_state()
@@ -1408,14 +1396,10 @@ class DeepMotorPage(QWidget):
         # 停止历史曲线定时更新
         if self.history_update_timer.isActive():
             self.history_update_timer.stop()
-            if self.logger:
-                self.logger.debug("停止历史曲线定时更新")
         
         # 停止历史数据请求定时器
         if self.history_request_timer.isActive():
             self.history_request_timer.stop()
-            if self.logger:
-                self.logger.debug("停止历史数据请求定时器")
         
         # 恢复执行状态和按钮
         self._is_executing_trajectory = False
