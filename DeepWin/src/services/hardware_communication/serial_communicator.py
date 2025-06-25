@@ -38,9 +38,13 @@ class SerialCommunicator(QObject):
         self.logger.info("SerialCommunicator: 初始化中...")
         self._serial_ports: Dict[str, serial.Serial] = {} # {port_name: serial.Serial_instance}
         # 查看可用设备列表
-        self.available_ports = self.list_ports()
+        # self.available_ports = self.list_ports()
         self.active_port = ''
         self._read_timers: Dict[str, QTimer] = {} # {port_name: QTimer_instance}
+        
+        # 新增：端口到设备ID的映射管理
+        self._port_to_device_id_map: Dict[str, str] = {} # {port_name: device_id}
+        
         self.logger.info("SerialCommunicator: 初始化完成。")
 
 
@@ -72,17 +76,17 @@ class SerialCommunicator(QObject):
         return usb_ports
 
     @Slot(str, int)
-    def open_port(self, port_name: str, baud_rate: Optional[int] = 921600):
+    def open_port(self, port_name: str, baud_rate: Optional[int] = 921600, device_id: Optional[str] = None):
         """
         打开指定的串口。
         如果未指定波特率，将尝试从配置管理器中获取。
         :param port_name: 串口名称 (如 'COM1' 或 '/dev/ttyUSB0')。
         :param baud_rate: 可选的波特率。
+        :param device_id: 可选的设备ID，用于建立端口到设备的映射关系。
         """
         if port_name in self._serial_ports and self._serial_ports[port_name].is_open:
             self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 已打开。")
             return
-
 
         self.logger.info(f"SerialCommunicator: 尝试打开串口 '{port_name}'，波特率 {baud_rate}...")
         try:
@@ -91,6 +95,12 @@ class SerialCommunicator(QObject):
             self.connection_status_changed.emit(port_name, True)
             self.logger.info(f"SerialCommunicator: 串口 '{port_name}' 打开成功。")
             self.active_port = port_name
+            
+            # 新增：建立端口到设备的映射关系
+            if device_id:
+                self._port_to_device_id_map[port_name] = device_id
+                self.logger.info(f"SerialCommunicator: 建立端口映射 '{port_name}' -> '{device_id}'")
+            
             self.start_reading(port_name)
         except serial.SerialException as e:
             error_msg = f"打开串口 '{port_name}' 失败: {e}"
@@ -114,6 +124,12 @@ class SerialCommunicator(QObject):
                 self._serial_ports[port_name].close()
                 self.connection_status_changed.emit(port_name, False)
                 self.active_port = ''
+                
+                # 新增：清理端口到设备的映射关系
+                if port_name in self._port_to_device_id_map:
+                    device_id = self._port_to_device_id_map.pop(port_name)
+                    self.logger.info(f"SerialCommunicator: 清理端口映射 '{port_name}' -> '{device_id}'")
+                
                 self.logger.info(f"SerialCommunicator: 串口 '{port_name}' 已关闭。")
                 del self._serial_ports[port_name]
             except Exception as e:
@@ -323,3 +339,45 @@ class SerialCommunicator(QObject):
         for port_name in list(self._serial_ports.keys()):
             self.close_port(port_name)
         self.logger.info("SerialCommunicator: 清理完成。")
+
+    # 新增：端口映射管理方法
+    def get_device_id_from_port(self, port_name: str) -> Optional[str]:
+        """
+        根据端口名获取设备ID
+        :param port_name: 端口名称
+        :return: 设备ID，如果不存在则返回None
+        """
+        return self._port_to_device_id_map.get(port_name)
+        
+    def get_port_device_mapping(self) -> Dict[str, str]:
+        """
+        获取端口到设备ID的映射
+        :return: 端口到设备ID的映射字典
+        """
+        return self._port_to_device_id_map.copy()
+        
+    def set_port_device_mapping(self, mapping: Dict[str, str]):
+        """
+        设置端口到设备ID的映射
+        :param mapping: 端口到设备ID的映射字典
+        """
+        self._port_to_device_id_map = mapping.copy()
+        self.logger.info(f"SerialCommunicator: 设置端口映射: {mapping}")
+        
+    def add_port_device_mapping(self, port_name: str, device_id: str):
+        """
+        添加单个端口到设备的映射
+        :param port_name: 端口名称
+        :param device_id: 设备ID
+        """
+        self._port_to_device_id_map[port_name] = device_id
+        self.logger.info(f"SerialCommunicator: 添加端口映射 '{port_name}' -> '{device_id}'")
+        
+    def remove_port_device_mapping(self, port_name: str):
+        """
+        移除端口到设备的映射
+        :param port_name: 端口名称
+        """
+        if port_name in self._port_to_device_id_map:
+            device_id = self._port_to_device_id_map.pop(port_name)
+            self.logger.info(f"SerialCommunicator: 移除端口映射 '{port_name}' -> '{device_id}'")

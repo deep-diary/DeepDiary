@@ -6,6 +6,10 @@
 from PySide6.QtCore import QObject, Signal, Slot, QThreadPool, QTimer
 from typing import Dict, Any
 import time
+import os
+import importlib
+import inspect
+from src.app_logic.core_manager.base_handler import BaseHandler
 
 # 导入公共的 WorkerRunnable 和 WorkerSignals，以解决循环导入问题
 from src.app_logic.core_manager.workers import WorkerRunnable, WorkerSignals
@@ -17,6 +21,9 @@ from src.app_logic.device_logic_manager.manager import DeviceLogicManager
 from src.app_logic.ai_coordinator.coordinator import AICoordinator
 from src.app_logic.agents.agent_manager import AgentManager
 from src.app_logic.core_manager.task_scheduler import TaskScheduler # 导入新任务调度器
+
+# 导入处理器
+from src.app_logic.core_manager.handler.hardware_communication import HardwareCommunicationHandler
 
 from src.data_management.local_database import LocalDatabaseManager
 from src.data_management.log_manager import LogManager
@@ -41,25 +48,6 @@ class Coordinator(QObject):
     6. 实现模块间的事件分发和统一协调。
     """
 
-    # 定义协调器可以向 UI (或其他监听者) 发射的通用状态信号
-    app_status_message = Signal(str) # 应用状态消息（显示在状态栏）
-    # 图像处理相关信号 (直接转发给 UI)
-    image_processing_started = Signal(str)
-    image_processing_finished = Signal(str, str)
-    image_processing_error = Signal(str, str)
-    # 设备控制相关信号 (直接转发给 UI)
-    device_status_updated = Signal(str, dict)
-    device_control_response = Signal(str)
-    device_control_error = Signal(str)
-    # 资源匹配相关信号 (直接转发给 UI)
-    resource_matched = Signal(dict)
-    resource_match_error = Signal(str)
-    # 新增：轨迹执行详细进度信号
-    trajectory_execution_progress_detailed = Signal(str, dict) # (device_id, progress_data)
-    # 新增：轨迹执行完成和错误信号
-    trajectory_execution_finished = Signal(str) # (device_id)
-    trajectory_execution_error = Signal(str, str) # (device_id, error_message)
-
 
     def __init__(self, log_manager: LogManager, parent=None):
         """
@@ -69,6 +57,7 @@ class Coordinator(QObject):
         """
         super().__init__(parent)
         self.logger = log_manager.get_logger(__name__)
+        self.log_manager = log_manager  # 添加log_manager属性
         self.logger.info("Coordinator: 初始化中...")
 
         self.thread_pool = QThreadPool.globalInstance()
@@ -76,309 +65,167 @@ class Coordinator(QObject):
         # self.thread_pool.setMaxThreadCount(QThreadPool.globalInstance().maxThreadCount() - 1) # Moved to main.py
         self.logger.info(f"Coordinator: QThreadPool max thread count: {self.thread_pool.maxThreadCount()}")
 
-        self.device_id_to_port = {} # 新增：设备ID到串口名的映射
-
-
-        # 实例化配置管理器
+        # 1. 初始化配置管理器
         self.config_manager = ConfigManager(log_manager=log_manager)
 
+        # 2. 初始化管理器
+        self.init_managers()
+
+        # 4. 初始化处理器
+        self.init_handlers()
+
+        # 5. 启动定时任务 (例如：数据同步) TODO: 暂时不启动, 目前代码启动后会异常退出
+        # self.setup_initial_tasks()
+
+        # 6. 启动应用程序
+        # self.start_application()
+
+        self.logger.info("Coordinator: 初始化完成。")
+
+    def init_managers(self):
+        """
+        初始化管理器
+        """
+        self.logger.info("Coordinator: 初始化管理器...")
         # ----------------------------------------------------------------------
-        # 1. 初始化应用逻辑层的各个管理器/处理器 (I类)
+        # 1. 初始化应用逻辑层的各个管理器/处理器
         # 这些模块专注于各自的业务逻辑，不直接与 UI 交互
         # ----------------------------------------------------------------------
-        self.image_video_processor = ImageVideoProcessor(log_manager=log_manager)
-        self.resource_demand_manager = ResourceDemandManager(log_manager=log_manager)
-        self.device_logic_manager = DeviceLogicManager(log_manager=log_manager, config_manager=self.config_manager)
-        self.ai_coordinator = AICoordinator(log_manager=log_manager) # 避免与 Coordinator 类名冲突
-        self.agent_manager = AgentManager(log_manager=log_manager) # 智能体管理器需要协调器引用
+        self.image_video_processor = ImageVideoProcessor(log_manager=self.log_manager)
+        self.resource_demand_manager = ResourceDemandManager(log_manager=self.log_manager)
+        self.device_logic_manager = DeviceLogicManager(log_manager=self.log_manager, config_manager=self.config_manager)
+        self.ai_coordinator = AICoordinator(log_manager=self.log_manager) # 避免与 Coordinator 类名冲突
+        self.agent_manager = AgentManager(log_manager=self.log_manager) # 智能体管理器需要协调器引用
         self.agent_manager.set_coordinator(self)
 
         # ----------------------------------------------------------------------
         # 2. 初始化核心服务模块
         # ----------------------------------------------------------------------
-        self.task_scheduler = TaskScheduler(log_manager=log_manager, thread_pool=self.thread_pool)
-        self.cloud_api_client = CloudApiClient(log_manager=log_manager)
-        self.local_database_manager = LocalDatabaseManager(log_manager=log_manager)
-        self.gui_manager = GuiManager(log_manager=log_manager, config_manager=self.config_manager) # GUI 管理器用于管理 UI 视图
+        self.task_scheduler = TaskScheduler(log_manager=self.log_manager, thread_pool=self.thread_pool)
+        self.cloud_api_client = CloudApiClient(log_manager=self.log_manager)
+        self.local_database_manager = LocalDatabaseManager(log_manager=self.log_manager)
+        self.gui_manager = GuiManager(log_manager=self.log_manager, config_manager=self.config_manager) # GUI 管理器用于管理 UI 视图
 
 
         # 实例化服务层组件 (真正的服务层实现)
-        self.serial_communicator = SerialCommunicator(log_manager=log_manager, config_manager=self.config_manager)
-        self.can_bus_communicator = CanBusCommunicator(log_manager=log_manager, config_manager=self.config_manager)
-        self.device_protocol_parser = DeviceProtocolParser(log_manager=log_manager, config_manager=self.config_manager)
-        self.cloud_api_client = CloudApiClient(log_manager=log_manager) # 云端 API 客户端
+        self.serial_communicator = SerialCommunicator(log_manager=self.log_manager, config_manager=self.config_manager)
+        self.can_bus_communicator = CanBusCommunicator(log_manager=self.log_manager, config_manager=self.config_manager)
+        self.device_protocol_parser = DeviceProtocolParser(log_manager=self.log_manager, config_manager=self.config_manager)
+        self.cloud_api_client = CloudApiClient(log_manager=self.log_manager) # 云端 API 客户端
 
         # 实例化 MCPClientManager
-        self.mcp_client_manager = MCPClientManager(log_manager=log_manager, config_manager=self.config_manager) # NEW
+        self.mcp_client_manager = MCPClientManager(log_manager=self.log_manager, config_manager=self.config_manager) # NEW
         # 实例化 WeatherManager，并传入 mcp_client_manager
-        self.weather_manager = WeatherManager(mcp_client_manager=self.mcp_client_manager, log_manager=log_manager) # NEW
+        self.weather_manager = WeatherManager(mcp_client_manager=self.mcp_client_manager, log_manager=self.log_manager) # NEW
 
-        # NEW: 存储串口名到设备ID的映射，用于数据接收分发
-        self._port_to_device_id_map: Dict[str, str] = {}
-
-        # ----------------------------------------------------------------------
-        # 3. 建立信号和槽连接
-        # 实现模块协调和事件分发逻辑的关键部分
-        # ----------------------------------------------------------------------
-        self.logger.info("Coordinator: 正在设置信号和槽连接...")
-        self._connect_gui_signals()      # 连接来自 GUI 的请求信号
-        self._connect_memory_processing_signals()# 连接业务处理器内部的信号
-        self._connect_service_signals()  # 连接服务层的信号
-        self._connect_agent_signals()    # 连接智能体层的信号
-        self._connect_coordinator_output_signals() # 连接协调器自身的输出信号到GUI
-        self._connect_device_logic_signals() # 连接设备逻辑管理器发出的信号
-        self._connect_ai_coordinator_signals() # 连接 AI 协调器发出的信号
-        self.logger.info("Coordinator: 信号和槽连接设置完成。")
-
-        # ----------------------------------------------------------------------
-        # 4. 启动定时任务 (例如：数据同步) TODO: 暂时不启动, 目前代码启动后会异常退出
-        # ----------------------------------------------------------------------
-        # self._setup_initial_tasks()
-
-        self.logger.info("Coordinator: 初始化完成。")
-
-    def _connect_ai_coordinator_signals(self):
+    def init_handlers(self):
         """
-        连接 AI 协调器发出的信号到协调器的方法。
-        这些信号通常表示 AI 任务完成、错误或进度更新。
+        自动发现、实例化、初始化所有Handler类
+        注意：CoordinatorHandler需要优先初始化，因为其他Handler依赖它
         """
-        self.logger.debug("Coordinator: 连接 AI 协调器信号...")
-        # AI 协调器
-        self.ai_coordinator.ai_service_response.connect(lambda result: self.app_status_message.emit(f"AI 服务响应: {result}"))
-        self.ai_coordinator.ai_service_error.connect(lambda error_msg: self.app_status_message.emit(f"AI 服务错误: {error_msg}"))  
-        self.logger.debug("Coordinator: AI 协调器信号连接完成。")
-
-    def _connect_device_logic_signals(self):
-        """
-        连接设备逻辑管理器发出的信号到协调器的方法。
-        这些信号通常表示设备状态更新、命令响应或错误。
-        """
-        self.logger.debug("Coordinator: 连接设备逻辑管理器信号...")
+        self.logger.info("Coordinator: 开始自动发现和初始化处理器...")
         
-        # 设备逻辑管理器 -> Coordinator 的信号
-        self.device_logic_manager.device_status_updated.connect(self.handle_device_states_updated)
-        self.device_logic_manager.device_command_response.connect(lambda msg: self.app_status_message.emit(f"设备命令响应: {msg}"))
-        self.device_logic_manager.device_error.connect(lambda msg: self.app_status_message.emit(f"设备错误: {msg}"))
-        self.device_logic_manager.send_device_abstract_command_requested.connect(self._on_device_abstract_command_requested)
+        # 存储所有处理器的字典
+        self.handlers = {}
         
-        # 连接DeviceLogicManager的轨迹执行相关信号
-        self.device_logic_manager.trajectory_execution_progress_updated.connect(self.handle_trajectory_execution_progress)
-        self.device_logic_manager.trajectory_execution_finished.connect(self.handle_trajectory_execution_finished)
-        self.device_logic_manager.trajectory_execution_error.connect(self.handle_trajectory_execution_error)
+        # 获取handler文件夹的路径
+        handler_dir = os.path.join(os.path.dirname(__file__), 'handler')
         
-        # 连接DeviceLogicManager的示教轨迹实时更新信号
-        self.device_logic_manager.teaching_trajectory_updated.connect(self.handle_teaching_trajectory_updated)
+        if not os.path.exists(handler_dir):
+            self.logger.warning(f"Coordinator: Handler目录不存在: {handler_dir}")
+            return
+            
+        # 第一步：优先初始化CoordinatorHandler
+        self._init_coordinator_handler(handler_dir)
         
-        self.logger.debug("Coordinator: 设备逻辑管理器信号连接完成。")
-
-    def handle_device_states_updated(self, device_id: str, data: dict):
-        """
-        处理来自 DeviceLogicManager 的设备状态更新。
-        将数据转发到 UI 和 AI 协调器。
-        """
-        # 转发到 UI
-        if self.gui_manager and self.gui_manager.window:
-            if device_id == "DeepMotor":
-                deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-                if deep_motor_page and hasattr(deep_motor_page, 'update_motor_data'):
-                    deep_motor_page.update_motor_data(data)
+        # 第二步：初始化其他Handler
+        self._init_other_handlers(handler_dir)
+        
+        self.logger.info(f"Coordinator: 处理器初始化完成，共初始化 {len(self.handlers)} 个处理器")
+        
+    def _init_coordinator_handler(self, handler_dir):
+        """优先初始化CoordinatorHandler"""
+        try:
+            # 动态导入CoordinatorHandler模块
+            module_path = "src.app_logic.core_manager.handler.coordinator"
+            module = importlib.import_module(module_path)
+            
+            # 查找CoordinatorHandler类
+            for name, obj in inspect.getmembers(module):
+                if (inspect.isclass(obj) and 
+                    issubclass(obj, BaseHandler) and 
+                    obj != BaseHandler and
+                    name == 'CoordinatorHandler'):
+                    
+                    # 创建CoordinatorHandler实例
+                    handler_instance = obj(parent=self)
+                    
+                    # 先存储处理器实例到handlers字典
+                    handler_name = name.lower()
+                    self.handlers[handler_name] = handler_instance
+                    
+                    # 然后设置依赖项
+                    handler_instance.set_coordinator_dependencies(self)
+                    self.logger.info(f"Coordinator: 设置依赖项: {handler_name}")
+                    # 初始化处理器
+                    handler_instance.initialize()
+                    
+                    self.logger.info(f"Coordinator: 成功初始化CoordinatorHandler")
+                    return
+                    
+        except Exception as e:
+            self.logger.error(f"Coordinator: 初始化CoordinatorHandler失败: {e}")
+            # 如果CoordinatorHandler初始化失败，记录错误但不覆盖handlers字典
+            # 这样其他Handler仍然可以尝试初始化
+            
+    def _init_other_handlers(self, handler_dir):
+        """初始化其他Handler"""
+        # 遍历handler文件夹中的所有.py文件
+        for filename in os.listdir(handler_dir):
+            if filename.endswith('.py') and not filename.startswith('__') and filename != 'coordinator.py':
+                module_name = filename[:-3]  # 去掉.py后缀
                 
-                # 如果当前显示的是历史曲线参数，自动触发历史数据请求以刷新曲线
-                if deep_motor_page and hasattr(deep_motor_page, 'current_selected_param'):
-                    current_param = deep_motor_page.current_selected_param
-                    if not current_param.startswith('trajectory_'):
-                        # 非轨迹参数，自动请求历史数据刷新曲线
-                        self.handle_request_history_data(device_id, current_param)
+                try:
+                    # 动态导入模块
+                    module_path = f"src.app_logic.core_manager.handler.{module_name}"
+                    module = importlib.import_module(module_path)
+                    
+                    # 查找模块中的Handler类
+                    for name, obj in inspect.getmembers(module):
+                        if (inspect.isclass(obj) and 
+                            issubclass(obj, BaseHandler) and 
+                            obj != BaseHandler):
+                            
+                            # 创建处理器实例
+                            handler_instance = obj(parent=self)
+                            
+                            # 设置依赖项
+                            handler_instance.set_coordinator_dependencies(self)
+                            
+                            # 初始化处理器
+                            handler_instance.initialize()
+                            
+                            # 存储处理器实例
+                            handler_name = name.lower()
+                            self.handlers[handler_name] = handler_instance
+                            
+                            self.logger.info(f"Coordinator: 成功初始化处理器: {name}")
+                            
+                except Exception as e:
+                    self.logger.error(f"Coordinator: 初始化处理器 {module_name} 失败: {e}")
+                    continue
 
-        # 转发到 AI 协调器
-        if self.ai_coordinator:
-            self.ai_coordinator.perceive_device_state(device_id, data)
+    def start_application(self):
+        """启动应用程序"""
+        self.logger.info("Coordinator: 启动应用程序...")
 
-    def _connect_gui_signals(self):
-        """
-        连接来自 GUI 管理器中各个 UI 视图的请求信号到协调器对应的槽函数。
-        这是 UI 层向应用逻辑层发起操作的主要途径。
-        """
-        self.logger.debug("Coordinator: 连接 GUI 信号...")
-        # 记忆管理界面 (memory_manager_view.py)
-        # 假设 MainWindow 的 memoryInterface 是一个独立的 QWidget 或 FluentWidget
-        self.gui_manager.window.memoryInterface.process_image_request.connect(self.handle_process_image_request)
-        # TODO: 连接更多记忆管理相关的 UI 信号
-        # self.gui_manager.window.memoryInterface.analyze_diary_request.connect(self.handle_analyze_diary_request)
+        self.agent_manager.start_agents()
+        self.logger.info("Coordinator: 应用程序启动完成。")
 
-        # 设备控制界面 (deviceInterface.py)
-        self.gui_manager.window.deviceInterface.ui_device_command.connect(self.handle_device_control_request)  # 添加设备命令信号绑定
-        self.gui_manager.window.deviceInterface.serial_config.request_ports.connect(self.handle_ports_request) # 连接串口列表请求信号
-        self.gui_manager.window.deviceInterface.serial_config.serial_connect_requested.connect(self.handle_serial_connect)  # 添加串口连接信号绑定
-        self.gui_manager.window.deviceInterface.serial_config.serial_disconnect_requested.connect(self.handle_serial_disconnect)
-        
-        # 连接Coordinator的轨迹执行信号到DeviceInterface
-        self.trajectory_execution_progress_detailed.connect(self.gui_manager.window.deviceInterface._handle_trajectory_execution_progress)
-        self.trajectory_execution_finished.connect(self.gui_manager.window.deviceInterface._handle_trajectory_execution_finished)
-        self.trajectory_execution_error.connect(self.gui_manager.window.deviceInterface._handle_trajectory_execution_error)
-        
-        # 获取DeepMotor页面实例 - 使用新的架构
-        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-        if deep_motor_page:
-            self.logger.info("Coordinator: 找到DeepMotor页面，开始连接信号")
-            # 连接DeepMotor页面的信号
-            deep_motor_page.request_sim_data.connect(self.handle_sim_data_request)
-            deep_motor_page.request_history_data.connect(self.handle_request_history_data)
-            
-            # 连接示教相关信号
-            deep_motor_page.start_teaching_requested.connect(self.handle_start_teaching_request)
-            deep_motor_page.stop_teaching_requested.connect(self.handle_stop_teaching_request)
-            deep_motor_page.execute_teaching_requested.connect(self.handle_execute_teaching_request)
-            
-            # 连接轨迹数据请求信号
-            deep_motor_page.request_trajectory_data.connect(self.handle_trajectory_data_request)
-            
-            # 连接轨迹列表请求信号
-            deep_motor_page.request_trajectory_list.connect(self.handle_trajectory_list_request)
-            # 新增：连接重规划请求信号
-            deep_motor_page.replan_requested.connect(self.handle_replan_requested)
-            # 新增：连接恢复默认请求信号
-            deep_motor_page.restore_default_requested.connect(self.handle_restore_default_requested)
-            # 新增：连接删除轨迹请求信号
-            deep_motor_page.delete_trajectory_requested.connect(self.handle_delete_trajectory_requested)
-            
-            self.logger.info("Coordinator: DeepMotor页面信号连接完成")
-        else:
-            self.logger.warning("Coordinator: DeepMotor页面未找到，无法连接相关信号")
-
-        # 连接测试按钮信号
-        self.gui_manager.window.basicInputInterface.test_button_clicked.connect(self.handle_test_button_click)
-
-        # 新增：连接轨迹执行进度信号
-        self.trajectory_execution_progress_detailed.connect(self._forward_trajectory_execution_progress)
-
-        self.logger.debug("Coordinator: GUI 信号连接完成。")
-
-    def _forward_trajectory_execution_progress(self, device_id: str, progress_data: dict):
-        """转发轨迹执行进度到对应的设备页面"""
-        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-        if deep_motor_page and hasattr(deep_motor_page, 'update_trajectory_execution_progress'):
-            deep_motor_page.update_trajectory_execution_progress(device_id, progress_data)
-
-    def _connect_memory_processing_signals(self):
-        """
-        连接业务逻辑处理器内部发出的信号到协调器的方法。
-        这些信号通常表示业务逻辑任务的完成、错误或进度更新。
-        """
-        self.logger.debug("Coordinator: 连接业务处理器信号...")
-        # 图像视频处理器
-        self.image_video_processor.processing_finished.connect(self._on_image_processing_done)
-        self.image_video_processor.processing_error.connect(self._on_image_processing_error)
-        self.image_video_processor.processing_progress.connect(self._on_image_processing_progress) # 连接进度信号
-
-        # 资源需求管理器 (如果它有自己的内部信号)
-        # self.resource_demand_manager.match_completed.connect(self._on_resource_match_completed)
-
-        # 设备逻辑管理器 (如果它有自己的内部信号)
-        # self.device_logic_manager.device_status_changed.connect(self.device_status_updated.emit) # 直接转发设备状态更新
-        # self.device_logic_manager.command_executed.connect(self._on_device_command_executed)
-
-        self.logger.debug("Coordinator: 业务处理器信号连接完成。")
-
-    def _connect_service_signals(self):
-        """
-        连接服务层（如云端通信、本地数据库）发出的信号。
-        这些信号通常表示数据同步状态、网络连接状态、数据库操作结果等。
-        """
-        self.logger.debug("Coordinator: 连接服务层信号...")
-        # 云端 API 客户端
-        # self.cloud_api_client.sync_finished.connect(self._on_cloud_sync_finished)
-        # self.cloud_api_client.connection_status_changed.connect(self._on_cloud_connection_status_changed)
-
-        # 本地数据库管理器
-        # self.local_database_manager.data_loaded.connect(self._on_local_data_loaded)
-        # self.local_database_manager.data_saved.connect(self._on_local_data_saved)
-
-        # 任务调度器 (任务完成/失败通知)
-        self.task_scheduler.task_completed.connect(self._on_scheduled_task_completed)
-        self.task_scheduler.task_failed.connect(self._on_scheduled_task_failed)
-        # --- 服务层 -> Coordinator -> 设备逻辑管理器的数据流 ---
-        # 1. SerialCommunicator 发射解析后的 CAN 帧组件
-        # self.serial_communicator.can_frame_components_received.connect(self.can_bus_communicator.process_serial_can_frame)
-        self.serial_communicator.serial_error.connect(lambda p, msg: self.app_status_message.emit(f"串口错误 [{p}]: {msg}"))
-        
-        self.serial_communicator.connection_status_changed.connect(self._on_serial_connection_status_changed)
-        self.serial_communicator.raw_frame_received.connect(self._on_raw_serial_frame_received)
-
-        # 2. CanBusCommunicator 发射 DBC 解析后的 CAN 信号数据
-        # self.can_bus_communicator.can_parsed_data_received.connect(self.device_protocol_parser.parse_low_level_data)
-        # self.can_bus_communicator.can_raw_frame_received.connect(self.device_protocol_parser.parse_low_level_data)
-        # self.can_bus_communicator.can_error.connect(lambda ch, msg: self.app_status_message.emit(f"CAN 错误 [{ch}]: {msg}"))
-        # self.can_bus_communicator.connection_status_changed.connect(lambda ch, s: self.app_status_message.emit(f"CAN 总线 '{ch}' 连接状态: {'已连接' if s else '已断开'}"))
-
-        # 3. DeviceProtocolParser 发射业务语义数据
-        self.device_protocol_parser.device_semantic_data_ready.connect(self.device_logic_manager.handle_device_semantic_data)
-        self.device_protocol_parser.protocol_conversion_error.connect(lambda dev_id, msg: self.app_status_message.emit(f"协议转换错误 [{dev_id}]: {msg}"))      
-
-        self.logger.debug("Coordinator: 服务层信号连接完成。")
-
-    def _connect_agent_signals(self):
-        """
-        连接智能体层内部发出的信号，这些信号表示智能体的感知、决策或行动请求。
-        """
-        self.logger.debug("Coordinator: 连接智能体信号...")
-        # 智能体管理器请求数据
-        self.agent_manager.request_memory_data.connect(self.local_database_manager.get_memories)
-        self.agent_manager.trigger_device_action.connect(self.device_logic_manager.send_command_to_device)
-        self.agent_manager.request_cloud_ai.connect(self.ai_coordinator.request_cloud_ai_service)
-        self.agent_manager.send_app_message.connect(self.app_status_message.emit) # 智能体也可能向状态栏发送消息
-        # 智能体管理器
-        self.agent_manager.agent_status_update.connect(lambda status: self.app_status_message.emit(f"智能体状态: {status}"))
-        self.agent_manager.agent_action_requested.connect(self._on_agent_action_requested)
-        # TODO: 连接更多智能体发出的特定动作或状态信号
-        # self.agent_manager.memory_curation_suggestion.connect(self.gui_manager.window.memoryInterface.display_curation_suggestion)
-
-        self.logger.debug("Coordinator: 智能体信号连接完成。")
-
-
-    def connection_test(self):  
-        print("--------------------------------------------------connection_test")
-
-    def connection_test2(self, state_dict: dict):  
-        print("--------------------------------------------------connection_test2")
-
-    def _connect_coordinator_output_signals(self):
-        """
-        将协调器自身的输出信号连接到 GUI 管理器中相应的 UI 视图。
-        这是协调器将处理结果、状态更新传递给 UI 进行展示的主要途径。
-        """
-        self.logger.debug("Coordinator: 连接协调器输出信号到 GUI...")
-        # 图像处理结果连接到记忆管理界面
-        # --- 通用应用状态消息 ---
-        self.app_status_message.connect(self.gui_manager.window.deviceInterface.status_bar.setText)
-        self.image_processing_started.connect(self.gui_manager.window.memoryInterface._on_image_processing_started)
-        self.image_processing_finished.connect(self.gui_manager.window.memoryInterface._on_image_processing_finished)
-        self.image_processing_error.connect(self.gui_manager.window.memoryInterface._on_image_processing_error)
-
-        # 设备控制结果连接到设备控制界面
-        
-        # self.device_logic_manager.managed_devices['DeepMotor'].device_status_updated.connect(self.connection_test)
-        # self.device_logic_manager.device_status_updated.connect(self.connection_test2)
-        # self.device_control_response.connect(self.gui_manager.window.devicesInterface.on_device_control_response)
-        # self.device_control_error.connect(self.gui_manager.window.devicesInterface.on_device_control_error)
-        # self.device_status_updated.connect(self.gui_manager.window.device
-        # 
-        # sInterface.on_device_status_updated)
-
-        # # 资源匹配结果连接到资源/需求管理界面
-        # self.resource_matched.connect(self.gui_manager.window.resourcesInterface.on_resource_matched)
-        # self.resource_match_error.connect(self.gui_manager.window.resourcesInterface.on_resource_match_error)
-
-        # # 通用应用状态消息连接到主窗口状态栏
-        # self.app_status_message.connect(self.gui_manager.window.statusBar.showMessage)
-
-        # 日志消息连接到日志显示界面 (假设日志管理器本身就直接输出到日志界面)
-        # self.log_manager.new_log_entry.connect(self.gui_manager.window.logsInterface.add_log_entry)
-
-        self.logger.debug("Coordinator: 协调器输出信号连接完成。")
-
-
-    def _setup_initial_tasks(self):
+    # ----------------------------------------------------------------------
+    # 示例业务逻辑 (可能由定时任务或智能体触发)
+    # ----------------------------------------------------------------------
+    def setup_initial_tasks(self):
         """
         设置应用程序启动时需要执行的初始定时任务或后台任务。
         例如：定时数据同步、启动智能体等。
@@ -396,384 +243,7 @@ class Coordinator(QObject):
         # self.agent_manager.start_agents()
         self.logger.info("Coordinator: 初始任务设置完成。")
         
-    def start_application(self):
-        """启动应用程序"""
-        self.logger.info("Coordinator: 启动应用程序...")
-
-
-        self.agent_manager.start_agents()
-        self.logger.info("Coordinator: 应用程序启动完成。")
-        self.app_status_message.emit("DeepWin 应用程序启动成功！")
-
-
-    @Slot(str, int)
-    def handle_serial_connect(self, port: str, baud_rate: int):
-        """
-        处理串口连接请求
-        :param port: 串口名称
-        :param baud_rate: 波特率
-        """
-        self.logger.info(f"Coordinator: 收到串口连接请求 - 端口: {port}, 波特率: {baud_rate}")
-        try:
-            # 尝试打开串口
-            self.serial_communicator.open_port(port, baud_rate)
-            # 注意：实际的连接状态将通过 serial_communicator 的 connection_status_changed 信号通知
-            # CAN总线配置将在收到连接成功的信号后执行
-            
-        except Exception as e:
-            error_msg = f"串口连接失败: {str(e)}"
-            self.logger.error(f"Coordinator: {error_msg}")
-            self.app_status_message.emit(error_msg)
-
-    # 修改串口连接状态信号的处理
-    @Slot(str, bool)
-    def _on_serial_connection_status_changed(self, port: str, is_connected: bool):
-        device_instance_id = 'DeepMotor'
-        if is_connected:
-            self.logger.info(f"Coordinator: 串口 {port} 连接成功")
-            self.app_status_message.emit(f"串口 {port} 连接成功")
-            self._port_to_device_id_map[port] = device_instance_id # 映射串口到设备ID
-        else:
-            self.logger.info(f"Coordinator: 串口 {port} 已断开")
-            self.app_status_message.emit(f"串口 {port} 已断开")
-            self._port_to_device_id_map.pop(port)
-        self.gui_manager.window.deviceInterface.serial_config.update_connection_status(is_connected)
-
-    @Slot(str, bytes)
-    def _on_raw_serial_frame_received(self, port_name: str, raw_frame_data: bytes):
-        """
-        槽函数：处理从 SerialCommunicator 接收到的原始串口帧数据。
-        根据 port_name 映射到 device_id，然后转发给 DeviceProtocolParser。
-        :param port_name: 接收到数据的串口名称。
-        :param raw_frame_data: 完整的原始串口帧字节串。
-        """
-        device_id = self._port_to_device_id_map.get(port_name)
-        if not device_id:
-            self.logger.warning(f"Coordinator: 收到来自未知串口 '{port_name}' 的数据，无法映射到设备ID。数据: {raw_frame_data.hex()}")
-            # return
-            device_id = "DeepMotor" # for debug
-        
-        self.logger.debug(f"Coordinator: 收到来自串口 '{port_name}' (设备 '{device_id}') 的原始帧数据: {raw_frame_data.hex()}")
-        # 将原始帧数据和对应的 device_id 转发给 DeviceProtocolParser
-        self.device_protocol_parser.parse_low_level_data(device_id, raw_frame_data)
-
-    @Slot(str, str)
-    def _on_agent_action_requested(self, device_id: str, command: str):
-        """
-        处理来自智能体层的设备控制请求。
-        """
-        self.logger.info(f"Coordinator: 收到智能体层的设备控制请求 - 设备: {device_id}, 命令: {command}")
-        self.device_logic_manager.send_command_to_device(device_id, command)
-        self.app_status_message.emit(f"命令已发送至设备逻辑管理器: {device_id} - {command}")
-
-    @Slot(str, str)
-    def handle_device_control_request(self, device_id: str, command: str):
-        """
-        处理来自 UI 的设备控制请求，分发给 DeviceLogicManager。
-        :param device_id: 目标设备的唯一标识符。
-        :param command: 要发送的控制命令。
-        """
-        self.logger.info(f"Coordinator: 收到设备控制请求 - 设备: {device_id}, 命令: {command}")
-        
-        # 如果命令是列表格式，转换为函数调用格式
-        if command.startswith('[') and command.endswith(']'):
-            try:
-                # 解析参数
-                args = eval(command)
-                if isinstance(args, list):
-                    # 将命令转换为函数调用格式
-                    command = f"{device_id}({','.join(map(str, args))})"
-            except:
-                self.logger.error(f"Coordinator: 命令格式转换失败: {command}")
-                return
-
-        # 将抽象命令转发给 DeviceLogicManager
-        self.device_logic_manager.send_command_to_device(device_id, command)
-        self.app_status_message.emit(f"命令已发送至设备逻辑管理器: {device_id} - {command}")
-
-    @Slot(str, str, list)
-    def _on_device_abstract_command_requested(self, device_id: str, abstract_command_name: str, args: list):
-        """
-        槽函数：处理 DeviceLogicManager 发出的抽象命令发送请求。
-        将抽象命令转换为底层协议命令并通过硬件通信服务发送。
-        """
-        self.logger.info(f"Coordinator: 收到抽象命令发送请求 - 设备: {device_id}, 命令: {abstract_command_name}, 参数: {args}")
-        try:
-            # 使用 DeviceProtocolParser 将抽象命令转换为底层字节命令（包含 AT 头等）
-            low_level_command_bytes = self.device_protocol_parser.generate_low_level_command(
-                device_id, abstract_command_name, *args
-            )
-            
-            # 根据设备类型决定通过哪个通信器发送
-            # 假设 DeepArm 和 DeepMotor 的底层命令都是通过串口发送的
-
-            target_port_name = None
-            # 从 _port_to_device_id_map 反向查找 port_name
-            for port, dev_id in self._port_to_device_id_map.items():
-                if dev_id == device_id:
-                    target_port_name = port
-                    break
-
-            if not target_port_name:
-                self.logger.warning(f"Coordinator: 无法确定设备 '{device_id}' 对应的串口。")
-                self.app_status_message.emit(f"无法确定设备 '{device_id}' 对应的串口。")
-                # 反馈模拟数据 - 修复list index out of range错误
-                position = args[1] if len(args) > 1 else 0.0  # 如果args只有一个元素，使用默认值
-                self.serial_communicator.sim_read_serial_data(position = position)
-                return
-
-            # 处理多帧命令
-            if isinstance(low_level_command_bytes, list):
-                for cmd_bytes in low_level_command_bytes:
-                    self.logger.debug(f"Coordinator: 目标串口 '{target_port_name}'，底层命令 (多帧): {cmd_bytes.hex()}")
-                    self.serial_communicator.send_bytes(target_port_name, cmd_bytes)
-                    time.sleep(0.01) # 短暂延迟，避免连续发送过快导致串口拥堵
-            else:
-                self.logger.debug(f"Coordinator: 目标串口 '{target_port_name}'，底层命令: {low_level_command_bytes.hex()}")
-                self.serial_communicator.send_bytes(target_port_name, low_level_command_bytes)
-            
-            self.app_status_message.emit(f"已将底层命令发送到串口: {target_port_name}")
-        except Exception as e:
-            error_msg = f"处理设备抽象命令 '{abstract_command_name}' 失败: {e}"
-            self.logger.error(f"Coordinator: {error_msg}")
-            self.app_status_message.emit(f"命令发送失败: {error_msg}")
-            self.device_logic_manager.device_error.emit(error_msg) # 通知 DeviceLogicManager 错误
-
-    
-
-    def _configure_can_bus(self, port: str):
-        """
-        配置CAN总线
-        :param port: 串口名称
-        """
-        try:
-            deepmotor_can_bustype = CanBusCommunicator.SERIAL_BRIDGE_BUSTYPE
-            deepmotor_dbc_name = self.config_manager.get('device_settings.deepmotor_dbc_name')
-            deepmotor_device_instance_id = "DeepMotor1"
-            
-            self.can_bus_communicator.connect_can_interface(
-                channel=port,
-                bustype=deepmotor_can_bustype,
-                dbc_name=deepmotor_dbc_name,
-                device_instance_id=deepmotor_device_instance_id
-            )
-            self.logger.info(f"Coordinator: CAN总线配置完成")
-            self.app_status_message.emit(f"CAN总线配置完成")
-            
-        except Exception as can_error:
-            # 如果CAN总线配置失败，关闭已打开的串口
-            self.serial_communicator.close_port(port)
-            error_msg = f"CAN总线配置失败: {str(can_error)}"
-            self.logger.error(f"Coordinator: {error_msg}")
-            self.app_status_message.emit(error_msg)
-
-    @Slot(str)
-    def handle_serial_disconnect(self, port: str):
-        """
-        处理串口断开请求
-        :param port: 串口名称
-        """
-        self.logger.info(f"Coordinator: 收到串口断开请求 - 端口: {port}")
-        self.serial_communicator.close_port(port)
-
-    def handle_ports_request(self):
-        """处理串口列表请求"""
-        ports = self.serial_communicator.list_ports()
-        # 更新所有设备页面的串口列表
-        self.gui_manager.window.deviceInterface.serial_config.update_ports(ports)
-
-    @Slot(str)
-    def handle_test_button_click(self, message: str):
-        """
-        处理测试按钮点击事件
-        :param message: 按钮点击消息
-        """
-        self.logger.info(f"Coordinator: 收到测试按钮点击信号 - {message}")
-        self.app_status_message.emit(f"测试按钮被点击: {message}")
-
-    # ----------------------------------------------------------------------
-    # UI 请求的槽函数 (Coordinator 接收来自 UI 的请求)
-    # 这些方法是 Coordinator 对外暴露的 API，供 UI 调用
-    # ----------------------------------------------------------------------
-    @Slot(str)
-    def handle_process_image_request(self, image_path: str):
-        """
-        处理来自 UI 的图像处理请求。
-        将耗时的图像处理任务提交到线程池执行，不阻塞 UI。
-        """
-        self.logger.info(f"Coordinator: 收到图像处理请求：{image_path}")
-        self.app_status_message.emit(f"正在处理图片：{image_path}...")
-        self.image_processing_started.emit(image_path) # 通知 UI 任务开始
-
-        worker = WorkerRunnable(self.image_video_processor.process_image, image_path)
-        # WorkerRunnable 的信号直接连接到 Coordinator 的内部槽函数，
-        # Coordinator 的内部槽函数再决定如何通过自己的输出信号通知 UI
-        worker.signals.finished.connect(self._on_image_processing_done)
-        worker.signals.error.connect(self._on_image_processing_error)
-        worker.signals.progress.connect(self._on_image_processing_progress) # 连接进度信号
-
-        self.thread_pool.start(worker)
-
-    # @Slot(float, float)
-    # def handle_match_resource_request(self, latitude: float, longitude: float):
-    #     """
-    #     处理来自 UI 的资源匹配请求。
-    #     这个可能涉及云端调用，也需要异步处理。
-    #     """
-    #     self.logger.info(f"Coordinator: 收到资源匹配请求，位置：{latitude}, {longitude}")
-    #     self.app_status_message.emit("正在匹配资源...")
-
-    #     worker = WorkerRunnable(self.resource_demand_manager.find_matching_resources, latitude, longitude)
-    #     worker.signals.finished.connect(self._on_resource_match_completed)
-    #     worker.signals.error.connect(self._on_resource_match_error)
-    #     self.thread_pool.start(worker)
-
-    # @Slot(str, str)
-    # def handle_device_control_request(self, device_id: str, command: str):
-    #     """
-    #     处理来自 UI 的设备控制请求。
-    #     """
-    #     self.logger.info(f"Coordinator: 收到设备控制请求：设备ID={device_id}, 命令={command}")
-    #     self.app_status_message.emit(f"正在发送命令到设备 {device_id}...")
-
-    #     worker = WorkerRunnable(self.device_logic_manager.send_command_to_device, device_id, command)
-    #     worker.signals.finished.connect(self._on_device_control_completed)
-    #     worker.signals.error.connect(self._on_device_control_error)
-    #     self.thread_pool.start(worker)
-
-    # @Slot(dict)
-    # def handle_data_sync_setting_change(self, settings: dict):
-    #     """
-    #     处理来自 UI 的数据同步设置变更请求。
-    #     :param settings: 包含同步设置的字典，例如 {"auto_sync": True, "interval_minutes": 30}
-    #     """
-    #     self.logger.info(f"Coordinator: 收到数据同步设置变更请求: {settings}")
-    #     # 根据设置更新定时任务
-    #     if settings.get("auto_sync"):
-    #         interval_ms = settings.get("interval_minutes", 30) * 60 * 1000
-    #         self.task_scheduler.update_periodic_task(
-    #             task_id="daily_data_sync",
-    #             task_func=self._perform_daily_data_sync,
-    #             interval_ms=interval_ms
-    #         )
-    #         self.app_status_message.emit("数据同步已开启并更新设置。")
-    #     else:
-    #         self.task_scheduler.remove_task("daily_data_sync")
-    #         self.app_status_message.emit("数据同步已关闭。")
-
-
-    # ----------------------------------------------------------------------
-    # 内部槽函数 (Coordinator 接收来自业务逻辑/服务层/任务调度器的信号)
-    # 这些方法负责处理内部事件，并决定是否通过 Coordinator 的输出信号通知 UI
-    # ----------------------------------------------------------------------
-    @Slot(str)
-    def _on_image_processing_done(self, result: str):
-        """
-        处理图像处理任务完成的信号。
-        由 ImageVideoProcessor 发出 (通过 WorkerRunnable 转发)。
-        然后 Coordinator 通过自己的信号通知 UI。
-        :param result: 图像处理的结果字符串。
-        """
-        self.logger.info(f"Coordinator: 图像处理任务完成：{result}")
-        # 这里仅作转发，实际可能需要解析 result，提取更多信息
-        self.image_processing_finished.emit(result, "成功") # 假设 result 包含路径，这里简化为结果字符串和状态
-        self.app_status_message.emit(f"图像处理完成！结果：{result}")
-
-    @Slot(str)
-    def _on_image_processing_error(self, error_msg: str):
-        """
-        处理图像处理任务出错的信号。
-        由 ImageVideoProcessor 发出 (通过 WorkerRunnable 转发)。
-        然后 Coordinator 通过自己的信号通知 UI。
-        :param error_msg: 错误信息字符串。
-        """
-        self.logger.error(f"Coordinator: 图像处理任务出错：{error_msg}")
-        self.image_processing_error.emit("", error_msg) # 假设路径未知，这里只传递错误信息
-        self.app_status_message.emit(f"图像处理出错：{error_msg}")
-
-    @Slot(int)
-    def _on_image_processing_progress(self, progress: int):
-        """
-        处理图像处理任务进度更新的信号。
-        由 ImageVideoProcessor 发出 (通过 WorkerRunnable 转发)。
-        可以考虑转发给 UI 更新进度条。
-        :param progress: 进度百分比 (0-100)。
-        """
-        self.logger.debug(f"Coordinator: 图像处理进度: {progress}%")
-        # TODO: 可以在这里发出一个通用的进度信号给 UI，或者让 UI 直接监听 Processor 的 progress 信号
-
-
-    @Slot(dict)
-    def _on_resource_match_completed(self, result: dict):
-        """
-        处理资源匹配任务完成的信号。
-        由 ResourceDemandManager 发出 (通过 WorkerRunnable 转发)。
-        :param result: 资源匹配的结果字典。
-        """
-        self.logger.info(f"Coordinator: 资源匹配完成：{result}")
-        self.resource_matched.emit(result)
-        self.app_status_message.emit("资源匹配完成！")
-
-    @Slot(str)
-    def _on_resource_match_error(self, error_msg: str):
-        """
-        处理资源匹配任务失败的信号。
-        :param error_msg: 错误信息。
-        """
-        self.logger.error(f"Coordinator: 资源匹配失败：{error_msg}")
-        self.resource_match_error.emit(error_msg)
-        self.app_status_message.emit(f"资源匹配失败: {error_msg}")
-
-
-    @Slot(str)
-    def _on_device_control_completed(self, response: str):
-        """
-        处理设备控制命令执行完成的信号。
-        由 DeviceLogicManager 发出 (通过 WorkerRunnable 转发)。
-        :param response: 设备响应字符串。
-        """
-        self.logger.info(f"Coordinator: 设备控制命令执行完成：{response}")
-        self.device_control_response.emit(response)
-        self.app_status_message.emit(f"设备命令执行成功: {response}")
-
-    @Slot(str)
-    def _on_device_control_error(self, error_msg: str):
-        """
-        处理设备控制命令执行出错的信号。
-        :param error_msg: 错误信息。
-        """
-        self.logger.error(f"Coordinator: 设备控制命令出错：{error_msg}")
-        self.device_control_error.emit(error_msg)
-        self.app_status_message.emit(f"设备命令执行失败: {error_msg}")
-
-
-    @Slot(str, object)
-    def _on_scheduled_task_completed(self, task_id: str, result: Any):
-        """
-        处理定时任务完成的信号。
-        由 TaskScheduler 发出。
-        :param task_id: 完成的任务ID。
-        :param result: 任务执行结果。
-        """
-        self.logger.info(f"Coordinator: 定时任务 '{task_id}' 完成。结果: {result}")
-        self.app_status_message.emit(f"后台任务 '{task_id}' 完成。")
-        # 可以根据 task_id 触发不同的后续逻辑，例如数据同步成功后更新 UI 标志
-
-    @Slot(str, str)
-    def _on_scheduled_task_failed(self, task_id: str, error_msg: str):
-        """
-        处理定时任务失败的信号。
-        由 TaskScheduler 发出。
-        :param task_id: 失败的任务ID。
-        :param error_msg: 错误信息。
-        """
-        self.logger.error(f"Coordinator: 定时任务 '{task_id}' 失败。错误: {error_msg}")
-        self.app_status_message.emit(f"后台任务 '{task_id}' 失败: {error_msg}")
-
-
-    # ----------------------------------------------------------------------
-    # 示例业务逻辑 (可能由定时任务或智能体触发)
-    # ----------------------------------------------------------------------
+   
     def _perform_daily_data_sync(self):
         """
         示例：执行每日数据同步的业务逻辑。
@@ -804,6 +274,15 @@ class Coordinator(QObject):
         self.task_scheduler.stop_all_tasks()
         self.logger.info("Coordinator: 已停止所有任务调度器任务。")
 
+        # 清理处理器
+        if hasattr(self, 'handlers'):
+            for handler_name, handler in self.handlers.items():
+                try:
+                    handler.cleanup()
+                    self.logger.info(f"Coordinator: 已清理处理器: {handler_name}")
+                except Exception as e:
+                    self.logger.error(f"Coordinator: 清理处理器 {handler_name} 失败: {e}")
+
         # 关闭所有子模块可能打开的资源
         # 定义需要清理的模块列表
         modules_to_cleanup = [
@@ -827,281 +306,6 @@ class Coordinator(QObject):
 
         self.logger.info("Coordinator: 所有子模块清理完成。")
 
-    def handle_sim_data_request(self, device_name: str):
-        """处理模拟数据请求"""
-        self.logger.info(f"Coordinator: 收到模拟数据请求，设备: {device_name}")
-        if device_name == "DeepMotor":
-            # 调用串口通信器的模拟数据方法
-            self.serial_communicator.sim_read_serial_data()
 
-    def handle_request_history_data(self, device_name: str, param_name: str):
-        """处理历史数据请求"""
-        self.logger.info(f"Coordinator: 收到历史数据请求，设备: {device_name}, 参数: {param_name}")
-        if device_name == "DeepMotor":
-            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-            if not deep_motor_page:
-                self.logger.warning("DeepMotor页面未找到")
-                return
-                
-            # 检查是否是轨迹相关参数
-            if param_name.startswith('trajectory_'):
-                # 获取当前选中的轨迹名称
-                if hasattr(deep_motor_page, '_current_trajectory'):
-                    current_trajectory = deep_motor_page._current_trajectory
-                    if not current_trajectory:
-                        self.logger.warning("请求轨迹数据但未选择轨迹")
-                        self.app_status_message.emit("请先选择一条轨迹")
-                        return
-                    
-                    # 传递轨迹名称作为选项
-                    options = {"trajectory_name": current_trajectory}
-                    history_data = self.device_logic_manager.get_historical_data(device_name, param_name, options)
-                else:
-                    self.logger.warning("DeepMotor页面没有_current_trajectory属性")
-                    return
-            else:
-                # 普通历史数据请求
-                history_data = self.device_logic_manager.get_historical_data(device_name, param_name, {})
-            
-            if history_data is not None:
-                # 发送历史数据到UI
-                if hasattr(deep_motor_page, 'update_history_curve'):
-                    deep_motor_page.update_history_curve(history_data)
-        self.logger.info(f"Coordinator: 历史数据请求完成，设备: {device_name}, 参数: {param_name}")
 
-    def handle_can_frame(self, port_name: str, arbitration_id: int, data_bytes: bytes, is_extended_id: bool):
-        """处理接收到的CAN帧"""
-        try:
-            # 解析CAN帧数据
-            parsed_data = self.can_bus_communicator.parse_can_frame(arbitration_id, data_bytes, is_extended_id)
-            if parsed_data:
-                # 更新电机数据显示
-                if 'position' in parsed_data and 'speed' in parsed_data and 'torque' in parsed_data and 'temperature' in parsed_data:
-                    motor_data = {
-                        'position': parsed_data['position'],
-                        'velocity': parsed_data['speed'],
-                        'torque': parsed_data['torque'],
-                        'temperature': parsed_data['temperature']
-                    }
-                    deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-                    if deep_motor_page and hasattr(deep_motor_page, 'update_motor_data'):
-                        deep_motor_page.update_motor_data(motor_data)
-        except Exception as e:
-            self.logger.error(f"Coordinator: 处理CAN帧失败: {e}")
-
-    @Slot(str, int)
-    def handle_start_teaching_request(self, device_name: str, motor_id: int = 1):
-        """处理开始示教请求"""
-        self.logger.info(f"Coordinator: 收到开始示教请求，设备: {device_name}, motor_id: {motor_id}")
-        
-        # 先发送失能命令
-        self.device_logic_manager.send_command_to_device(device_name, f"disable_motor({motor_id})")
-        self.app_status_message.emit(f"电机{motor_id}已失能，开始示教模式")
-        
-        # 启动示教模式
-        self.device_logic_manager.start_teaching(device_name, motor_id)
-        self.app_status_message.emit(f"已开始示教，设备: {device_name}, motor_id: {motor_id}")
-
-    @Slot(str)
-    def handle_stop_teaching_request(self, device_name: str):
-        """处理停止示教请求"""
-        self.logger.info(f"Coordinator: 收到停止示教请求，设备: {device_name}")
-        
-        # 停止示教并等待返回保存的轨迹名
-        saved_trajectory_name = self.device_logic_manager.stop_teaching(device_name)
-        
-        if saved_trajectory_name:
-            self.logger.info(f"轨迹 '{saved_trajectory_name}' 已保存")
-            self.app_status_message.emit(f"轨迹 '{saved_trajectory_name}' 已保存")
-            
-            # 更新UI中的轨迹列表，优先选择最新轨迹
-            # 这样会自动选中新保存的轨迹，无需额外的选择操作
-            self.handle_trajectory_list_request(device_name, prefer_newest=True)
-            
-            self.logger.info(f"示教完成，已自动选中新轨迹 '{saved_trajectory_name}'")
-
-        else:
-            self.logger.error(f"轨迹保存失败")
-            self.app_status_message.emit(f"轨迹保存失败")
-        
-        self.app_status_message.emit(f"已停止示教，设备: {device_name}")
-
-    @Slot(str, str, bool, int)
-    def handle_execute_teaching_request(self, device_name: str, trajectory_name: str, use_planned_trajectory: bool = True, motor_id: int = 1):
-        """
-        处理UI发出的执行示教请求
-        :param device_name: 设备名称
-        :param trajectory_name: 轨迹名称
-        :param use_planned_trajectory: 是否使用规划轨迹，True使用规划轨迹（平滑控制），False使用原始轨迹（便于调试）
-        :param motor_id: 电机ID
-        """
-        self.logger.info(f"收到对设备 '{device_name}' 的示教执行请求，轨迹: '{trajectory_name}', motor_id: {motor_id}, 使用规划轨迹: {use_planned_trajectory}")
-        self.device_logic_manager.execute_trajectory(device_name, trajectory_name, motor_id, use_planned_trajectory)
-
-    @Slot(str, str)
-    def handle_restore_default_requested(self, device_name: str, trajectory_name: str):
-        """
-        处理UI发出的恢复默认轨迹请求
-        """
-        self.logger.info(f"收到对轨迹 '{trajectory_name}' 的恢复默认请求")
-        # 1. 请求设备逻辑管理器使用原始时间戳执行重规划
-        self.device_logic_manager.replan_with_original_time(device_name, trajectory_name)
-        
-        # 2. 规划后，立即请求新的轨迹数据以更新UI
-        self.handle_trajectory_data_request(device_name, trajectory_name)
-
-    @Slot(str, str, float)
-    def handle_replan_requested(self, device_name: str, trajectory_name: str, duration: float):
-        """
-        处理UI发出的轨迹重规划请求
-        """
-        self.logger.info(f"收到对轨迹 '{trajectory_name}' 的重规划请求，新时长: {duration}s")
-        # 1. 请求设备逻辑管理器执行重规划
-        self.device_logic_manager.replan_trajectory(device_name, trajectory_name, duration)
-        
-        # 2. 规划后，立即请求新的轨迹数据以更新UI
-        self.handle_trajectory_data_request(device_name, trajectory_name)
-
-    @Slot(str, float, float)
-    def handle_trajectory_point_ready(self, device_id: str, position: float, velocity: float):
-        """处理轨迹播放器发出的轨迹点，并转发为电机命令"""
-        self.logger.debug(f"Trajectory point ready: pos={position}, speed={velocity}")
-        
-        # 发送位置控制命令到设备
-        command = f"set_motor_position(1, {position:.2f})"
-        self.device_logic_manager.send_command_to_device(device_id, command)
-
-    @Slot(str, str)
-    def handle_trajectory_playback_started(self, device_id: str, trajectory_name: str):
-        """处理轨迹播放开始信号"""
-        self.logger.info(f"Coordinator: 轨迹播放开始，设备: {device_id}, 轨迹: {trajectory_name}")
-        self.app_status_message.emit(f"轨迹播放开始: {trajectory_name}")
-
-    @Slot(str, str)
-    def handle_trajectory_playback_finished(self, device_id: str, trajectory_name: str):
-        """处理轨迹播放完成信号"""
-        self.logger.info(f"Coordinator: 轨迹播放完成，设备: {device_id}, 轨迹: {trajectory_name}")
-        self.app_status_message.emit(f"轨迹播放完成: {trajectory_name}")
-
-    @Slot(str, str)
-    def handle_trajectory_playback_error(self, device_id: str, error_message: str):
-        """处理轨迹播放错误信号"""
-        self.logger.error(f"Coordinator: 轨迹播放错误，设备: {device_id}, 错误: {error_message}")
-        self.app_status_message.emit(f"轨迹播放错误: {error_message}")
-
-    @Slot(str, str)
-    def handle_trajectory_data_request(self, device_name: str, trajectory_name: str):
-        """处理轨迹数据请求"""
-        self.logger.info(f"Coordinator: 收到轨迹数据请求，设备: {device_name}, 轨迹: {trajectory_name}")
-        
-        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-        if not deep_motor_page:
-            self.logger.warning("Coordinator: DeepMotor页面未找到")
-            return
-        
-        # 获取当前选择的参数类型
-        if hasattr(deep_motor_page, 'current_selected_param'):
-            current_param = deep_motor_page.current_selected_param
-            self.logger.info(f"Coordinator: 当前选择的参数: {current_param}")
-        else:
-            current_param = "trajectory_both"  # 默认值
-            self.logger.warning(f"Coordinator: 页面没有current_selected_param属性，使用默认值: {current_param}")
-        
-        # 根据参数类型获取轨迹数据
-        if not current_param.startswith('trajectory_'):
-             # 如果当前不是轨迹视图，默认切换到对比视图
-            current_param = "trajectory_both"
-            self.logger.info(f"Coordinator: 切换到轨迹对比视图: {current_param}")
-        
-        self.logger.info(f"Coordinator: 请求轨迹数据，参数: {current_param}, 轨迹名: {trajectory_name}")
-        history_data_dict = self.device_logic_manager.get_historical_data(
-            device_name, 
-            current_param, 
-            {"trajectory_name": trajectory_name}
-        )
-        
-        # history_data_dict 现在是一个字典, 直接传递给UI
-        if history_data_dict:
-            self.logger.info(f"Coordinator: 获取到轨迹数据，数据键: {list(history_data_dict.keys())}")
-            if hasattr(deep_motor_page, 'update_history_curve'):
-                self.logger.info(f"Coordinator: 调用页面更新历史曲线方法")
-                deep_motor_page.update_history_curve(history_data_dict)
-                self.app_status_message.emit(f"轨迹数据已获取并更新到设备: {device_name}")
-            else:
-                self.logger.warning(f"Coordinator: DeepMotor页面没有update_history_curve方法")
-        else:
-            self.logger.warning(f"Coordinator: 未获取到轨迹数据")
-            self.app_status_message.emit(f"轨迹数据获取失败，设备: {device_name}")
-
-    @Slot(str)
-    def handle_trajectory_list_request(self, device_name: str, prefer_newest: bool = False):
-        """处理轨迹列表请求"""
-        self.logger.info(f"Coordinator: 收到轨迹列表请求，设备: {device_name}, prefer_newest: {prefer_newest}")
-        
-        # 获取轨迹列表
-        trajectory_list = self.device_logic_manager.get_trajectory_list(device_name)
-        
-        if trajectory_list:
-            self.logger.info(f"Coordinator: 获取到轨迹列表，共 {len(trajectory_list)} 条轨迹: {trajectory_list}")
-            # 如果是程序启动时的初始化请求（没有指定prefer_newest），默认选择最新轨迹
-            if not prefer_newest and trajectory_list:
-                prefer_newest = True
-                self.logger.info(f"程序启动，默认选择最新轨迹")
-            
-            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-            if deep_motor_page and hasattr(deep_motor_page, 'update_trajectory_list'):
-                self.logger.info(f"Coordinator: 调用页面更新轨迹列表方法")
-                deep_motor_page.update_trajectory_list(trajectory_list, prefer_newest)
-                self.app_status_message.emit(f"轨迹列表已更新，共 {len(trajectory_list)} 条轨迹")
-            else:
-                self.logger.warning(f"Coordinator: DeepMotor页面未找到或没有update_trajectory_list方法")
-        else:
-            self.logger.warning(f"Coordinator: 未获取到轨迹列表")
-            self.app_status_message.emit("暂无轨迹数据")
-
-    @Slot(str, dict)
-    def handle_trajectory_execution_progress(self, device_id: str, progress_data: dict):
-        """
-        处理来自 DeviceLogicManager 的轨迹执行进度信号。
-        需要将此信号转发到UI。
-        """
-        self.logger.debug(f"Coordinator: 收到轨迹执行进度 for '{device_id}', data keys: {progress_data.keys()}")
-        # 修复：将信号转发到UI
-        self.trajectory_execution_progress_detailed.emit(device_id, progress_data)
-
-    @Slot(str, str)
-    def handle_trajectory_execution_finished(self, device_id: str, trajectory_name: str):
-        self.logger.info(f"Coordinator: 轨迹执行完成，设备: {device_id}, 轨迹: {trajectory_name}")
-        self.trajectory_execution_finished.emit(device_id)
-        self.logger.info(f"Coordinator: 已发射 trajectory_execution_finished 信号，参数: {device_id}")
-
-    @Slot(str, str)
-    def handle_trajectory_execution_error(self, device_id: str, error_message: str):
-        self.logger.error(f"Coordinator: 轨迹执行错误，设备: {device_id}, 错误: {error_message}")
-        self.trajectory_execution_error.emit(device_id, error_message)
-        self.logger.info(f"Coordinator: 已发射 trajectory_execution_error 信号，参数: {device_id}, {error_message}")
-
-    @Slot(str, list, list)
-    def handle_teaching_trajectory_updated(self, device_id: str, times: list, positions: list):
-        """处理示教轨迹实时更新信号"""
-        # 转发给UI
-        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-        if deep_motor_page and hasattr(deep_motor_page, 'update_teaching_trajectory'):
-            deep_motor_page.update_teaching_trajectory(times, positions)
-        else:
-            self.logger.warning("Coordinator: GUI管理器不可用，无法转发示教轨迹更新信号")
-
-    @Slot(str, str)
-    def handle_delete_trajectory_requested(self, device_name: str, trajectory_name: str):
-        """处理删除轨迹请求"""
-        self.logger.info(f"收到对轨迹 '{trajectory_name}' 的删除请求")
-        # 1. 请求设备逻辑管理器删除轨迹
-        success = self.device_logic_manager.delete_trajectory(device_name, trajectory_name)
-        
-        if success:
-            self.app_status_message.emit(f"轨迹 '{trajectory_name}' 已删除")
-            # 2. 删除成功后，刷新轨迹列表并显示最新轨迹
-            self.handle_trajectory_list_request(device_name, prefer_newest=True)
-        else:
-            self.app_status_message.emit(f"删除轨迹 '{trajectory_name}' 失败")
 
