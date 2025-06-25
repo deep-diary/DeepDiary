@@ -30,6 +30,133 @@ class DeepMotor(BaseDevice):
     # 新增：示教轨迹实时更新信号
     teaching_trajectory_updated = Signal(str, list, list)  # 示教轨迹实时更新
     
+    # 命令配置列表 - 定义所有支持的命令及其属性
+    COMMAND_CONFIGS = [
+        {
+            "name": "set_rpm",
+            "param_count": 1,
+            "param_names": ["rpm"],
+            "param_types": [int, float],
+            "default_values": [1000],
+            "description": "设置电机转速",
+            "example": "set_rpm(1500)",
+            "validation": lambda args: isinstance(args[0], (int, float)) and args[0] >= 0,
+            "error_message": "设置 RPM 命令需要一个非负数字参数。"
+        },
+        {
+            "name": "jog_motor",
+            "param_count": 2,
+            "param_names": ["motor_id", "speed"],
+            "param_types": [int, (int, float)],
+            "default_values": [1, 0],
+            "description": "点动电机",
+            "example": "jog_motor(1, 500)",
+            "validation": lambda args: isinstance(args[0], int) and isinstance(args[1], (int, float)),
+            "error_message": "点动电机命令需要电机ID(整数)和速度(数字)参数。"
+        },
+        {
+            "name": "stop_jog_motor",
+            "param_count": 1,
+            "param_names": ["motor_id"],
+            "param_types": [int],
+            "default_values": [1],
+            "description": "停止点动电机",
+            "example": "stop_jog_motor(1)",
+            "validation": lambda args: isinstance(args[0], int),
+            "error_message": "停止点动电机命令需要电机ID(整数)参数。"
+        },
+        {
+            "name": "enable_motor",
+            "param_count": 1,
+            "param_names": ["motor_id"],
+            "param_types": [int],
+            "default_values": [1],
+            "description": "使能电机",
+            "example": "enable_motor(1)",
+            "validation": lambda args: isinstance(args[0], int),
+            "error_message": "使能电机命令需要电机ID(整数)参数。"
+        },
+        {
+            "name": "disable_motor",
+            "param_count": 1,
+            "param_names": ["motor_id"],
+            "param_types": [int],
+            "default_values": [1],
+            "description": "失能电机",
+            "example": "disable_motor(1)",
+            "validation": lambda args: isinstance(args[0], int),
+            "error_message": "失能电机命令需要电机ID(整数)参数。"
+        },
+        {
+            "name": "init_motor",
+            "param_count": 1,
+            "param_names": ["motor_id"],
+            "param_types": [int],
+            "default_values": [1],
+            "description": "初始化电机",
+            "example": "init_motor(1)",
+            "validation": lambda args: isinstance(args[0], int),
+            "error_message": "初始化电机命令需要电机ID(整数)参数。"
+        },
+        {
+            "name": "reset_motor",
+            "param_count": 1,
+            "param_names": ["motor_id"],
+            "param_types": [int],
+            "default_values": [1],
+            "description": "重置电机",
+            "example": "reset_motor(1)",
+            "validation": lambda args: isinstance(args[0], int),
+            "error_message": "重置电机命令需要电机ID(整数)参数。"
+        },
+        {
+            "name": "zero_motor",
+            "param_count": 1,
+            "param_names": ["motor_id"],
+            "param_types": [int],
+            "default_values": [1],
+            "description": "零点标定电机",
+            "example": "zero_motor(1)",
+            "validation": lambda args: isinstance(args[0], int),
+            "error_message": "零点标定电机命令需要电机ID(整数)参数。"
+        },
+        {
+            "name": "set_motor_mode",
+            "param_count": 2,
+            "param_names": ["motor_id", "mode"],
+            "param_types": [int, str],
+            "default_values": [1, "position"],
+            "description": "设置电机模式",
+            "example": "set_motor_mode(1, 'position')",
+            "validation": lambda args: isinstance(args[0], int) and isinstance(args[1], str),
+            "error_message": "设置电机模式命令需要电机ID(整数)和模式(字符串)参数。"
+        },
+        {
+            "name": "set_motor_position",
+            "param_count": 2,
+            "param_names": ["motor_id", "position"],
+            "param_types": [int, (int, float)],
+            "default_values": [1, 0.0],
+            "description": "设置电机位置",
+            "example": "set_motor_position(1, 90.0)",
+            "validation": lambda args: isinstance(args[0], int) and isinstance(args[1], (int, float)),
+            "error_message": "设置电机位置命令需要电机ID(整数)和位置(数字)参数。"
+        },
+        {
+            "name": "set_motor_pos_speed",
+            "param_count": 3,
+            "param_names": ["motor_id", "position", "speed"],
+            "param_types": [int, (int, float), (int, float)],
+            "default_values": [1, 0.0, 100.0],
+            "description": "设置电机位置和速度",
+            "example": "set_motor_pos_speed(1, 90.0, 200.0)",
+            "validation": lambda args: (isinstance(args[0], int) and 
+                                      isinstance(args[1], (int, float)) and 
+                                      isinstance(args[2], (int, float))),
+            "error_message": "设置电机位置和速度命令需要电机ID(整数)、位置(数字)和速度(数字)参数。"
+        }
+    ]
+    
     def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         super().__init__(device_id, log_manager, parent)
         self._state: DeepMotorState = DeepMotorState(device_id=device_id)
@@ -164,6 +291,55 @@ class DeepMotor(BaseDevice):
         self.logger.debug(f"DeepMotor '{self.device_id}': 特定状态更新完成。")
         self.device_states_updated.emit(self.device_id, current_state_dict)
 
+    def _get_command_config(self, command_name: str) -> Optional[Dict[str, Any]]:
+        """
+        根据命令名称获取命令配置
+        """
+        for config in self.COMMAND_CONFIGS:
+            if config["name"] == command_name:
+                return config
+        return None
+
+    def _validate_and_prepare_args(self, command_config: Dict[str, Any], args: List[Any]) -> tuple[bool, List[Any], str]:
+        """
+        验证和准备命令参数
+        返回: (是否有效, 处理后的参数列表, 错误信息)
+        """
+        param_count = command_config["param_count"]
+        default_values = command_config["default_values"]
+        
+        # 填充默认值
+        prepared_args = list(args)
+        while len(prepared_args) < param_count:
+            prepared_args.append(default_values[len(prepared_args)])
+        
+        # 验证参数数量
+        if len(prepared_args) != param_count:
+            return False, [], f"命令 '{command_config['name']}' 需要 {param_count} 个参数，但提供了 {len(prepared_args)} 个"
+        
+        # 验证参数类型和值
+        if "validation" in command_config and command_config["validation"]:
+            if not command_config["validation"](prepared_args):
+                return False, [], command_config.get("error_message", f"命令 '{command_config['name']}' 参数验证失败")
+        
+        return True, prepared_args, ""
+
+    def _execute_standard_command(self, command_config: Dict[str, Any], args: List[Any], send_request_signal: Signal):
+        """
+        执行标准命令（通过send_request_signal发送）
+        """
+        command_name = command_config["name"]
+        param_names = command_config["param_names"]
+        
+        # 构建参数字符串用于日志
+        param_str = ", ".join([f"{name}={value}" for name, value in zip(param_names, args)])
+        self.logger.debug(f"DeepMotor '{self.device_id}': 请求执行 {command_name}({param_str})")
+        
+        # 发送命令请求
+        send_request_signal.emit(self.device_id, command_name, args)
+        
+        self.logger.info(f"DeepMotor '{self.device_id}': 已请求执行 {command_name}({param_str})")
+
     def execute_abstract_command(self,
                                  command_name: str,
                                  args: List[Any],
@@ -175,92 +351,63 @@ class DeepMotor(BaseDevice):
         :param send_request_signal: 用于请求 Coordinator 发送底层命令的信号。
         """
         self.logger.info(f"DeepMotor '{self.device_id}': 收到命令 '{command_name}' with args {args}")
-        if command_name == "set_rpm":
-            if args and isinstance(args[0], (int, float)):
-                rpm = int(args[0])
-                self.logger.debug(f"DeepMotor '{self.device_id}': 请求设置 RPM 到 {rpm}")
-                # 请求 Coordinator 通过服务层发送底层命令
-                send_request_signal.emit(self.device_id, "set_motor_rpm", [rpm])
-                self.logger.info(f"DeepMotor '{self.device_id}': 已请求设置 RPM 为 {rpm}")
+        
+        # 获取命令配置
+        command_config = self._get_command_config(command_name)
+        
+        if command_config:
+            # 验证和准备参数
+            is_valid, prepared_args, error_message = self._validate_and_prepare_args(command_config, args)
+            
+            if is_valid:
+                # 执行标准命令
+                self._execute_standard_command(command_config, prepared_args, send_request_signal)
             else:
-                self.device_error.emit(self.device_id, "设置 RPM 命令需要一个数字参数。")
-        # jog
-        elif command_name == "jog_motor":
-            motor_id = args[0] if args else 1
-            speed = args[1] if len(args) > 1 else 0
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求点动电机 {motor_id} 速度为 {speed}")
-            send_request_signal.emit(self.device_id, "jog_motor", [motor_id, speed])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求点动电机 {motor_id} 速度为 {speed}")
-        # stop_jog_motor
-        elif command_name == "stop_jog_motor":
-            motor_id = args[0] if args else 1
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求停止点动电机 {motor_id}")
-            send_request_signal.emit(self.device_id, "stop_jog_motor", [motor_id])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求停止点动电机 {motor_id}")
-        elif command_name == "enable_motor":
-            motor_id = args[0] if args else 1
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求使能电机 {motor_id}")
-            send_request_signal.emit(self.device_id, "enable_motor", [motor_id])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求使能电机 {motor_id}")
-        elif command_name == "disable_motor":
-            motor_id = args[0] if args else 1
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求失能电机 {motor_id}")
-            send_request_signal.emit(self.device_id, "disable_motor", [motor_id])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求失能电机 {motor_id}")
-        elif command_name == "init_motor":
-            motor_id = args[0] if args else 1
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求初始化电机 {motor_id}")
-            send_request_signal.emit(self.device_id, "init_motor", [motor_id])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求初始化电机 {motor_id}")
-        elif command_name == "reset_motor":
-            motor_id = args[0] if args else 1
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求重置电机 {motor_id}")
-            send_request_signal.emit(self.device_id, "reset_motor", [motor_id])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求重置电机 {motor_id}")
-        elif command_name == "zero_motor":
-            motor_id = args[0] if args else 1
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求零点标定电机 {motor_id}")
-            send_request_signal.emit(self.device_id, "zero_motor", [motor_id])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求零点标定电机 {motor_id}")
-        elif command_name == "set_motor_mode":
-            motor_id = args[0] if args else 1
-            mode = args[1] if len(args) > 1 else None
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求设置电机 {motor_id} 模式为 {mode}")
-            send_request_signal.emit(self.device_id, "set_motor_mode", [motor_id, mode])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求设置电机 {motor_id} 模式为 {mode}")
-        elif command_name == "set_motor_position":
-            motor_id = args[0] if args else 1
-            position = args[1] if len(args) > 1 else None
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求设置电机 {motor_id} 位置为 {position}")
-            send_request_signal.emit(self.device_id, "set_motor_position", [motor_id, position])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求设置电机 {motor_id} 位置为 {position}")
-        elif command_name == "set_motor_pos_speed":
-            motor_id = args[0] if args else 1
-            position = args[1] if len(args) > 1 else None
-            speed = args[2] if len(args) > 2 else None
-            self.logger.debug(f"DeepMotor '{self.device_id}': 请求设置电机 {motor_id} 位置为 {position}，速度为 {speed}")
-            send_request_signal.emit(self.device_id, "set_motor_pos_speed", [motor_id, position, speed])
-            self.logger.info(f"DeepMotor '{self.device_id}': 已请求设置电机 {motor_id} 位置为 {position}，速度为 {speed}")
+                # 参数验证失败
+                self.device_error.emit(self.device_id, error_message)
+                self.logger.error(f"DeepMotor '{self.device_id}': {error_message}")
         elif command_name == "get_status":
+            # 特殊命令：获取状态
             self.logger.info(f"DeepMotor '{self.device_id}': 返回当前状态: {self._state.to_dict()}")
-            # 状态已经通过 device_states_updated 信号发出，这里只是日志
         else:
-            super().execute_abstract_command(command_name, args, send_request_signal) # 转发到基类处理未知命令
+            # 未知命令，转发到基类处理
+            super().execute_abstract_command(command_name, args, send_request_signal)
 
     def get_supported_commands(self) -> List[str]:
         """
         获取 DeepMotor 支持的抽象命令列表。
         """
-        return super().get_supported_commands() + [
-            "set_rpm", 
-            "enable_motor",
-            "init_motor",
-            "reset_motor",
-            "zero_motor",
-            "set_motor_mode",
-            "set_motor_position",
-            "set_motor_pos_speed"
-        ]
+        base_commands = super().get_supported_commands()
+        config_commands = [config["name"] for config in self.COMMAND_CONFIGS]
+        return base_commands + config_commands
+
+    def get_command_help(self, command_name: str = None) -> Dict[str, Any]:
+        """
+        获取命令帮助信息
+        :param command_name: 特定命令名称，如果为None则返回所有命令的帮助
+        :return: 命令帮助信息字典
+        """
+        if command_name:
+            config = self._get_command_config(command_name)
+            if config:
+                return {
+                    "name": config["name"],
+                    "description": config["description"],
+                    "example": config["example"],
+                    "param_names": config["param_names"],
+                    "param_count": config["param_count"]
+                }
+            return {}
+        else:
+            return {
+                config["name"]: {
+                    "description": config["description"],
+                    "example": config["example"],
+                    "param_names": config["param_names"],
+                    "param_count": config["param_count"]
+                }
+                for config in self.COMMAND_CONFIGS
+            }
 
     def check_anomaly(self):
         """
