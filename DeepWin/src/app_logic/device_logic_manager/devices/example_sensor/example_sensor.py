@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, Signal
 from src.data_management.log_manager import LogManager
 from src.data_management.config_manager import ConfigManager
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
-from src.app_logic.device_logic_manager.device_models import DeviceStatus
+from src.app_logic.device_logic_manager.devices.base_device import DeviceStatus
 
 
 class ExampleSensor(BaseDevice):

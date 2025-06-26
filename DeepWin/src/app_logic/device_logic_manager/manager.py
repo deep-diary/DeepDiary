@@ -5,13 +5,20 @@ import os
 import importlib
 import time
 from PySide6.QtCore import QObject, Signal, Slot
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, Union, List, Type
 import pandas as pd
+import logging
 
 from src.data_management.log_manager import LogManager
 from src.data_management.config_manager import ConfigManager
-from src.app_logic.device_logic_manager.device_models import BaseDeviceState, DeepArmState, DeepToyState, DeepMotorState, DeviceStatus
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
+from src.app_logic.device_logic_manager.devices.deep_motor.deep_motor import DeepMotor
+from src.app_logic.device_logic_manager.devices.deep_motor.state_model import DeepMotorState
+from src.app_logic.device_logic_manager.devices.deep_arm.deep_arm import DeepArm
+from src.app_logic.device_logic_manager.devices.deep_arm.state_model import DeepArmState
+from src.app_logic.device_logic_manager.devices.deep_toy.deep_toy import DeepToy
+from src.app_logic.device_logic_manager.devices.deep_toy.state_model import DeepToyState
+from src.app_logic.device_logic_manager.devices.example_sensor.example_sensor import ExampleSensor
 
 
 class DeviceLogicManager(QObject):
@@ -25,6 +32,10 @@ class DeviceLogicManager(QObject):
     3. 管理 DeepArm 机械臂的示教轨迹录制、存储和播放。（目前暂时不实现）
     4. 通过信号请求 Coordinator 发送抽象控制指令到底层。
     5. 通过信号通知 Coordinator 设备状态更新、控制响应或错误。
+    
+    支持混合架构：
+    - 方案3：直接访问核心设备（便捷访问）
+    - 方案2：通用能力管理（动态设备）
     """
 
     # 定义设备逻辑管理器可以向 Coordinator 发射的信号
@@ -66,6 +77,14 @@ class DeviceLogicManager(QObject):
         
         # 存储设备类型到设备类的映射
         self._device_classes: Dict[str, type] = {}
+        
+        # === 方案3：核心设备直接访问（延迟初始化）===
+        self._deep_motor = None
+        self._deep_arm = None
+        self._deep_toy = None
+        
+        # === 方案2：动态设备管理 ===
+        self._dynamic_devices = {}  # 动态创建的设备
         
         # 自动发现和注册设备逻辑类
         self._auto_discover_and_register_devices()
@@ -240,6 +259,75 @@ class DeviceLogicManager(QObject):
 
         return self.managed_devices[device_id]
 
+    # === 方案3：便捷访问接口（直接访问核心设备）===
+    @property
+    def deep_motor(self):
+        """
+        便捷访问：self.device_logic_manager.deep_motor
+        延迟初始化，首次访问时创建实例
+        """
+        if self._deep_motor is None:
+            self._deep_motor = self._get_or_create_device_instance("DeepMotor")
+        return self._deep_motor
+    
+    @property
+    def deep_arm(self):
+        """
+        便捷访问：self.device_logic_manager.deep_arm
+        延迟初始化，首次访问时创建实例
+        """
+        if self._deep_arm is None:
+            self._deep_arm = self._get_or_create_device_instance("DeepArm")
+        return self._deep_arm
+    
+    @property
+    def deep_toy(self):
+        """
+        便捷访问：self.device_logic_manager.deep_toy
+        延迟初始化，首次访问时创建实例
+        """
+        if self._deep_toy is None:
+            self._deep_toy = self._get_or_create_device_instance("DeepToy")
+        return self._deep_toy
+
+    # === 方案2：通用管理接口 ===
+    def get_device(self, device_id: str):
+        """
+        通用获取：self.device_logic_manager.get_device("custom_device_001")
+        适用于动态设备或非核心设备
+        """
+        return self._get_or_create_device_instance(device_id)
+    
+    def call_device_capability(self, device_id: str, capability_name: str, method_name: str, *args, **kwargs):
+        """
+        通用能力调用接口
+        :param device_id: 设备ID
+        :param capability_name: 能力名称 (如 'teaching', 'custom_feature')
+        :param method_name: 方法名称 (如 'start_teaching', 'execute_custom')
+        :param args: 位置参数
+        :param kwargs: 关键字参数
+        """
+        device = self._get_or_create_device_instance(device_id)
+        if not device:
+            raise ValueError(f"设备 {device_id} 不存在")
+        
+        if not device.has_capability(capability_name):
+            raise ValueError(f"设备 {device_id} 不支持 {capability_name} 能力")
+        
+        return device.call_capability_method(capability_name, method_name, *args, **kwargs)
+    
+    def get_device_capabilities(self, device_id: str) -> Dict[str, List[str]]:
+        """
+        获取设备支持的所有能力和方法
+        :param device_id: 设备ID
+        :return: 能力名称到方法列表的映射
+        """
+        device = self._get_or_create_device_instance(device_id)
+        if not device:
+            return {}
+        
+        return device.get_all_capabilities()
+
     @Slot(str, str)
     def send_command_to_device(self, device_id: str, abstract_command: str) -> str:
         """
@@ -345,108 +433,13 @@ class DeviceLogicManager(QObject):
         
         self.managed_devices.clear()
         self._device_classes.clear()
+        
+        # 清理核心设备引用
+        self._deep_motor = None
+        self._deep_arm = None
+        self._deep_toy = None
+        
         self.logger.info("设备逻辑管理器清理完成")
 
-    # --- 示教相关方法 ---
-    # 所有示教相关的方法都应该被委托给具体的设备实例处理
-
-    @Slot(str, int)
-    def start_teaching(self, device_id: str, motor_id: int = 1):
-        """
-        请求设备开始示教
-        :param device_id: 设备ID
-        :param motor_id: 电机ID
-        """
-        self.logger.info(f"请求为设备 '{device_id}' 开始示教，motor_id: {motor_id}")
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'start_teaching'):
-            device.start_teaching(device_id, motor_id)
-
-    @Slot(str)
-    def stop_teaching(self, device_id: str) -> Optional[str]:
-        """
-        请求设备停止示教
-        :param device_id: 设备ID
-        :return: 保存的轨迹文件名
-        """
-        self.logger.info(f"请求为设备 '{device_id}' 停止示教")
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'stop_teaching'):
-            return device.stop_teaching(device_id)
-        return None
-
-    @Slot(str, str, int, bool)
-    def execute_trajectory(self, device_id: str, trajectory_name: str, motor_id: int, use_planned_trajectory: bool = True):
-        """
-        执行指定设备的轨迹
-        :param device_id: 设备ID
-        :param trajectory_name: 轨迹名称
-        :param motor_id: 电机ID
-        :param use_planned_trajectory: 是否使用规划轨迹，True使用规划轨迹（平滑控制），False使用原始轨迹（便于调试）
-        """
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'execute_trajectory'):
-            device.execute_trajectory(trajectory_name, motor_id, use_planned_trajectory)
-        else:
-            self.logger.error(f"设备 '{device_id}' 不支持 'execute_trajectory' 或不存在")
-
-    def get_trajectory_list(self, device_id: str) -> List[str]:
-        """获取可用轨迹列表"""
-        self.logger.debug(f"请求获取设备 '{device_id}' 的轨迹列表")
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'get_trajectory_list'):
-            return device.get_trajectory_list()
-        else:
-            self.logger.warning(f"设备 '{device_id}' 不支持 'get_trajectory_list' 或不存在")
-            return []
-            
-    def get_historical_data(self, device_id: str, parameter: str, options: dict) -> Optional[pd.DataFrame]:
-        """获取历史数据"""
-        self.logger.debug(f"请求获取设备 '{device_id}' 的历史数据，参数: {parameter}")
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'get_historical_data'):
-            return device.get_historical_data(parameter, options)
-        else:
-            self.logger.warning(f"设备 '{device_id}' 不支持 'get_historical_data' 或不存在")
-            return None
-
-    def reload_trajectories(self, device_id: str) -> List[str]:
-        """重新加载轨迹"""
-        self.logger.info(f"请求为设备 '{device_id}' 重新加载轨迹")
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'reload_trajectories'):
-            return device.reload_trajectories()
-        else:
-            self.logger.warning(f"设备 '{device_id}' 不支持 'reload_trajectories' 或不存在")
-            return []
-
-    def replan_trajectory(self, device_id: str, trajectory_name: str, duration: float):
-        """
-        请求设备使用新的时长重新规划轨迹
-        """
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'replan_trajectory'):
-            device.replan_trajectory(trajectory_name, duration)
-
-    def replan_with_original_time(self, device_id: str, trajectory_name: str):
-        """
-        请求设备使用原始时间戳重新规划轨迹
-        """
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'replan_with_original_time'):
-            device.replan_with_original_time(trajectory_name)
-
-    def delete_trajectory(self, device_id: str, trajectory_name: str) -> bool:
-        """
-        删除指定设备的轨迹
-        :param device_id: 设备ID
-        :param trajectory_name: 轨迹名称
-        :return: 是否删除成功
-        """
-        self.logger.info(f"请求删除设备 '{device_id}' 的轨迹 '{trajectory_name}'")
-        device = self._get_or_create_device_instance(device_id)
-        if device and hasattr(device, 'delete_trajectory'):
-            return device.delete_trajectory(trajectory_name)
-        else:
-            self.logger.warning(f"设备 '{device_id}' 不支持 'delete_trajectory' 或不存在")
-            return False
+    # === 核心管理功能 ===
+    # 只保留设备管理和通用能力调用，删除所有具体的业务方法

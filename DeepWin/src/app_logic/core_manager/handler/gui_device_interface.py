@@ -12,6 +12,9 @@ class GuiDeviceInterfaceHandler(BaseHandler):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        # 初始化常用对象引用
+        self.motor = None
+        self.deep_motor_page = None
         
     def _validate_dependencies(self):
         """
@@ -28,79 +31,30 @@ class GuiDeviceInterfaceHandler(BaseHandler):
         if not self.coordinator_handler:
             raise ValueError("缺少必需的依赖项: coordinator_handler")
             
-    # def _connect_signals(self):
-    #     """
-    #     连接GUI设备接口层相关的信号
-    #     """
-    #     self.logger.debug("GuiDeviceInterfaceHandler: 连接GUI设备接口层信号...")
+        # 初始化常用对象引用
+        self._init_common_objects()
         
-    #     # 连接设备控制界面的信号
-    #     self._connect_device_interface_signals()
-        
-    #     # 连接DeepMotor页面的信号
-    #     self._connect_deep_motor_page_signals()
-        
-    #     # 连接测试按钮信号
-    #     self._connect_test_button_signals()
-        
-    #     # 连接协调器输出信号到GUI
-    #     self._connect_coordinator_output_signals()
-        
-    #     self.logger.debug("GuiDeviceInterfaceHandler: GUI设备接口层信号连接完成")
-        
-    # def _connect_device_interface_signals(self):
-    #     """连接设备控制界面的信号"""
-    #     device_interface = self.gui_manager.window.deviceInterface
-        
-    #     # 设备命令信号
-    #     device_interface.ui_device_command.connect(self._handle_device_control_request)
-        
-    #     # 串口配置相关信号
-    #     device_interface.serial_config.request_ports.connect(self._handle_ports_request)
-    #     device_interface.serial_config.serial_connect_requested.connect(self._handle_serial_connect)
-    #     device_interface.serial_config.serial_disconnect_requested.connect(self._handle_serial_disconnect)
-        
-    # def _connect_deep_motor_page_signals(self):
-    #     """连接DeepMotor页面的信号"""
-    #     deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-    #     if deep_motor_page:
-    #         self.logger.info("GuiDeviceInterfaceHandler: 找到DeepMotor页面，开始连接信号")
+    def _init_common_objects(self):
+        """
+        初始化常用对象引用，避免重复获取
+        """
+        # 获取DeepMotor设备实例
+        if hasattr(self.device_logic_manager, 'deep_motor'):
+            self.motor = self.device_logic_manager.deep_motor
+            self.logger.debug("GuiDeviceInterfaceHandler: 已获取DeepMotor设备实例")
+        else:
+            self.logger.warning("GuiDeviceInterfaceHandler: DeepMotor设备未找到")
             
-    #         # 数据请求信号
-    #         deep_motor_page.request_sim_data.connect(self._handle_sim_data_request)
-    #         deep_motor_page.request_history_data.connect(self._handle_request_history_data)
-            
-    #         # 示教相关信号
-    #         deep_motor_page.start_teaching_requested.connect(self._handle_start_teaching_request)
-    #         deep_motor_page.stop_teaching_requested.connect(self._handle_stop_teaching_request)
-    #         deep_motor_page.execute_teaching_requested.connect(self._handle_execute_teaching_request)
-            
-    #         # 轨迹数据请求信号
-    #         deep_motor_page.request_trajectory_data.connect(self._handle_trajectory_data_request)
-    #         deep_motor_page.request_trajectory_list.connect(self._handle_trajectory_list_request)
-            
-    #         # 轨迹操作信号
-    #         deep_motor_page.replan_requested.connect(self._handle_replan_requested)
-    #         deep_motor_page.restore_default_requested.connect(self._handle_restore_default_requested)
-    #         deep_motor_page.delete_trajectory_requested.connect(self._handle_delete_trajectory_requested)
-            
-    #         self.logger.info("GuiDeviceInterfaceHandler: DeepMotor页面信号连接完成")
-    #     else:
-    #         self.logger.warning("GuiDeviceInterfaceHandler: DeepMotor页面未找到，无法连接相关信号")
-            
-    # def _connect_test_button_signals(self):
-    #     """连接测试按钮信号"""
-    #     self.gui_manager.window.basicInputInterface.test_button_clicked.connect(self._handle_test_button_click)
+        # 获取DeepMotor页面实例
+        if hasattr(self.gui_manager, 'window') and hasattr(self.gui_manager.window, 'deviceInterface'):
+            self.deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+            if self.deep_motor_page:
+                self.logger.debug("GuiDeviceInterfaceHandler: 已获取DeepMotor页面实例")
+            else:
+                self.logger.warning("GuiDeviceInterfaceHandler: DeepMotor页面未找到")
+        else:
+            self.logger.warning("GuiDeviceInterfaceHandler: GUI管理器或设备接口未找到")
         
-    # def _connect_coordinator_output_signals(self):
-    #     """连接协调器输出信号到GUI"""
-    #     # 应用状态消息连接到设备接口状态栏
-    #     self.app_status_message_signal.connect(
-    #         self.gui_manager.window.deviceInterface.status_bar.setText
-    #     )
-        
-
-
     def _connect_signals(self):
         """
         连接来自 GUI 管理器中各个 UI 视图的请求信号到协调器对应的槽函数。
@@ -113,30 +67,29 @@ class GuiDeviceInterfaceHandler(BaseHandler):
         self.gui_manager.window.deviceInterface.serial_config.serial_connect_requested.connect(self._handle_serial_connect)  # 添加串口连接信号绑定
         self.gui_manager.window.deviceInterface.serial_config.serial_disconnect_requested.connect(self._handle_serial_disconnect)
         
-        # 获取DeepMotor页面实例 - 使用新的架构
-        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-        if deep_motor_page:
+        # 连接DeepMotor页面的信号 - 使用预获取的页面实例
+        if self.deep_motor_page:
             self.logger.info("GuiDeviceInterfaceHandler: 找到DeepMotor页面，开始连接信号")
             # 连接DeepMotor页面的信号
-            deep_motor_page.request_sim_data.connect(self._handle_sim_data_request)
-            deep_motor_page.request_history_data.connect(self._handle_request_history_data)
+            self.deep_motor_page.request_sim_data.connect(self._handle_sim_data_request)
+            self.deep_motor_page.request_history_data.connect(self._handle_request_history_data)
             
             # 连接示教相关信号
-            deep_motor_page.start_teaching_requested.connect(self._handle_start_teaching_request)
-            deep_motor_page.stop_teaching_requested.connect(self._handle_stop_teaching_request)
-            deep_motor_page.execute_teaching_requested.connect(self._handle_execute_teaching_request)
+            self.deep_motor_page.start_teaching_requested.connect(self._handle_start_teaching_request)
+            self.deep_motor_page.stop_teaching_requested.connect(self._handle_stop_teaching_request)
+            self.deep_motor_page.execute_teaching_requested.connect(self._handle_execute_teaching_request)
             
             # 连接轨迹数据请求信号
-            deep_motor_page.request_trajectory_data.connect(self._handle_trajectory_data_request)
+            self.deep_motor_page.request_trajectory_data.connect(self._handle_trajectory_data_request)
             
             # 连接轨迹列表请求信号
-            deep_motor_page.request_trajectory_list.connect(self._handle_trajectory_list_request)
+            self.deep_motor_page.request_trajectory_list.connect(self._handle_trajectory_list_request)
             # 新增：连接重规划请求信号
-            deep_motor_page.replan_requested.connect(self._handle_replan_requested)
+            self.deep_motor_page.replan_requested.connect(self._handle_replan_requested)
             # 新增：连接恢复默认请求信号
-            deep_motor_page.restore_default_requested.connect(self._handle_restore_default_requested)
+            self.deep_motor_page.restore_default_requested.connect(self._handle_restore_default_requested)
             # 新增：连接删除轨迹请求信号
-            deep_motor_page.delete_trajectory_requested.connect(self._handle_delete_trajectory_requested)
+            self.deep_motor_page.delete_trajectory_requested.connect(self._handle_delete_trajectory_requested)
             
             self.logger.info("GuiDeviceInterfaceHandler: DeepMotor页面信号连接完成")
         else:
@@ -233,31 +186,40 @@ class GuiDeviceInterfaceHandler(BaseHandler):
         """处理历史数据请求"""
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到历史数据请求，设备: {device_name}, 参数: {param_name}")
         if device_name == "DeepMotor":
-            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-            if not deep_motor_page:
+            if not self.deep_motor_page:
                 self.logger.warning("DeepMotor页面未找到")
                 return
                 
             # 检查是否是轨迹相关参数
             if param_name.startswith('trajectory_'):
-                if hasattr(deep_motor_page, '_current_trajectory'):
-                    current_trajectory = deep_motor_page._current_trajectory
+                if hasattr(self.deep_motor_page, '_current_trajectory'):
+                    current_trajectory = self.deep_motor_page._current_trajectory
                     if not current_trajectory:
                         self.logger.warning("请求轨迹数据但未选择轨迹")
                         self.coordinator_handler.app_status_message.emit("请先选择一条轨迹")
                         return
                     
                     options = {"trajectory_name": current_trajectory}
-                    history_data = self.device_logic_manager.get_historical_data(device_name, param_name, options)
+                    # 使用预获取的设备实例
+                    if self.motor:
+                        history_data = self.motor.get_historical_data(param_name, options)
+                    else:
+                        self.logger.error("DeepMotor设备未找到")
+                        return
                 else:
                     self.logger.warning("DeepMotor页面没有_current_trajectory属性")
                     return
             else:
-                history_data = self.device_logic_manager.get_historical_data(device_name, param_name, {})
+                # 使用预获取的设备实例
+                if self.motor:
+                    history_data = self.motor.get_historical_data(param_name, {})
+                else:
+                    self.logger.error("DeepMotor设备未找到")
+                    return
             
             if history_data is not None:
-                if hasattr(deep_motor_page, 'update_history_curve'):
-                    deep_motor_page.update_history_curve(history_data)
+                if hasattr(self.deep_motor_page, 'update_history_curve'):
+                    self.deep_motor_page.update_history_curve(history_data)
                     
     @Slot(str, int)
     def _handle_start_teaching_request(self, device_name: str, motor_id: int = 1):
@@ -268,109 +230,149 @@ class GuiDeviceInterfaceHandler(BaseHandler):
         self.device_logic_manager.send_command_to_device(device_name, f"disable_motor({motor_id})")
         self.coordinator_handler.app_status_message.emit(f"电机{motor_id}已失能，开始示教模式")
         
-        # 启动示教模式
-        self.device_logic_manager.start_teaching(device_name, motor_id)
-        self.coordinator_handler.app_status_message.emit(f"已开始示教，设备: {device_name}, motor_id: {motor_id}")
+        # 启动示教模式 - 使用预获取的设备实例
+        if self.motor and hasattr(self.motor, 'teaching_capability'):
+            self.motor.teaching_capability.start_teaching(device_name, motor_id)
+            self.coordinator_handler.app_status_message.emit(f"已开始示教，设备: {device_name}, motor_id: {motor_id}")
+        else:
+            self.logger.error("DeepMotor设备或示教能力未找到")
+            self.coordinator_handler.app_status_message.emit("示教功能不可用")
         
     @Slot(str)
     def _handle_stop_teaching_request(self, device_name: str):
         """处理停止示教请求"""
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到停止示教请求，设备: {device_name}")
         
-        saved_trajectory_name = self.device_logic_manager.stop_teaching(device_name)
-        
-        if saved_trajectory_name:
-            self.logger.info(f"轨迹 '{saved_trajectory_name}' 已保存")
-            self.coordinator_handler.app_status_message.emit(f"轨迹 '{saved_trajectory_name}' 已保存")
-            self._handle_trajectory_list_request(device_name, prefer_newest=True)
-        else:
-            self.logger.error(f"轨迹保存失败")
-            self.coordinator_handler.app_status_message.emit(f"轨迹保存失败")
+        # 使用预获取的设备实例
+        if self.motor and hasattr(self.motor, 'teaching_capability'):
+            saved_trajectory_name = self.motor.teaching_capability.stop_teaching(device_name)
             
-        self.coordinator_handler.app_status_message.emit(f"已停止示教，设备: {device_name}")
-        
+            if saved_trajectory_name:
+                self.logger.info(f"轨迹 '{saved_trajectory_name}' 已保存")
+                self.coordinator_handler.app_status_message.emit(f"轨迹 '{saved_trajectory_name}' 已保存")
+                self._handle_trajectory_list_request(device_name, prefer_newest=True)
+            else:
+                self.logger.error(f"轨迹保存失败")
+                self.coordinator_handler.app_status_message.emit(f"轨迹保存失败")
+                
+            self.coordinator_handler.app_status_message.emit(f"已停止示教，设备: {device_name}")
+        else:
+            self.logger.error("DeepMotor设备或示教能力未找到")
+            self.coordinator_handler.app_status_message.emit("示教功能不可用")
+            
     @Slot(str, str, bool, int)
     def _handle_execute_teaching_request(self, device_name: str, trajectory_name: str, use_planned_trajectory: bool = True, motor_id: int = 1):
         """处理执行示教请求"""
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到对设备 '{device_name}' 的示教执行请求，轨迹: '{trajectory_name}', motor_id: {motor_id}, 使用规划轨迹: {use_planned_trajectory}")
-        self.device_logic_manager.execute_trajectory(device_name, trajectory_name, motor_id, use_planned_trajectory)
+        
+        # 使用预获取的设备实例
+        if self.motor and hasattr(self.motor, 'teaching_capability'):
+            self.motor.teaching_capability.execute_trajectory(device_name, trajectory_name, motor_id, use_planned_trajectory)
+        else:
+            self.logger.error("DeepMotor设备或示教能力未找到")
+            self.coordinator_handler.app_status_message.emit("示教功能不可用")
         
     @Slot(str, str)
     def _handle_trajectory_data_request(self, device_name: str, trajectory_name: str):
         """处理轨迹数据请求"""
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到轨迹数据请求，设备: {device_name}, 轨迹: {trajectory_name}")
         
-        deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-        if not deep_motor_page:
+        if not self.deep_motor_page:
             self.logger.warning("GuiDeviceInterfaceHandler: DeepMotor页面未找到")
             return
         
         # 获取当前选择的参数类型
-        if hasattr(deep_motor_page, 'current_selected_param'):
-            current_param = deep_motor_page.current_selected_param
+        if hasattr(self.deep_motor_page, 'current_selected_param'):
+            current_param = self.deep_motor_page.current_selected_param
         else:
             current_param = "trajectory_both"
             
         if not current_param.startswith('trajectory_'):
             current_param = "trajectory_both"
-            
-        history_data_dict = self.device_logic_manager.get_historical_data(
-            device_name, 
-            current_param, 
-            {"trajectory_name": trajectory_name}
-        )
         
-        if history_data_dict:
-            if hasattr(deep_motor_page, 'update_history_curve'):
-                deep_motor_page.update_history_curve(history_data_dict)
-                self.coordinator_handler.app_status_message.emit(f"轨迹数据已获取并更新到设备: {device_name}")
+        # 使用预获取的设备实例
+        if self.motor:
+            history_data_dict = self.motor.get_historical_data(
+                current_param, 
+                {"trajectory_name": trajectory_name}
+            )
+            
+            if history_data_dict:
+                if hasattr(self.deep_motor_page, 'update_history_curve'):
+                    self.deep_motor_page.update_history_curve(history_data_dict)
+                    self.coordinator_handler.app_status_message.emit(f"轨迹数据已获取并更新到设备: {device_name}")
+            else:
+                self.logger.warning(f"GuiDeviceInterfaceHandler: 未获取到轨迹数据")
+                self.coordinator_handler.app_status_message.emit(f"轨迹数据获取失败，设备: {device_name}")
         else:
-            self.logger.warning(f"GuiDeviceInterfaceHandler: 未获取到轨迹数据")
-            self.coordinator_handler.app_status_message.emit(f"轨迹数据获取失败，设备: {device_name}")
+            self.logger.error("DeepMotor设备未找到")
+            self.coordinator_handler.app_status_message.emit("设备不可用")
             
     @Slot(str)
     def _handle_trajectory_list_request(self, device_name: str, prefer_newest: bool = False):
         """处理轨迹列表请求"""
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到轨迹列表请求，设备: {device_name}, prefer_newest: {prefer_newest}")
         
-        trajectory_list = self.device_logic_manager.get_trajectory_list(device_name)
-        
-        if trajectory_list:
-            if not prefer_newest and trajectory_list:
-                prefer_newest = True
-                
-            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-            if deep_motor_page and hasattr(deep_motor_page, 'update_trajectory_list'):
-                deep_motor_page.update_trajectory_list(trajectory_list, prefer_newest)
-                self.coordinator_handler.app_status_message.emit(f"轨迹列表已更新，共 {len(trajectory_list)} 条轨迹")
+        # 使用预获取的设备实例
+        if self.motor and hasattr(self.motor, 'teaching_capability'):
+            trajectory_list = self.motor.teaching_capability.get_trajectory_list(device_name)
+            
+            if trajectory_list:
+                if not prefer_newest and trajectory_list:
+                    prefer_newest = True
+                    
+                if self.deep_motor_page and hasattr(self.deep_motor_page, 'update_trajectory_list'):
+                    self.deep_motor_page.update_trajectory_list(trajectory_list, prefer_newest)
+                    self.coordinator_handler.app_status_message.emit(f"轨迹列表已更新，共 {len(trajectory_list)} 条轨迹")
+            else:
+                self.coordinator_handler.app_status_message.emit("暂无轨迹数据")
         else:
-            self.coordinator_handler.app_status_message.emit("暂无轨迹数据")
+            self.logger.error("DeepMotor设备或示教能力未找到")
+            self.coordinator_handler.app_status_message.emit("示教功能不可用")
             
     @Slot(str, str, float)
     def _handle_replan_requested(self, device_name: str, trajectory_name: str, duration: float):
         """处理轨迹重规划请求"""
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到对轨迹 '{trajectory_name}' 的重规划请求，新时长: {duration}s")
-        self.device_logic_manager.replan_trajectory(device_name, trajectory_name, duration)
-        self._handle_trajectory_data_request(device_name, trajectory_name)
+        
+        # 使用预获取的设备实例
+        if self.motor and hasattr(self.motor, 'teaching_capability'):
+            self.motor.teaching_capability.replan_trajectory(trajectory_name, duration)
+            self._handle_trajectory_data_request(device_name, trajectory_name)
+        else:
+            self.logger.error("DeepMotor设备或示教能力未找到")
+            self.coordinator_handler.app_status_message.emit("示教功能不可用")
         
     @Slot(str, str)
     def _handle_restore_default_requested(self, device_name: str, trajectory_name: str):
         """处理恢复默认轨迹请求"""
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到对轨迹 '{trajectory_name}' 的恢复默认请求")
-        self.device_logic_manager.replan_with_original_time(device_name, trajectory_name)
-        self._handle_trajectory_data_request(device_name, trajectory_name)
+        
+        # 使用预获取的设备实例
+        if self.motor and hasattr(self.motor, 'teaching_capability'):
+            self.motor.teaching_capability.replan_with_original_time(trajectory_name)
+            self._handle_trajectory_data_request(device_name, trajectory_name)
+        else:
+            self.logger.error("DeepMotor设备或示教能力未找到")
+            self.coordinator_handler.app_status_message.emit("示教功能不可用")
         
     @Slot(str, str)
     def _handle_delete_trajectory_requested(self, device_name: str, trajectory_name: str):
         """处理删除轨迹请求"""
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到对轨迹 '{trajectory_name}' 的删除请求")
-        success = self.device_logic_manager.delete_trajectory(device_name, trajectory_name)
         
-        if success:
-            self.coordinator_handler.app_status_message.emit(f"轨迹 '{trajectory_name}' 已删除")
-            self._handle_trajectory_list_request(device_name, prefer_newest=True)
+        # 使用预获取的设备实例
+        if self.motor and hasattr(self.motor, 'teaching_capability'):
+            success = self.motor.teaching_capability.delete_trajectory(trajectory_name)
+            
+            if success:
+                self.coordinator_handler.app_status_message.emit(f"轨迹 '{trajectory_name}' 已删除")
+                self._handle_trajectory_list_request(device_name, prefer_newest=True)
+            else:
+                self.coordinator_handler.app_status_message.emit(f"删除轨迹 '{trajectory_name}' 失败")
         else:
-            self.coordinator_handler.app_status_message.emit(f"删除轨迹 '{trajectory_name}' 失败")
+            self.logger.error("DeepMotor设备或示教能力未找到")
+            self.coordinator_handler.app_status_message.emit("示教功能不可用")
             
     @Slot(str)
     def _handle_test_button_click(self, message: str):

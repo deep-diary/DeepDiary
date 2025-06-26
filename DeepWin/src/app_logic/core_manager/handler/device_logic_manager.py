@@ -199,12 +199,24 @@ class DeviceLogicManagerHandler(BaseHandler):
                         return
                     
                     options = {"trajectory_name": current_trajectory}
-                    history_data = self.device_logic_manager.get_historical_data(device_name, param_name, options)
+                    # 使用新的架构：直接访问设备实例
+                    motor = self.device_logic_manager.deep_motor
+                    if motor:
+                        history_data = motor.get_historical_data(param_name, options)
+                    else:
+                        self.logger.error("DeepMotor设备未找到")
+                        return
                 else:
                     self.logger.warning("DeepMotor页面没有_current_trajectory属性")
                     return
             else:
-                history_data = self.device_logic_manager.get_historical_data(device_name, param_name, {})
+                # 使用新的架构：直接访问设备实例
+                motor = self.device_logic_manager.deep_motor
+                if motor:
+                    history_data = motor.get_historical_data(param_name, {})
+                else:
+                    self.logger.error("DeepMotor设备未找到")
+                    return
             
             if history_data is not None:
                 if hasattr(deep_motor_page, 'update_history_curve'):

@@ -1,11 +1,11 @@
-
 # DeepArm 机械臂相关实现
 
 from typing import Dict, Any, List, Callable, Optional
 
 from src.data_management.log_manager import LogManager
 from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
-from src.app_logic.device_logic_manager.device_models import DeepArmState, DeviceStatus
+from src.app_logic.device_logic_manager.devices.base_device import DeviceStatus
+from .state_model import DeepArmState
 from src.app_logic.device_logic_manager.devices.deep_motor.deep_motor import DeepMotor # 导入 DeepMotor 逻辑类
 from PySide6.QtCore import QObject, Signal, Slot
 
@@ -58,6 +58,20 @@ class DeepArm(BaseDevice):
         if 'joint5_angle' in semantic_data: self._state.joint5_angle = float(semantic_data['joint5_angle'])
         if 'joint6_angle' in semantic_data: self._state.joint6_angle = float(semantic_data['joint6_angle'])
         
+        # 更新末端执行器位置
+        if 'end_effector_x' in semantic_data: self._state.end_effector_x = float(semantic_data['end_effector_x'])
+        if 'end_effector_y' in semantic_data: self._state.end_effector_y = float(semantic_data['end_effector_y'])
+        if 'end_effector_z' in semantic_data: self._state.end_effector_z = float(semantic_data['end_effector_z'])
+        
+        # 更新关节速度和扭矩
+        if 'joint_velocities' in semantic_data: self._state.joint_velocities = semantic_data['joint_velocities']
+        if 'joint_torques' in semantic_data: self._state.joint_torques = semantic_data['joint_torques']
+        
+        # 更新安全状态
+        if 'emergency_stop' in semantic_data: self._state.emergency_stop = bool(semantic_data['emergency_stop'])
+        if 'collision_detected' in semantic_data: self._state.collision_detected = bool(semantic_data['collision_detected'])
+        if 'workspace_limit_reached' in semantic_data: self._state.workspace_limit_reached = bool(semantic_data['workspace_limit_reached'])
+        
         # 示例：聚合电机温度，假设 DeepArmTemperature 在 DBC 中是聚合的
         if 'temperature' in semantic_data:
             self._state.temperature = float(semantic_data['temperature'])
@@ -70,7 +84,7 @@ class DeepArm(BaseDevice):
         #        })
 
         self.logger.debug(f"DeepArm '{self.device_id}': 特定状态更新完成。")
-        self.device_state_updated.emit(self.device_id, self._state.to_dict())
+        self.device_states_updated.emit(self.device_id, self._state.to_dict())
 
     def execute_abstract_command(self,
                                  command_name: str,
@@ -116,6 +130,19 @@ class DeepArm(BaseDevice):
             self.device_error.emit(self.device_id, f"DeepArm '{self.device_id}' 整体温度过高 ({self._state.temperature}°C)！")
             self._state.connection_status = DeviceStatus.WARNING
 
+        # 检查安全问题
+        if self._state.has_safety_issues():
+            safety_issues = []
+            if self._state.emergency_stop:
+                safety_issues.append("急停")
+            if self._state.collision_detected:
+                safety_issues.append("碰撞检测")
+            if self._state.workspace_limit_reached:
+                safety_issues.append("工作空间限制")
+            
+            self.device_error.emit(self.device_id, f"DeepArm '{self.device_id}' 检测到安全问题: {', '.join(safety_issues)}")
+            self._state.connection_status = DeviceStatus.ERROR
+
         # 示例：检查所有子电机是否有错误
         for motor_id, motor_instance in self.motors.items():
             motor_instance.check_anomaly() # 内部会发射其自身的 error 信号
@@ -123,7 +150,6 @@ class DeepArm(BaseDevice):
         if self._state.current_status == 2: # 假设 2 为错误状态
             self.device_error.emit(self.device_id, f"DeepArm '{self.device_id}' 报告内部错误状态！")
             self._state.connection_status = DeviceStatus.ERROR
-
 
     def cleanup(self):
         """
@@ -134,3 +160,20 @@ class DeepArm(BaseDevice):
             motor_instance.cleanup()
         self.logger.info(f"DeepArm '{self.device_id}': 清理完成。")
         super().cleanup()
+    
+    # === 新增：状态管理接口 ===
+    def get_joint_states(self) -> Dict[str, List[float]]:
+        """获取关节状态"""
+        return self._state.get_joint_states()
+    
+    def get_end_effector_position(self) -> Dict[str, float]:
+        """获取末端执行器位置"""
+        return self._state.get_end_effector_position()
+    
+    def has_safety_issues(self) -> bool:
+        """检查是否有安全问题"""
+        return self._state.has_safety_issues()
+    
+    def get_status_summary(self) -> Dict[str, Any]:
+        """获取状态摘要"""
+        return self._state.get_status_summary()
