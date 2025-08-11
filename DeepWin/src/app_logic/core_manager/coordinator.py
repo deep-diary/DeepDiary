@@ -33,6 +33,7 @@ from src.services.hardware_communication.serial_communicator import SerialCommun
 from src.services.hardware_communication.can_bus_communicator import CanBusCommunicator
 from src.services.hardware_communication.device_protocol_parser import DeviceProtocolParser
 from src.services.cloud_communication.api_client import CloudApiClient
+from src.services.voice_communication.audio_manager import VoiceManager
 from src.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
 from src.app_logic.weather_manager import WeatherManager
 
@@ -78,7 +79,7 @@ class Coordinator(QObject):
         # self.setup_initial_tasks()
 
         # 6. 启动应用程序
-        # self.start_application()
+        self.start_application()
 
         self.logger.info("Coordinator: 初始化完成。")
 
@@ -112,6 +113,7 @@ class Coordinator(QObject):
         self.can_bus_communicator = CanBusCommunicator(log_manager=self.log_manager, config_manager=self.config_manager)
         self.device_protocol_parser = DeviceProtocolParser(log_manager=self.log_manager, config_manager=self.config_manager)
         self.cloud_api_client = CloudApiClient(log_manager=self.log_manager) # 云端 API 客户端
+        self.voice_manager = VoiceManager(log_manager=self.log_manager, config_manager=self.config_manager)
 
         # 实例化 MCPClientManager
         self.mcp_client_manager = MCPClientManager(log_manager=self.log_manager, config_manager=self.config_manager) # NEW
@@ -218,7 +220,7 @@ class Coordinator(QObject):
     def start_application(self):
         """启动应用程序"""
         self.logger.info("Coordinator: 启动应用程序...")
-
+        self.voice_manager.start_voice_conversation()
         self.agent_manager.start_agents()
         self.logger.info("Coordinator: 应用程序启动完成。")
 

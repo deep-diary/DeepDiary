@@ -41,7 +41,7 @@ class LogManager:
             file_handler = logging.FileHandler(self.log_file_path, encoding='utf-8')
             file_handler.setLevel(logging.DEBUG)
             file_formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+                '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(funcName)s:%(lineno)d - %(message)s'
             )
             file_handler.setFormatter(file_formatter)
             self.root_logger.addHandler(file_handler)
@@ -50,7 +50,7 @@ class LogManager:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(logging.DEBUG)
             console_formatter = logging.Formatter(
-                '%(asctime)s - %(levelname)s - %(message)s'
+                '%(levelname)s - %(filename)s:%(funcName)s - %(message)s'
             )
             console_handler.setFormatter(console_formatter)
             self.root_logger.addHandler(console_handler)

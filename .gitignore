@@ -55,6 +55,10 @@ DeepWin/**/.installed.cfg
 DeepWin/**/*.egg
 DeepWin/**/logs/
 DeepWin/**/media/
+# 环境变量文件
+DeepWin/**/.env
+DeepWin/**/.env.local
+DeepWin/**/.env.*
 # 示教轨迹文件
 DeepWin/src/app_logic/device_logic_manager/devices/deep_motor/trajectories/
 DeepWin/**/trajectories/
@@ -78,4 +82,9 @@ DeepMotor/**/*.app
 *.swo
 .DS_Store
 start.ps1
+
+# 环境变量文件（根目录）
+.env
+.env.local
+.env.*
 

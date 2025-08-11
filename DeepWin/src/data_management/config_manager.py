@@ -27,7 +27,10 @@ class ConfigManager(QObject):
         """
         super().__init__(parent)
         self.logger = log_manager.get_logger(__name__)
-        self.config_file = config_file
+
+        # 路径改为DeepWin/config.json
+        self.config_file = os.path.join(os.path.dirname(__file__), '..', '..', 'config.json')
+        self.logger.info(f"ConfigManager: 配置文件路径: {self.config_file}")
         self._config: Dict[str, Any] = {}
         self._default_config: Dict[str, Any] = self._get_default_config()
 
@@ -67,6 +70,17 @@ class ConfigManager(QObject):
                 "image_recognition_enabled": True,
                 "voice_recognition_enabled": True,
                 "llm_api_key": "your_llm_api_key_here"
+            },
+            "voice": {
+                "app_id": "",
+                "workspace_id": "",
+                "api_key": "",
+                "voice_name": "longxiaochun_v2",
+                "sample_rate": 48000,
+                "audio_chunk_size": 3200,
+                "websocket_url": "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+                "model_name": "multimodal-dialog",
+                "conversation_mode": "duplex"
             }
         }
 

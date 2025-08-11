@@ -27,6 +27,17 @@
     "voice_recognition_enabled": true,
     "llm_api_key": "your_llm_api_key_here"
   },
+  "voice": {
+    "app_id": "",
+    "workspace_id": "",
+    "api_key": "",
+    "voice_name": "longxiaochun_v2",
+    "sample_rate": 48000,
+    "audio_chunk_size": 3200,
+    "websocket_url": "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+    "model_name": "multimodal-dialog",
+    "conversation_mode": "duplex"
+  },
   "mcp_services": [
     {
       "id": "news_feed_mcp",

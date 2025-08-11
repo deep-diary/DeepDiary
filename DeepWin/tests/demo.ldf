@@ -1,0 +1,352 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*  Description:   LIN Description file                                       */
+/*  System:        ZSDB125101                                                 */
+/*  Variant:       HY11_P                                                     */
+/*  Cluster:       ECM_LIN4                                                   */
+/*  Master:        ECM_LIN4                                                   */
+/*  Generated at:  2025-04-21 19:46                                           */
+/*                                                                            */
+/* ************************************************************************** */
+
+LIN_description_file;
+LIN_protocol_version = "2.1";
+LIN_language_version = "2.1";
+LIN_speed = 19.2 kbps;
+
+Channel_name = "ECM_LIN4";
+
+Nodes {
+	Master: ECM_ECM_LIN4, 5.000 ms, 1.000 ms;
+	Slaves: ECPM_ECM_LIN4, LBXV_ECM_LIN4;
+}
+
+Signals {
+	EngCooltPmpSpdReqCooltPmpPostRunReq_ECM_LIN4: 3, 0, ECM_ECM_LIN4, ECPM_ECM_LIN4;
+	EngCooltPmpSpdReqCooltPmpSpdReq_ECM_LIN4: 8, 0, ECM_ECM_LIN4, ECPM_ECM_LIN4;
+	EngPmpStatCooltPmpDryErr_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpEmgyModSts_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpErrSts_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpI_ECM_LIN4: 8, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpIErr_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpMonrSpd_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpPostRunSts_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpSetPostRunReq_ECM_LIN4: 3, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpSetSpdReq_ECM_LIN4: 8, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpSpd_ECM_LIN4: 8, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpT_ECM_LIN4: 8, 100, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpTErr_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpU_ECM_LIN4: 8, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpUErr_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	EngPmpStatCooltPmpUnstallSts_ECM_LIN4: 2, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvNVMFlt_ECM_LIN4: 1, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvPosnReqExvCalibReq_ECM_LIN4: 1, 0, ECM_ECM_LIN4, LBXV_ECM_LIN4;
+	LbxvPosnReqExvHeatdReq_ECM_LIN4: 1, 0, ECM_ECM_LIN4, LBXV_ECM_LIN4;
+	LbxvPosnReqExvMovEnable_ECM_LIN4: 1, 0, ECM_ECM_LIN4, LBXV_ECM_LIN4;
+	LbxvPosnReqExvPosnReq_ECM_LIN4: 10, 0, ECM_ECM_LIN4, LBXV_ECM_LIN4;
+	LbxvStsExvActrPosn_ECM_LIN4: 10, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvStsExvBlkErr_ECM_LIN4: 1, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvStsExvCalibSts_ECM_LIN4: 2, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvStsExvElecStsErr_ECM_LIN4: 3, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvStsExvMovSts_ECM_LIN4: 1, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvStsExvOvrTempErr_ECM_LIN4: 1, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvStsExvOvrTrvlErr_ECM_LIN4: 1, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvStsExvPreHeatgSts_ECM_LIN4: 1, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	LbxvStsExvVoltgRangErr_ECM_LIN4: 2, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+	ErrRespECPM_ECM_LIN4: 1, 0, ECPM_ECM_LIN4, ECM_ECM_LIN4;
+	ErrRespLBXV_ECM_LIN4: 1, 0, LBXV_ECM_LIN4, ECM_ECM_LIN4;
+}
+
+
+Diagnostic_signals {
+	MasterReqB0: 8, 0;
+	MasterReqB1: 8, 0;
+	MasterReqB2: 8, 0;
+	MasterReqB3: 8, 0;
+	MasterReqB4: 8, 0;
+	MasterReqB5: 8, 0;
+	MasterReqB6: 8, 0;
+	MasterReqB7: 8, 0;
+	SlaveRespB0: 8, 0;
+	SlaveRespB1: 8, 0;
+	SlaveRespB2: 8, 0;
+	SlaveRespB3: 8, 0;
+	SlaveRespB4: 8, 0;
+	SlaveRespB5: 8, 0;
+	SlaveRespB6: 8, 0;
+	SlaveRespB7: 8, 0;
+}
+
+Frames {
+	EcmEcm_Lin4Fr01_ECM_LIN4: 0x09, ECM_ECM_LIN4, 7 {
+		LbxvPosnReqExvCalibReq_ECM_LIN4, 45;
+		LbxvPosnReqExvHeatdReq_ECM_LIN4, 46;
+		LbxvPosnReqExvMovEnable_ECM_LIN4, 47;
+		LbxvPosnReqExvPosnReq_ECM_LIN4, 35;
+	}
+	EcmEcm_Lin4Fr04_ECM_LIN4: 0x26, ECM_ECM_LIN4, 2 {
+		EngCooltPmpSpdReqCooltPmpPostRunReq_ECM_LIN4, 12;
+		EngCooltPmpSpdReqCooltPmpSpdReq_ECM_LIN4, 0;
+	}
+	EcpmEcm_Lin4Fr01_ECM_LIN4: 0x25, ECPM_ECM_LIN4, 8 {
+		EngPmpStatCooltPmpDryErr_ECM_LIN4, 50;
+		EngPmpStatCooltPmpEmgyModSts_ECM_LIN4, 44;
+		EngPmpStatCooltPmpErrSts_ECM_LIN4, 58;
+		EngPmpStatCooltPmpI_ECM_LIN4, 32;
+		EngPmpStatCooltPmpIErr_ECM_LIN4, 48;
+		EngPmpStatCooltPmpMonrSpd_ECM_LIN4, 42;
+		EngPmpStatCooltPmpPostRunSts_ECM_LIN4, 40;
+		EngPmpStatCooltPmpSetPostRunReq_ECM_LIN4, 60;
+		EngPmpStatCooltPmpSetSpdReq_ECM_LIN4, 0;
+		EngPmpStatCooltPmpSpd_ECM_LIN4, 8;
+		EngPmpStatCooltPmpT_ECM_LIN4, 24;
+		EngPmpStatCooltPmpTErr_ECM_LIN4, 46;
+		EngPmpStatCooltPmpU_ECM_LIN4, 16;
+		EngPmpStatCooltPmpUErr_ECM_LIN4, 52;
+		EngPmpStatCooltPmpUnstallSts_ECM_LIN4, 54;
+		ErrRespECPM_ECM_LIN4, 63; 
+	}
+	LbxvEcm_Lin4Fr01_ECM_LIN4: 0x2D, LBXV_ECM_LIN4, 8 {
+		LbxvNVMFlt_ECM_LIN4, 0;
+		LbxvStsExvActrPosn_ECM_LIN4, 1;
+		LbxvStsExvBlkErr_ECM_LIN4, 18;
+		LbxvStsExvCalibSts_ECM_LIN4, 14;
+		LbxvStsExvElecStsErr_ECM_LIN4, 11;
+		LbxvStsExvMovSts_ECM_LIN4, 19;
+		LbxvStsExvOvrTempErr_ECM_LIN4, 20;
+		LbxvStsExvOvrTrvlErr_ECM_LIN4, 21;
+		LbxvStsExvPreHeatgSts_ECM_LIN4, 22;
+		LbxvStsExvVoltgRangErr_ECM_LIN4, 16;
+		ErrRespLBXV_ECM_LIN4, 63; 
+	}
+}
+
+Diagnostic_frames {
+	MasterReq: 60 {
+		MasterReqB0, 0;
+		MasterReqB1, 8;
+		MasterReqB2, 16;
+		MasterReqB3, 24;
+		MasterReqB4, 32;
+		MasterReqB5, 40;
+		MasterReqB6, 48;
+		MasterReqB7, 56;
+	}
+	SlaveResp: 61 {
+		SlaveRespB0, 0;
+		SlaveRespB1, 8;
+		SlaveRespB2, 16;
+		SlaveRespB3, 24;
+		SlaveRespB4, 32;
+		SlaveRespB5, 40;
+		SlaveRespB6, 48;
+		SlaveRespB7, 56;
+	}
+}
+
+Node_attributes {
+	ECPM_ECM_LIN4 {
+		LIN_protocol = "2.1";
+		configured_NAD = 0x06;
+		initial_NAD = 0x06;
+		product_id = 0x00, 0x00, 0;
+		response_error = ErrRespECPM_ECM_LIN4;
+	}
+	LBXV_ECM_LIN4 {
+		LIN_protocol = "2.1";
+		configured_NAD = 0x78;
+		initial_NAD = 0x78;
+		product_id = 0x00, 0x00, 0;
+		response_error = ErrRespLBXV_ECM_LIN4;
+	}
+}
+
+Schedule_tables {
+	Ecm_Lin4DiagRequestSchedule_ECM_LIN4 {
+		MasterReq delay 15.000 ms;
+	}
+	Ecm_Lin4DiagResponseSchedule_ECM_LIN4 {
+		SlaveResp delay 15.000 ms;
+	}
+	Ecm_Lin4Schedule01_ECM_LIN4 {
+		EcmEcm_Lin4Fr04_ECM_LIN4 delay 10.000 ms;
+		EcpmEcm_Lin4Fr01_ECM_LIN4 delay 15.000 ms;
+		LbxvEcm_Lin4Fr01_ECM_LIN4 delay 15.000 ms;
+		EcmEcm_Lin4Fr01_ECM_LIN4 delay 10.000 ms;
+	}
+}
+
+Signal_encoding_types {
+	CooltPmpDryErr_ECM_LIN4 {
+		logical_value, 0, "CooltPmpDryErr_RunDryNotDetd";
+		logical_value, 1, "CooltPmpDryErr_RunDryDetd";
+		logical_value, 2, "CooltPmpDryErr_Resd1";
+		logical_value, 3, "CooltPmpDryErr_Resd2";
+	}
+	CooltPmpEmgyModSts_ECM_LIN4 {
+		logical_value, 0, "CooltPmpEmgyModSts_EmgyRunNotActv";
+		logical_value, 1, "CooltPmpEmgyModSts_EmgyRunActv";
+		logical_value, 2, "CooltPmpEmgyModSts_Resd1";
+		logical_value, 3, "CooltPmpEmgyModSts_Resd2";
+	}
+	CooltPmpErrSts_ECM_LIN4 {
+		logical_value, 0, "CooltPmpErrSts_StNoErr";
+		logical_value, 1, "CooltPmpErrSts_StErr";
+		logical_value, 2, "CooltPmpErrSts_StNewErr";
+		logical_value, 3, "CooltPmpErrSts_Resd";
+	}
+	CooltPmpI_ECM_LIN4 {
+		physical_value, 0, 254, 0.2, 0.0, "A";
+	}
+	CooltPmpIErr_ECM_LIN4 {
+		logical_value, 0, "CooltPmpIErr_INoErr";
+		logical_value, 1, "CooltPmpIErr_IErr";
+		logical_value, 2, "CooltPmpIErr_Resd1";
+		logical_value, 3, "CooltPmpIErr_Resd2";
+	}
+	CooltPmpMonrSpd_ECM_LIN4 {
+		logical_value, 0, "CooltPmpMonrSpd_MonrSpdActv";
+		logical_value, 1, "CooltPmpMonrSpd_MonrSpdNoActv";
+		logical_value, 2, "CooltPmpMonrSpd_Resd1";
+		logical_value, 3, "CooltPmpMonrSpd_Resd2";
+	}
+	CooltPmpN_ECM_LIN4 {
+		physical_value, 0, 255, 1.0, 0.0, "Unitless";
+	}
+	CooltPmpPostRun_ECM_LIN4 {
+		logical_value, 0, "CooltPmpPostRun_CooltPmpNoPostRun";
+		logical_value, 1, "CooltPmpPostRun_CooltPmpPostRun1";
+		logical_value, 2, "CooltPmpPostRun_CooltPmpPostRun2";
+		logical_value, 3, "CooltPmpPostRun_CooltPmpPostRun3";
+		logical_value, 4, "CooltPmpPostRun_CooltPmpPostRun4";
+		logical_value, 5, "CooltPmpPostRun_Resvd1";
+		logical_value, 6, "CooltPmpPostRun_Resvd2";
+		logical_value, 7, "CooltPmpPostRun_Resvd3";
+	}
+	CooltPmpPostRunSts_ECM_LIN4 {
+		logical_value, 0, "CooltPmpPostRunSts_CooltPmpPostRunFinshd";
+		logical_value, 1, "CooltPmpPostRunSts_CooltPmpPostRunCncld";
+		logical_value, 2, "CooltPmpPostRunSts_Resd1";
+		logical_value, 3, "CooltPmpPostRunSts_Resd2";
+	}
+	CooltPmpSetPostRunReq_ECM_LIN4 {
+		logical_value, 0, "CooltPmpSetPostRunReq_CooltPmpSetNoPostRun";
+		logical_value, 1, "CooltPmpSetPostRunReq_CooltPmpSetPostRun1";
+		logical_value, 2, "CooltPmpSetPostRunReq_CooltPmpSetPostRun2";
+		logical_value, 3, "CooltPmpSetPostRunReq_CooltPmpSetPostRun3";
+		logical_value, 4, "CooltPmpSetPostRunReq_CooltPmpSetPostRun4";
+		logical_value, 5, "CooltPmpSetPostRunReq_CooltPmpSetPostRun5";
+		logical_value, 6, "CooltPmpSetPostRunReq_Resd1";
+		logical_value, 7, "CooltPmpSetPostRunReq_Resd2";
+	}
+	CooltPmpTErr_ECM_LIN4 {
+		logical_value, 0, "CooltPmpTErr_CooltPmpNoTErr";
+		logical_value, 1, "CooltPmpTErr_CooltPmpTErr";
+		logical_value, 2, "CooltPmpTErr_Resd1";
+		logical_value, 3, "CooltPmpTErr_Resd2";
+	}
+	CooltPmpUErr_ECM_LIN4 {
+		logical_value, 0, "CooltPmpUErr_CooltPmpNoUErr";
+		logical_value, 1, "CooltPmpUErr_CooltPmpUErr";
+		logical_value, 2, "CooltPmpUErr_Resd1";
+		logical_value, 3, "CooltPmpUErr_Resd2";
+	}
+	CooltPmpUnstallSts_ECM_LIN4 {
+		logical_value, 0, "CooltPmpUnstallSts_CooltPmpUnstallNotActv";
+		logical_value, 1, "CooltPmpUnstallSts_CooltPmpUnstallActv";
+		logical_value, 2, "CooltPmpUnstallSts_Resd1";
+		logical_value, 3, "CooltPmpUnstallSts_Resd2";
+	}
+	Err1_ECM_LIN4 {
+		logical_value, 0, "Err1_NoErr";
+		logical_value, 1, "Err1_Err";
+	}
+	ExvActrPosn_ECM_LIN4 {
+		physical_value, 0, 500, 0.2, 0.0, "%";
+	}
+	ExvCalibReq_ECM_LIN4 {
+		logical_value, 0, "ExvCalibReq_NoReq";
+		logical_value, 1, "ExvCalibReq_InitializationReq";
+	}
+	ExvCalibSts_ECM_LIN4 {
+		logical_value, 0, "ExvCalibSts_NotInitialized";
+		logical_value, 1, "ExvCalibSts_InitializationInProcess";
+		logical_value, 2, "ExvCalibSts_Initialized";
+		logical_value, 3, "ExvCalibSts_Reserved";
+	}
+	ExvElecStsErr_ECM_LIN4 {
+		logical_value, 0, "ExvElecStsErr_NoError";
+		logical_value, 1, "ExvElecStsErr_OpenCircuit";
+		logical_value, 2, "ExvElecStsErr_ShortCircuit";
+		logical_value, 3, "ExvElecStsErr_OverTemperatureShutdown";
+		logical_value, 4, "ExvElecStsErr_IndeterminateElectricFault";
+		logical_value, 5, "ExvElecStsErr_Reserved";
+	}
+	ExvHeatdReq_ECM_LIN4 {
+		logical_value, 0, "ExvHeatdReq_NoReq";
+		logical_value, 1, "ExvHeatdReq_PreHeatedReq";
+	}
+	ExvMovEnable_ECM_LIN4 {
+		logical_value, 0, "EXVNotEnable";
+		logical_value, 1, "EXVEnable";
+	}
+	ExvMovSts_ECM_LIN4 {
+		logical_value, 0, "ExvMovSts_NotMove";
+		logical_value, 1, "ExvMovSts_Moving";
+	}
+	ExvPosnReq_ECM_LIN4 {
+		physical_value, 0, 500, 0.2, 0.0, "%";
+	}
+	ExvVoltgRangErr_ECM_LIN4 {
+		logical_value, 0, "VoltgRangErr_NoErr";
+		logical_value, 1, "VoltgRangErr_UnderVoltageErr";
+		logical_value, 2, "VoltgRangErr_OverVoltageErr";
+		logical_value, 3, "VoltgRangErr_Reserved";
+	}
+	Flt_ECM_LIN4 {
+		logical_value, 0, "Flt_NoFault";
+		logical_value, 1, "Flt_Fault";
+	}
+	OnOff1_ECM_LIN4 {
+		logical_value, 0, "OnOff1_Off";
+		logical_value, 1, "OnOff1_On";
+	}
+	T3_ECM_LIN4 {
+		physical_value, 0, 250, 1.0, -50.0, "degC";
+	}
+	U1_ECM_LIN4 {
+		physical_value, 0, 250, 0.1, 0.0, "Volt";
+	}
+}
+
+Signal_representation {
+	CooltPmpDryErr_ECM_LIN4 : EngPmpStatCooltPmpDryErr_ECM_LIN4;
+	CooltPmpEmgyModSts_ECM_LIN4 : EngPmpStatCooltPmpEmgyModSts_ECM_LIN4;
+	CooltPmpErrSts_ECM_LIN4 : EngPmpStatCooltPmpErrSts_ECM_LIN4;
+	CooltPmpI_ECM_LIN4 : EngPmpStatCooltPmpI_ECM_LIN4;
+	CooltPmpIErr_ECM_LIN4 : EngPmpStatCooltPmpIErr_ECM_LIN4;
+	CooltPmpMonrSpd_ECM_LIN4 : EngPmpStatCooltPmpMonrSpd_ECM_LIN4;
+	CooltPmpN_ECM_LIN4 : EngCooltPmpSpdReqCooltPmpSpdReq_ECM_LIN4, EngPmpStatCooltPmpSetSpdReq_ECM_LIN4,
+		EngPmpStatCooltPmpSpd_ECM_LIN4;
+	CooltPmpPostRun_ECM_LIN4 : EngCooltPmpSpdReqCooltPmpPostRunReq_ECM_LIN4;
+	CooltPmpPostRunSts_ECM_LIN4 : EngPmpStatCooltPmpPostRunSts_ECM_LIN4;
+	CooltPmpSetPostRunReq_ECM_LIN4 : EngPmpStatCooltPmpSetPostRunReq_ECM_LIN4;
+	CooltPmpTErr_ECM_LIN4 : EngPmpStatCooltPmpTErr_ECM_LIN4;
+	CooltPmpUErr_ECM_LIN4 : EngPmpStatCooltPmpUErr_ECM_LIN4;
+	CooltPmpUnstallSts_ECM_LIN4 : EngPmpStatCooltPmpUnstallSts_ECM_LIN4;
+	Err1_ECM_LIN4 : LbxvStsExvBlkErr_ECM_LIN4, LbxvStsExvOvrTempErr_ECM_LIN4, LbxvStsExvOvrTrvlErr_ECM_LIN4;
+	ExvActrPosn_ECM_LIN4 : LbxvStsExvActrPosn_ECM_LIN4;
+	ExvCalibReq_ECM_LIN4 : LbxvPosnReqExvCalibReq_ECM_LIN4;
+	ExvCalibSts_ECM_LIN4 : LbxvStsExvCalibSts_ECM_LIN4;
+	ExvElecStsErr_ECM_LIN4 : LbxvStsExvElecStsErr_ECM_LIN4;
+	ExvHeatdReq_ECM_LIN4 : LbxvPosnReqExvHeatdReq_ECM_LIN4;
+	ExvMovEnable_ECM_LIN4 : LbxvPosnReqExvMovEnable_ECM_LIN4;
+	ExvMovSts_ECM_LIN4 : LbxvStsExvMovSts_ECM_LIN4;
+	ExvPosnReq_ECM_LIN4 : LbxvPosnReqExvPosnReq_ECM_LIN4;
+	ExvVoltgRangErr_ECM_LIN4 : LbxvStsExvVoltgRangErr_ECM_LIN4;
+	Flt_ECM_LIN4 : LbxvNVMFlt_ECM_LIN4;
+	OnOff1_ECM_LIN4 : LbxvStsExvPreHeatgSts_ECM_LIN4;
+	T3_ECM_LIN4 : EngPmpStatCooltPmpT_ECM_LIN4;
+	U1_ECM_LIN4 : EngPmpStatCooltPmpU_ECM_LIN4;
+}
+
