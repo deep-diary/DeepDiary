@@ -136,6 +136,17 @@ class DeepMotorCommandConfigs:
                 "category": "position_control"
             },
             {
+                "param_count": 2,
+                "param_names": ["motor_id", "position"],
+                "param_types": [int, (int, float)],
+                "default_values": [1, 0.0],
+                "description": "设置电机位置",
+                "example": "motor_set_pos(1, 1.5)",
+                "validation": lambda args: isinstance(args[0], int) and isinstance(args[1], (int, float)),
+                "error_message": "设置电机位置命令需要电机ID(整数)和位置(数字)参数。",
+                "category": "position_control"
+            },
+            {
                 "name": "set_motor_pos_speed",
                 "param_count": 3,
                 "param_names": ["motor_id", "position", "speed"],

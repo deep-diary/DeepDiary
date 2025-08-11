@@ -38,7 +38,7 @@ class DeepMotor(BaseDevice):
         self.config_manager = config_manager
         
         # 初始化数据缓冲区管理器
-        self.data_buffer_manager = DeepMotorDataBufferManager(config_manager)
+        self.data_buffer_manager = DeepMotorDataBufferManager(config_manager, log_manager)
         
         # 添加示教能力
         self.teaching_capability = TeachingCapability(device_id, log_manager, config_manager, self)
@@ -72,11 +72,16 @@ class DeepMotor(BaseDevice):
         current_state_dict = self._state.to_dict()
 
         # 使用数据缓冲区管理器处理数据
+        stored_count = 0
         for param_name, value in semantic_data.items():
             if value is not None:
                 success = self.data_buffer_manager.add_data_point(param_name, value)
-                if not success:
-                    self.logger.warning(f"DeepMotor '{self.device_id}': 参数 {param_name} 的值 {value} 不是支持的格式")
+                if success:
+                    stored_count += 1
+                else:
+                    self.logger.debug(f"DeepMotor '{self.device_id}': 参数 {param_name} 的值 {value} 不是支持的格式，跳过存储")
+        
+        self.logger.info(f"DeepMotor '{self.device_id}': 成功存储 {stored_count} 个参数到数据缓冲区")
 
         # 如果正在示教，则记录状态
         if self.teaching_capability.is_teaching(self.device_id):

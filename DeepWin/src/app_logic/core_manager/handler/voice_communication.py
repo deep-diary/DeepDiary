@@ -131,18 +131,49 @@ class VoiceCommunicationHandler(BaseHandler):
     def _handle_motor_command(self, command_name: str, params: list):
         """
         处理电机相关命令
+        {'name': 'motor_set_pos', 'params': [{'name': 'pos', 'normValue': '1', 'value': '1'}]}
         """
         self.logger.info(f"VoiceCommunicationHandler: 处理电机命令: {command_name}")
         
-        # 这里可以添加具体的电机命令处理逻辑
-        # 例如：调用设备逻辑管理器中的相应方法
-        
-        # 发送设备状态更新信号
-        # self.coordinator_handler.device_status_updated.emit("motor", {
-        #     "command": command_name,
-        #     "params": params,
-        #     "status": "executing"
-        # })
+        try:
+            # 提取参数值
+            motor_id = 1  # 默认电机ID
+            position = 0.0
+            speed = 0.0
+            
+            for param in params:
+                if param.get('name') == 'pos':
+                    position = float(param.get('value', 0.0))
+                elif param.get('name') == 'speed':
+                    speed = float(param.get('value', 0.0))
+                elif param.get('name') == 'motor_id':
+                    motor_id = int(param.get('value', 1))
+            
+            # 构建参数列表 - 现在直接传递原始命令名，让 deep_motor_parser 处理映射
+            if command_name == 'motor_set_pos':
+                # 位置控制命令
+                args = [motor_id, position]
+                self.logger.info(f"VoiceCommunicationHandler: 处理位置命令 {command_name}, 参数: {args}")
+                self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
+                
+            elif command_name == 'motor_set_speed':
+                # 速度控制命令
+                args = [motor_id, speed]
+                self.logger.info(f"VoiceCommunicationHandler: 处理速度命令 {command_name}, 参数: {args}")
+                self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
+                
+            else:
+                # 其他命令
+                args = [motor_id]
+                self.logger.info(f"VoiceCommunicationHandler: 处理其他命令 {command_name}, 参数: {args}")
+                self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
+            
+            self.logger.info(f"VoiceCommunicationHandler: 已请求执行 {command_name}{tuple(args)}")
+            
+        except Exception as e:
+            error_msg = f"处理电机命令 {command_name} 时发生错误: {str(e)}"
+            self.logger.error(error_msg)
+            self.voice_error_occurred.emit("motor_command_error", error_msg)
         
     def _handle_arm_command(self, command_name: str, params: list):
         """

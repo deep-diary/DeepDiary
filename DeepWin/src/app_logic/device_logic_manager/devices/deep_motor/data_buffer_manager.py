@@ -5,6 +5,7 @@ import pandas as pd
 import time
 from typing import Dict, Any, Optional
 from src.data_management.config_manager import ConfigManager
+from src.data_management.log_manager import LogManager
 
 class DeepMotorDataBufferManager:
     """DeepMotor 数据缓冲区管理器"""
@@ -21,24 +22,31 @@ class DeepMotorDataBufferManager:
         "error_code": "int",      # 错误码
         "motor_can_id": "int",    # CAN ID
         "mode_state": "str",      # 模式状态
+        "response_mode": "int",   # 响应模式
+        "success": "bool",        # 成功标志
         
-        # 故障标志
-        "flt_uninitialized": "bool",        # 未初始化故障
-        "flt_hall_encoding": "bool",        # 霍尔编码故障
-        "flt_magnetic_encoding": "bool",    # 磁编码故障
-        "flt_over_temperature": "bool",     # 过温故障
-        "flt_over_current": "bool",         # 过流故障
-        "flt_voltage_drop": "bool"          # 电压跌落故障
+        # 故障标志 (协议中返回的是 int 0/1，不是 bool)
+        "flt_uninitialized": "int",        # 未初始化故障
+        "flt_hall_encoding": "int",        # 霍尔编码故障
+        "flt_magnetic_encoding": "int",    # 磁编码故障
+        "flt_over_temperature": "int",     # 过温故障
+        "flt_over_current": "int",         # 过流故障
+        "flt_voltage_drop": "int"          # 电压跌落故障
     }
     
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config_manager: ConfigManager, log_manager: LogManager):
         """
         初始化数据缓冲区管理器
         :param config_manager: 配置管理器
+        :param log_manager: 统一的日志管理器
         """
         self.config_manager = config_manager
+        self.log_manager = log_manager
         self.buffer_size = config_manager.get("device_settings.deepmotor_history_length", 1000)
         self._start_time = time.time()
+        
+        # 使用统一的日志管理器
+        self.logger = log_manager.get_logger(__name__)
         
         # 初始化所有数据缓冲区
         self.data_buffers = self._initialize_buffers()
@@ -58,6 +66,8 @@ class DeepMotorDataBufferManager:
         :return: 是否成功添加
         """
         if parameter not in self.PARAMETER_TYPES:
+            # 改为调试级别，避免警告日志
+            self.logger.debug(f"参数 '{parameter}' 不在支持的参数列表中，跳过存储")
             return False
             
         # 验证数据类型
@@ -75,6 +85,9 @@ class DeepMotorDataBufferManager:
         # 限制缓冲区大小
         if len(self.data_buffers[parameter]) > self.buffer_size:
             self.data_buffers[parameter] = self.data_buffers[parameter].iloc[-self.buffer_size:]
+        
+        # 记录成功存储的数据点
+        self.logger.debug(f"成功存储参数 '{parameter}' 的数据点: {value}, 当前缓冲区大小: {len(self.data_buffers[parameter])}")
             
         return True
     

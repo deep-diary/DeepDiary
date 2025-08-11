@@ -69,6 +69,7 @@ class DeepMotorProtocolParser(BaseProtocolParser):
             "init_all_motors": "init_all_motors",
             "reset_all_motors": "reset_all_motors",
             "set_motor_position": "set_motor_position",
+            "motor_set_pos": "set_motor_position",
             "set_all_motors_position": "set_all_motors_position",
             "set_motor_pos_speed": "set_motor_pos_speed",
             "set_all_motors_pos_speed": "set_all_motors_pos_speed"
@@ -119,6 +120,12 @@ class DeepMotorProtocolParser(BaseProtocolParser):
         """
         try:
             self.logger.debug(f"DeepMotorProtocolParser: 生成 DeepMotor 命令 '{command_name}' 参数: {args}")
+            
+            # 首先进行命令映射转换
+            mapped_command = self._output_command_mapping.get(command_name, command_name)
+            if mapped_command != command_name:
+                self.logger.debug(f"DeepMotorProtocolParser: 命令映射 '{command_name}' -> '{mapped_command}'")
+                command_name = mapped_command
             
             # 准备命令参数
             kwargs = {}

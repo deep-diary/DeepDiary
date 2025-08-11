@@ -92,6 +92,8 @@ class DeviceLogicManagerHandler(BaseHandler):
         """
         self.logger.info(f"DeviceLogicManagerHandler: 收到抽象命令发送请求 - 设备: {device_id}, 命令: {abstract_command_name}, 参数: {args}")
         try:
+            self.logger.debug(f"DeviceLogicManagerHandler: 开始处理命令 - 设备: {device_id}, 命令: {abstract_command_name}, 参数: {args}")
+            
             # 使用 DeviceProtocolParser 将抽象命令转换为底层字节命令（包含 AT 头等）
             low_level_command_bytes = self.device_protocol_parser.generate_low_level_command(
                 device_id, abstract_command_name, *args
