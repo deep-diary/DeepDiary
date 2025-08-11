@@ -220,7 +220,8 @@ class Coordinator(QObject):
     def start_application(self):
         """启动应用程序"""
         self.logger.info("Coordinator: 启动应用程序...")
-        self.voice_manager.start_voice_conversation()
+        self.voice_manager.start_text_conversation()
+        # self.voice_manager.start_voice_conversation()
         self.agent_manager.start_agents()
         self.logger.info("Coordinator: 应用程序启动完成。")
 
@@ -298,7 +299,8 @@ class Coordinator(QObject):
             'gui_manager',
             'serial_communicator',
             'can_bus_communicator',
-            'device_protocol_parser'
+            'device_protocol_parser',
+            'voice_manager'
         ]
 
         # 循环清理每个模块

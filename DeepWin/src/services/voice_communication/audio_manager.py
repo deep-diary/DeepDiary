@@ -85,6 +85,9 @@ class VoiceManager(QObject):
     command_executed = Signal(str, list)  # command_name, params
     voice_state_changed = Signal(str)  # state_message
     
+    # 语音命令信号
+    voice_command_received = Signal(dict)  # 转发给Handler的信号
+    
     def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent=None):
         """
         初始化语音管理器
@@ -111,9 +114,21 @@ class VoiceManager(QObject):
         # 创建对话线程
         self.conversation_thread = threading.Thread(target=self.conversation_round,daemon=True,args=(2,))
         
-
         # 初始化音频相关
         self._init_audio()
+
+        # 创建对话实例
+        self.conversation = TMultiModalConversation(
+            app_id=self.app_id,
+            workspace_id=self.workspace_id,
+            api_key=self.api_key,
+            dialog_id=self.dialog_id,
+            conversation_mode=self.conversation_mode
+        )
+
+        # 连接ChatCallback的信号（在创建对话实例之后）
+        self._connect_chat_callback()
+
         
         self.logger.info("VoiceManager: 初始化完成")
     
@@ -203,12 +218,9 @@ class VoiceManager(QObject):
         self.logger.info(f"conversation round completed, total round_num------------->: {round_num}")
         return round_num
 
-    def start_voice_conversation(self, dialog_id: str = "") -> bool:
+    def start_voice_conversation(self) -> bool:
         """
         开始语音对话
-        
-        Args:
-            dialog_id: 可选的对话ID，用于继续之前的对话
             
         Returns:
             bool: 是否成功启动
@@ -217,22 +229,22 @@ class VoiceManager(QObject):
             if self.is_conversation_active:
                 self.logger.warning("语音对话已在运行中")
                 return False
+                
+            if not self.conversation:
+                self.logger.error("VoiceManager: 对话实例未创建，无法开始语音对话")
+                return False
             
             self.logger.info("启动语音对话...")
             
-            # 创建对话实例
-            self.conversation = TMultiModalConversation(
-                app_id=self.app_id,
-                workspace_id=self.workspace_id,
-                api_key=self.api_key,
-                dialog_id=dialog_id,
-                conversation_mode=self.conversation_mode
-            )
-
             # 设置对话状态为活跃
             self.is_conversation_active = True
             
-            # 开始对话线程
+            # 设置为语音模式
+            if hasattr(self.conversation, 'callback') and self.conversation.callback:
+                self.conversation.callback.set_voice_mode(True)
+                self.logger.info("VoiceManager: 已设置为语音对话模式")
+            
+            # 开始对话
             self.conversation.start_conversation()
 
             # 线程启动
@@ -261,7 +273,29 @@ class VoiceManager(QObject):
                 self.conversation.stop_conversation()
             self.is_conversation_active = False
             return False
+
+    def start_text_conversation(self) -> bool:
+        """
+        开始文本对话
+        """
+        if not self.conversation:
+            self.logger.error("VoiceManager: 对话实例未创建，无法开始文本对话")
+            return False
             
+        try:
+            # 设置为文本模式
+            if hasattr(self.conversation, 'callback') and self.conversation.callback:
+                self.conversation.callback.set_voice_mode(False)
+                self.logger.info("VoiceManager: 已设置为文本对话模式")
+            
+            # 开始对话
+            self.conversation.start_conversation()
+            self.conversation.conversation.request_to_respond('prompt','将电机位置调到1.5')
+            self.logger.info("VoiceManager: 文本对话启动成功")
+            return True
+        except Exception as e:
+            self.logger.error(f"VoiceManager: 启动文本对话失败: {e}")
+            return False
     
     def stop_voice_conversation(self) -> bool:
         """
@@ -382,3 +416,35 @@ class VoiceManager(QObject):
             self.logger.warning(f"强制清理资源时出错: {e}")
         
         self.logger.info("VoiceManager: 清理完成")
+    
+    def _connect_chat_callback(self):
+        """连接ChatCallback的信号"""
+        if self.conversation and hasattr(self.conversation, 'callback') and self.conversation.callback:
+            try:
+                self.conversation.callback.voice_response_processed.connect(self._on_voice_response_processed)
+                self.logger.info("VoiceManager: 已连接ChatCallback信号")
+            except Exception as e:
+                self.logger.warning(f"连接ChatCallback信号失败: {e}")
+        else:
+            self.logger.warning("VoiceManager: 无法连接ChatCallback信号，conversation或callback不可用")
+    
+    @Slot(dict)
+    def _on_voice_response_processed(self, payload: dict):
+        """处理语音响应，提取commands并发出信号"""
+        try:
+            if "output" in payload and "extra_info" in payload["output"]:
+                extra_info = payload["output"]["extra_info"]
+                commands_str = extra_info.get("commands", "[]")
+                
+                if commands_str and commands_str != "[]":
+                    self.logger.info(f"VoiceManager: 发现commands: {commands_str}")
+                    
+                    # 解析commands
+                    commands_list = json.loads(commands_str)
+                    for command in commands_list:
+                        self.logger.info(f"VoiceManager: 处理命令: {command}")
+                        # 发出语音命令接收信号，让Handler接收
+                        self.voice_command_received.emit(command)
+                        
+        except Exception as e:
+            self.logger.error(f"处理语音响应时发生错误: {str(e)}")

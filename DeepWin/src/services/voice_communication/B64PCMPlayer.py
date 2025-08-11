@@ -4,6 +4,10 @@ import pyaudio
 import threading
 import queue
 import base64
+import logging
+
+# 设置日志记录器
+logger = logging.getLogger(__name__)
 
 class B64PCMPlayer:
     """
@@ -42,8 +46,8 @@ class B64PCMPlayer:
         self.status = 'playing'  # 播放状态：playing/stop
         
         # 创建解码线程和播放线程
-        self.decoder_thread = threading.Thread(target=self.decoder_loop, daemon=True)
-        self.player_thread = threading.Thread(target=self.player_loop, daemon=True)
+        self.decoder_thread = threading.Thread(target=self.decoder_loop, daemon=True, name="B64PCMPlayer_decoder")
+        self.player_thread = threading.Thread(target=self.player_loop, daemon=True, name="B64PCMPlayer_player")
         
         # 启动线程
         self.decoder_thread.start()
@@ -62,14 +66,12 @@ class B64PCMPlayer:
         解码循环线程
         从Base64队列获取数据，解码后放入原始音频队列
         """
-        while self.status != 'stop':
+        while self.status not in ['stop', 'force_stop']:
             recv_audio_b64 = None
             
-            # 使用contextlib.suppress抑制queue.Empty异常
-            # 当队列为空时，get(timeout=0.1)会抛出queue.Empty异常
-            # suppress会捕获这个异常并继续执行，而不是让程序崩溃
+            # 使用更短的超时时间，让线程能更快响应状态变化
             with contextlib.suppress(queue.Empty):
-                recv_audio_b64 = self.b64_audio_buffer.get(timeout=0.1)
+                recv_audio_b64 = self.b64_audio_buffer.get(timeout=0.05)
             
             if recv_audio_b64 is None:
                 continue
@@ -95,12 +97,12 @@ class B64PCMPlayer:
         播放循环线程
         从原始音频队列获取数据并播放
         """
-        while self.status != 'stop':
+        while self.status not in ['stop', 'force_stop']:
             recv_audio_raw = None
             
-            # 同样使用suppress处理队列为空的情况
+            # 使用更短的超时时间，让线程能更快响应状态变化
             with contextlib.suppress(queue.Empty):
-                recv_audio_raw = self.raw_audio_buffer.get(timeout=0.1)
+                recv_audio_raw = self.raw_audio_buffer.get(timeout=0.05)
                 
             if recv_audio_raw is None:
                 # 如果没有更多数据且设置了完成事件，则设置事件
@@ -169,16 +171,36 @@ class B64PCMPlayer:
         """
         self.status = 'stop'
         
-        # self.decoder_thread.join() 的含义：
-        # join()方法会阻塞当前线程，直到被调用的线程执行完毕
-        # 这里等待解码线程和播放线程完全结束，确保所有资源都被正确释放
-        # 如果不调用join()，主线程可能会在子线程还在运行时退出，导致资源泄漏
-        self.decoder_thread.join()
-        self.player_thread.join()
+        # 清空队列，避免线程等待数据
+        try:
+            self.b64_audio_buffer.queue.clear()
+            self.raw_audio_buffer.queue.clear()
+        except Exception as e:
+            logger.warning(f"清空队列时出错: {e}")
+        
+        # 等待线程结束，但设置超时避免无限等待
+        if self.decoder_thread.is_alive():
+            self.decoder_thread.join(timeout=1.0)
+            if self.decoder_thread.is_alive():
+                logger.warning("decoder_thread 未能在超时时间内结束，强制标记为停止")
+                self.status = 'force_stop'
+                
+        if self.player_thread.is_alive():
+            self.player_thread.join(timeout=1.0)
+            if self.player_thread.is_alive():
+                logger.warning("player_thread 未能在超时时间内结束，强制标记为停止")
+                self.status = 'force_stop'
         
         # 关闭音频流
-        self.player_stream.close()
+        if hasattr(self, 'player_stream') and self.player_stream:
+            try:
+                self.player_stream.close()
+            except Exception as e:
+                logger.warning(f"关闭音频流时出错: {e}")
         
         # 如果启用了文件保存，关闭文件
-        if self.save_file:
-            self.out_file.close()
+        if self.save_file and hasattr(self, 'out_file'):
+            try:
+                self.out_file.close()
+            except Exception as e:
+                logger.warning(f"关闭文件时出错: {e}")

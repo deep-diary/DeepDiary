@@ -102,6 +102,7 @@ class BaseHandler(QObject):
         self.task_scheduler = coordinator.task_scheduler
         self.mcp_client_manager = coordinator.mcp_client_manager
         self.weather_manager = coordinator.weather_manager
+        self.voice_manager = coordinator.voice_manager
         
         # 设置线程池
         self.thread_pool = coordinator.thread_pool
