@@ -23,6 +23,7 @@ from src.services.hardware_communication.serial_communicator import SerialCommun
 from src.services.hardware_communication.can_bus_communicator import CanBusCommunicator
 from src.services.hardware_communication.device_protocol_parser import DeviceProtocolParser
 from src.services.cloud_communication.api_client import CloudApiClient
+from src.services.voice_communication.voice_manager import VoiceManager
 
 from src.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
 from src.app_logic.weather_manager import WeatherManager
@@ -58,6 +59,7 @@ class BaseHandler(QObject):
         self.device_protocol_parser: Optional[DeviceProtocolParser] = None
         self.cloud_api_client: Optional[CloudApiClient] = None
         self.local_database_manager: Optional[LocalDatabaseManager] = None
+        self.voice_manager: Optional[VoiceManager] = None
         
         # 应用逻辑层管理器
         self.device_logic_manager: Optional[DeviceLogicManager] = None
@@ -102,12 +104,17 @@ class BaseHandler(QObject):
         self.task_scheduler = coordinator.task_scheduler
         self.mcp_client_manager = coordinator.mcp_client_manager
         self.weather_manager = coordinator.weather_manager
-        self.voice_manager = coordinator.voice_manager
+        
+        # 设置语音管理器（新增）
+        if hasattr(coordinator, 'voice_manager'):
+            self.voice_manager = coordinator.voice_manager
+        else:
+            self.voice_manager = None
         
         # 设置线程池
         self.thread_pool = coordinator.thread_pool
         
-        # 设置协调器信号处理器（新增）
+        # 设置协调器信号处理器（可选依赖）
         if hasattr(coordinator, 'handlers') and 'coordinatorhandler' in coordinator.handlers:
             self.coordinator_handler = coordinator.handlers['coordinatorhandler']
             if self.logger:
@@ -115,8 +122,7 @@ class BaseHandler(QObject):
         else:
             self.coordinator_handler = None
             if self.logger:
-                self.logger.error("BaseHandler: 无法获取CoordinatorHandler")
-            raise ValueError("缺少必需的依赖项: coordinator_handler")
+                self.logger.warning("BaseHandler: 无法获取CoordinatorHandler，这是可选的依赖项")
         
     def set_dependency(self, name: str, dependency: Any):
         """

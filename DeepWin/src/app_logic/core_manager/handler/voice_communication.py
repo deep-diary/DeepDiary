@@ -1,322 +1,189 @@
 # src/app_logic/core_manager/handler/voice_communication_handler.py
 # 语音通信处理器，负责处理语音服务发出的信号连接和事件处理
 
-from PySide6.QtCore import Slot, Signal
+from PySide6.QtCore import Slot
 from src.app_logic.core_manager.base_handler import BaseHandler
+from .voice_handlers import (
+    HardwareVoiceHandler, GuiVoiceHandler, MemoryVoiceHandler,
+    SystemVoiceHandler, AIVoiceHandler
+)
 import json
 import logging
 
 class VoiceCommunicationHandler(BaseHandler):
     """
-    语音通信处理器
-    负责处理语音服务发出的信号连接和事件处理，包括：
+    语音通信处理器 - 重构后的轻量级路由器
+    负责：
     1. 接收语音命令信号
-    2. 解析commands并转发到协调器
+    2. 路由命令到专门的处理器
     3. 处理语音相关的状态更新
     4. 作为语音服务与其他模块的桥梁
     """
     
-    # 定义语音通信相关的信号
-    voice_command_received = Signal(dict)  # 语音命令接收信号 (command_data)
-    voice_status_updated = Signal(str, dict)  # 语音状态更新信号 (status_type, status_data)
-    voice_error_occurred = Signal(str, str)  # 语音错误信号 (error_type, error_message)
-    
     def __init__(self, parent=None):
         super().__init__(parent)
-        # 初始化时读取配置值，避免每次都从文件读取
-        self._default_pos_step = 0.1  # 默认值
+        self.voice_handlers = {}
         
     def _validate_dependencies(self):
-        """
-        验证必需的依赖项是否已设置
-        """
+        """验证必需的依赖项是否已设置"""
         # 检查基础依赖项
         if not self.logger:
             raise ValueError("缺少必需的依赖项: logger")
-        if not self.coordinator_handler:
-            raise ValueError("缺少必需的依赖项: coordinator_handler")
         if not self.device_logic_manager:
             raise ValueError("缺少必需的依赖项: device_logic_manager")
         if not self.config_manager:
             raise ValueError("缺少必需的依赖项: config_manager")
         
-        # 在依赖验证通过后，读取配置值
-        try:
-            self._default_pos_step = self.config_manager.get(
-                'device_settings.deepmotor_default_pos_step', 0.1
-            )
-            self.logger.info(f"VoiceCommunicationHandler: 已读取默认位置步长配置: {self._default_pos_step}")
-        except Exception as e:
-            self.logger.warning(f"读取默认位置步长配置失败，使用默认值0.1: {e}")
-            self._default_pos_step = 0.1
-            
+        # coordinator_handler是可选的，不强制要求
+        if not self.coordinator_handler:
+            self.logger.warning("VoiceCommunicationHandler: coordinator_handler未设置，某些功能可能受限")
+        
+        # voice_manager是可选的，不强制要求
+        if not self.voice_manager:
+            self.logger.warning("VoiceCommunicationHandler: voice_manager未设置，语音功能将不可用")
+        
     def _connect_signals(self):
-        """
-        连接语音通信层相关的信号
-        """
+        """连接语音通信层相关的信号"""
         self.logger.debug("VoiceCommunicationHandler: 连接语音通信层信号...")
         
-        # 连接语音命令接收信号到协调器
-        self.voice_command_received.connect(self._on_voice_command_received)
-        
-        # 连接语音状态更新信号到协调器
-        self.voice_status_updated.connect(self._on_voice_status_updated)
-        
-        # 连接语音错误信号到协调器
-        self.voice_error_occurred.connect(self._on_voice_error_occurred)
-        
-        # 连接VoiceManager的语音命令信号
-        if hasattr(self, 'voice_manager') and self.voice_manager:
+        # 连接VoiceManager的语音命令信号（如果可用）
+        if self.voice_manager:
             self.voice_manager.voice_command_received.connect(self._on_voice_command_received)
-            self.logger.info("VoiceCommunicationHandler: 已连接VoiceManager信号")
+            self.logger.info("VoiceCommunicationHandler: 已连接VoiceManager的voice_command_received信号")
+        else:
+            self.logger.warning("VoiceCommunicationHandler: VoiceManager不可用，跳过信号连接")
         
         self.logger.debug("VoiceCommunicationHandler: 语音通信层信号连接完成")
         
+    def _initialize_voice_handlers(self):
+        """初始化专门的语音指令处理器"""
+        self.logger.info("VoiceCommunicationHandler: 初始化语音指令处理器...")
+        
+        try:
+            # 创建并初始化各种专门的处理器
+            self.voice_handlers['hardware'] = HardwareVoiceHandler(parent=self)
+            self.voice_handlers['gui'] = GuiVoiceHandler(parent=self)
+            self.voice_handlers['memory'] = MemoryVoiceHandler(parent=self)
+            self.voice_handlers['system'] = SystemVoiceHandler(parent=self)
+            self.voice_handlers['ai'] = AIVoiceHandler(parent=self)
+            
+            # 设置依赖项并初始化
+            for handler_name, handler in self.voice_handlers.items():
+                try:
+                    # 如果有coordinator_handler，使用它；否则使用self
+                    if self.coordinator_handler:
+                        handler.set_coordinator_dependencies(self.coordinator_handler)
+                    else:
+                        # 如果没有coordinator_handler，直接设置基本依赖
+                        handler.logger = self.logger
+                        handler.config_manager = self.config_manager
+                        handler.device_logic_manager = self.device_logic_manager
+                        handler.voice_manager = self.voice_manager
+                    
+                    handler.initialize()
+                    self.logger.info(f"VoiceCommunicationHandler: 已初始化 {handler_name} 处理器")
+                except Exception as e:
+                    self.logger.error(f"VoiceCommunicationHandler: 初始化 {handler_name} 处理器失败: {e}")
+                    # 继续初始化其他处理器，不中断整个过程
+                    continue
+                
+            self.logger.info(f"VoiceCommunicationHandler: 成功初始化 {len(self.voice_handlers)} 个语音指令处理器")
+            
+        except Exception as e:
+            self.logger.error(f"VoiceCommunicationHandler: 初始化语音指令处理器失败: {e}")
+            raise
+            
+    def initialize(self):
+        """初始化处理器"""
+        super().initialize()
+        self._initialize_voice_handlers()
+        
     @Slot(dict)
     def _on_voice_command_received(self, command_data: dict):
-        """
-        处理语音命令接收事件
-        """
+        """处理语音命令接收事件"""
         self.logger.info(f"VoiceCommunicationHandler: 收到语音命令: {command_data}")
         
         try:
-            # 记录命令到协调器状态
-            self.coordinator_handler.app_status_message.emit(f"收到语音命令: {command_data.get('name', 'unknown')}")
+            # 记录命令到协调器状态（如果可用）
+            if self.coordinator_handler:
+                self.coordinator_handler.app_status_message.emit(f"收到语音命令: {command_data.get('name', 'unknown')}")
             
-            # 转发命令到设备逻辑管理器
-            self._forward_command_to_device(command_data)
+            # 路由命令到专门的处理器
+            self._route_command_to_handler(command_data)
             
         except Exception as e:
             error_msg = f"处理语音命令时发生错误: {str(e)}"
             self.logger.error(error_msg)
-            self.voice_error_occurred.emit("command_processing_error", error_msg)
+            # 直接记录错误，不需要发射信号
+            if self.coordinator_handler:
+                self.coordinator_handler.app_status_message.emit(f"语音错误: {error_msg}")
             
-    @Slot(str, dict)
-    def _on_voice_status_updated(self, status_type: str, status_data: dict):
+    def _route_command_to_handler(self, command_data: dict):
         """
-        处理语音状态更新事件
-        """
-        self.logger.info(f"VoiceCommunicationHandler: 语音状态更新 - 类型: {status_type}, 数据: {status_data}")
-        
-        # 转发状态更新到协调器
-        self.coordinator_handler.app_status_message.emit(f"语音状态更新: {status_type}")
-        
-    @Slot(str, str)
-    def _on_voice_error_occurred(self, error_type: str, error_message: str):
-        """
-        处理语音错误事件
-        """
-        self.logger.error(f"VoiceCommunicationHandler: 语音错误 - 类型: {error_type}, 消息: {error_message}")
-        
-        # 转发错误到协调器
-        self.coordinator_handler.app_status_message.emit(f"语音错误: {error_message}")
-        
-    def _forward_command_to_device(self, command_data: dict):
-        """
-        将语音命令转发到设备逻辑管理器
+        将语音命令路由到专门的处理器
         command: {'name': 'motor_set_pos', 'params': [{'name': 'pos', 'value': '1', 'normValue': '1'}]}
         """
         try:
             command_name = command_data.get('name', '')
             params = command_data.get('params', [])
             
-            self.logger.info(f"VoiceCommunicationHandler: 转发命令到设备 - 名称: {command_name}, 参数: {params}")
+            self.logger.info(f"VoiceCommunicationHandler: 路由命令 - 名称: {command_name}, 参数: {params}")
             
-            # 根据命令类型转发到相应的设备模块
-            if command_name.startswith('motor_'):
-                # 电机相关命令
-                self._handle_motor_command(command_name, params)
-            elif command_name.startswith('arm_'):
-                # 机械臂相关命令
-                self._handle_arm_command(command_name, params)
-            elif command_name.startswith('toy_'):
-                # 玩具相关命令
-                self._handle_toy_command(command_name, params)
+            # 根据命令前缀确定处理器类型
+            handler_type = self._get_handler_type_by_command(command_name)
+            
+            if handler_type and handler_type in self.voice_handlers:
+                # 路由到专门的处理器
+                handler = self.voice_handlers[handler_type]
+                if handler.can_handle_command(command_name):
+                    success = handler.handle_command(command_name, params)
+                    if success:
+                        self.logger.info(f"VoiceCommunicationHandler: 命令 {command_name} 已成功路由到 {handler_type} 处理器")
+                    else:
+                        self.logger.warning(f"VoiceCommunicationHandler: 命令 {command_name} 在 {handler_type} 处理器中处理失败")
+                else:
+                    self.logger.warning(f"VoiceCommunicationHandler: {handler_type} 处理器不支持命令 {command_name}")
             else:
-                # 通用命令
-                self._handle_generic_command(command_name, params)
+                # 未知命令类型
+                self.logger.warning(f"VoiceCommunicationHandler: 未知命令类型: {command_name}")
+                if self.coordinator_handler:
+                    self.coordinator_handler.app_status_message.emit(f"未知语音命令: {command_name}")
                 
         except Exception as e:
-            error_msg = f"转发命令到设备时发生错误: {str(e)}"
+            error_msg = f"路由命令时发生错误: {str(e)}"
             self.logger.error(error_msg)
-            self.voice_error_occurred.emit("device_forward_error", error_msg)
+            if self.coordinator_handler:
+                self.coordinator_handler.app_status_message.emit(f"语音命令路由错误: {error_msg}")
             
-    def _handle_motor_command(self, command_name: str, params: list):
-        """
-        处理电机相关命令
-        {'name': 'motor_set_pos', 'params': [{'name': 'pos', 'normValue': '1', 'value': '1'}]}
-        """
-        self.logger.info(f"VoiceCommunicationHandler: 处理电机命令: {command_name}")
+    def _get_handler_type_by_command(self, command_name: str) -> str:
+        """根据命令名称确定处理器类型"""
+        if command_name.startswith(('motor_', 'arm_', 'toy_')):
+            return 'hardware'
+        elif command_name.startswith('gui_'):
+            return 'gui'
+        elif command_name.startswith('memory_'):
+            return 'memory'
+        elif command_name.startswith('system_'):
+            return 'system'
+        elif command_name.startswith('ai_'):
+            return 'ai'
+        else:
+            return None
+            
+            
+    def get_handler_info(self) -> dict:
+        """获取所有处理器的信息"""
+        handler_info = {}
+        for handler_type, handler in self.voice_handlers.items():
+            handler_info[handler_type] = handler.get_handler_info()
+        return handler_info
         
-        try:
-            # 从配置文件读取默认位置步长
-            # config_manager = self.device_logic_manager.config_manager
-            # default_pos_step = config_manager.get_config_value(
-            #     'device_settings.deepmotor_default_pos_step', 0.1
-            # )
-            
-            # 提取参数值
-            motor_id = 1  # 默认电机ID
-            position = 0.0
-            speed = 0.0
-            
-            for param in params:
-                if param.get('name') == 'pos':
-                    position = float(param.get('value', 0.0))
-                elif param.get('name') == 'speed':
-                    speed = float(param.get('value', 0.0))
-                elif param.get('name') == 'motor_id':
-                    motor_id = int(param.get('value', 1))
-            
-            # 处理不同类型的电机命令
-            if command_name == 'motor_set_pos':
-                # 直接位置控制命令
-                self._send_motor_position_command(motor_id, position, command_name)
-            elif command_name == 'motor_increase_pos':
-                # 位置增大命令
-                target_pos = self._get_current_position(motor_id) + position
-                self._send_motor_position_command(motor_id, target_pos, 'motor_set_pos')
-            elif command_name == 'motor_decrease_pos':
-                # 位置减小命令
-                target_pos = self._get_current_position(motor_id) - position
-                self._send_motor_position_command(motor_id, target_pos, 'motor_set_pos')
-            elif command_name == 'motor_increase_pos_default':
-                # 位置增大默认值命令
-                target_pos = self._get_current_position(motor_id) + self._default_pos_step
-                self._send_motor_position_command(motor_id, target_pos, 'motor_set_pos')
-            elif command_name == 'motor_decrease_pos_default':
-                # 位置减小默认值命令
-                target_pos = self._get_current_position(motor_id) - self._default_pos_step
-                self._send_motor_position_command(motor_id, target_pos, 'motor_set_pos')
-            elif command_name == 'motor_set_speed':
-                # 速度控制命令
-                args = [motor_id, speed]
-                self.logger.info(f"VoiceCommunicationHandler: 处理速度命令 {command_name}, 参数: {args}")
-                self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
-            else:
-                # 其他命令
-                args = [motor_id]
-                self.logger.info(f"VoiceCommunicationHandler: 处理其他命令 {command_name}, 参数: {args}")
-                self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
+    def cleanup(self):
+        """清理资源"""
+        for handler_name, handler in self.voice_handlers.items():
+            try:
+                handler.cleanup()
+                self.logger.info(f"VoiceCommunicationHandler: 已清理 {handler_name} 处理器")
+            except Exception as e:
+                self.logger.error(f"VoiceCommunicationHandler: 清理 {handler_name} 处理器失败: {e}")
                 
-        except Exception as e:
-            self.logger.error(f"VoiceCommunicationHandler: 处理电机命令失败: {e}")
-    
-    def _get_current_position(self, motor_id: int) -> float:
-        """获取电机当前位置"""
-        try:
-            motor_device = self.device_logic_manager.get_device_by_id('DeepMotor')
-            return motor_device.get_parameter_statistics('position')['latest']
-        except Exception as e:
-            self.logger.warning(f"获取电机 {motor_id} 当前位置失败，使用默认值0: {e}")
-            return 0.0
-    
-    def _send_motor_position_command(self, motor_id: int, position: float, command_name: str):
-        """发送电机位置控制命令的公共方法"""
-        args = [motor_id, position]
-        self.logger.info(f"VoiceCommunicationHandler: 处理位置命令 {command_name}, 参数: {args}")
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
-        
-    def _handle_arm_command(self, command_name: str, params: list):
-        """
-        处理机械臂相关命令
-        """
-        self.logger.info(f"VoiceCommunicationHandler: 处理机械臂命令: {command_name}")
-        
-        # 这里可以添加具体的机械臂命令处理逻辑
-        
-        # 发送设备状态更新信号
-        self.coordinator_handler.device_status_updated.emit("arm", {
-            "command": command_name,
-            "params": params,
-            "status": "executing"
-        })
-        
-    def _handle_toy_command(self, command_name: str, params: list):
-        """
-        处理玩具相关命令
-        """
-        self.logger.info(f"VoiceCommunicationHandler: 处理玩具命令: {command_name}")
-        
-        # 这里可以添加具体的玩具命令处理逻辑
-        
-        # 发送设备状态更新信号
-        self.coordinator_handler.device_status_updated.emit("toy", {
-            "command": command_name,
-            "params": params,
-            "status": "executing"
-        })
-        
-    def _handle_generic_command(self, command_name: str, params: list):
-        """
-        处理通用命令
-        """
-        self.logger.info(f"VoiceCommunicationHandler: 处理通用命令: {command_name}")
-        
-        # 这里可以添加通用命令的处理逻辑
-        
-        # 发送设备状态更新信号
-        self.coordinator_handler.device_status_updated.emit("generic", {
-            "command": command_name,
-            "params": params,
-            "status": "executing"
-        })
-        
-    def process_voice_response(self, payload: dict):
-        """
-        处理语音响应内容，提取commands并发送信号
-        这个方法可以从外部调用，例如从ChatCallback中调用
-        """
-        try:
-            if not payload or "output" not in payload:
-                self.logger.warning("VoiceCommunicationHandler: 无效的语音响应payload")
-                return
-                
-            output = payload["output"]
-            extra_info = output.get("extra_info", {})
-            commands_str = extra_info.get("commands", "[]")
-            
-            self.logger.info(f"VoiceCommunicationHandler: 处理语音响应，commands: {commands_str}")
-            
-            # 解析commands
-            commands_list = json.loads(commands_str)
-            
-            for command in commands_list:
-                self.logger.info(f"VoiceCommunicationHandler: 处理命令: {command}")
-                
-                # 发送语音命令接收信号
-                self.voice_command_received.emit(command)
-                
-        except json.JSONDecodeError as e:
-            error_msg = f"解析commands JSON时发生错误: {str(e)}"
-            self.logger.error(error_msg)
-            self.voice_error_occurred.emit("json_parse_error", error_msg)
-        except Exception as e:
-            error_msg = f"处理语音响应时发生错误: {str(e)}"
-            self.logger.error(error_msg)
-            self.voice_error_occurred.emit("response_processing_error", error_msg)
-            
-    def emit_voice_command_received(self, command_data: dict):
-        """
-        发射语音命令接收信号
-        """
-        self.voice_command_received.emit(command_data)
-        
-    def emit_voice_status_updated(self, status_type: str, status_data: dict):
-        """
-        发射语音状态更新信号
-        """
-        self.voice_status_updated.emit(status_type, status_data)
-        
-    def emit_voice_error_occurred(self, error_type: str, error_message: str):
-        """
-        发射语音错误信号
-        """
-        self.voice_error_occurred.emit(error_type, error_message)
-    
-    def set_voice_manager(self, voice_manager):
-        """设置VoiceManager引用并连接信号"""
-        self.voice_manager = voice_manager
-        if voice_manager:
-            voice_manager.voice_command_received.connect(self._on_voice_command_received)
-            self.logger.info("VoiceCommunicationHandler: 已设置VoiceManager并连接信号")

@@ -8,7 +8,7 @@
 - 守护进程管理
 """
 
-from .audio_manager import VoiceManager
+from .voice_manager import VoiceManager
 from .TMultiModalConversation import TMultiModalConversation
 from .ChatCallback import ChatCallback
 

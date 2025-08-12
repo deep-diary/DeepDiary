@@ -33,7 +33,7 @@ from src.services.hardware_communication.serial_communicator import SerialCommun
 from src.services.hardware_communication.can_bus_communicator import CanBusCommunicator
 from src.services.hardware_communication.device_protocol_parser import DeviceProtocolParser
 from src.services.cloud_communication.api_client import CloudApiClient
-from src.services.voice_communication.audio_manager import VoiceManager
+from src.services.voice_communication.voice_manager import VoiceManager
 from src.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
 from src.app_logic.weather_manager import WeatherManager
 
