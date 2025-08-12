@@ -23,7 +23,8 @@ class VoiceCommunicationHandler(BaseHandler):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.logger = logging.getLogger(__name__)
+        # 初始化时读取配置值，避免每次都从文件读取
+        self._default_pos_step = 0.1  # 默认值
         
     def _validate_dependencies(self):
         """
@@ -36,6 +37,18 @@ class VoiceCommunicationHandler(BaseHandler):
             raise ValueError("缺少必需的依赖项: coordinator_handler")
         if not self.device_logic_manager:
             raise ValueError("缺少必需的依赖项: device_logic_manager")
+        if not self.config_manager:
+            raise ValueError("缺少必需的依赖项: config_manager")
+        
+        # 在依赖验证通过后，读取配置值
+        try:
+            self._default_pos_step = self.config_manager.get(
+                'device_settings.deepmotor_default_pos_step', 0.1
+            )
+            self.logger.info(f"VoiceCommunicationHandler: 已读取默认位置步长配置: {self._default_pos_step}")
+        except Exception as e:
+            self.logger.warning(f"读取默认位置步长配置失败，使用默认值0.1: {e}")
+            self._default_pos_step = 0.1
             
     def _connect_signals(self):
         """
@@ -136,6 +149,12 @@ class VoiceCommunicationHandler(BaseHandler):
         self.logger.info(f"VoiceCommunicationHandler: 处理电机命令: {command_name}")
         
         try:
+            # 从配置文件读取默认位置步长
+            # config_manager = self.device_logic_manager.config_manager
+            # default_pos_step = config_manager.get_config_value(
+            #     'device_settings.deepmotor_default_pos_step', 0.1
+            # )
+            
             # 提取参数值
             motor_id = 1  # 默认电机ID
             position = 0.0
@@ -149,31 +168,54 @@ class VoiceCommunicationHandler(BaseHandler):
                 elif param.get('name') == 'motor_id':
                     motor_id = int(param.get('value', 1))
             
-            # 构建参数列表 - 现在直接传递原始命令名，让 deep_motor_parser 处理映射
+            # 处理不同类型的电机命令
             if command_name == 'motor_set_pos':
-                # 位置控制命令
-                args = [motor_id, position]
-                self.logger.info(f"VoiceCommunicationHandler: 处理位置命令 {command_name}, 参数: {args}")
-                self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
-                
+                # 直接位置控制命令
+                self._send_motor_position_command(motor_id, position, command_name)
+            elif command_name == 'motor_increase_pos':
+                # 位置增大命令
+                target_pos = self._get_current_position(motor_id) + position
+                self._send_motor_position_command(motor_id, target_pos, 'motor_set_pos')
+            elif command_name == 'motor_decrease_pos':
+                # 位置减小命令
+                target_pos = self._get_current_position(motor_id) - position
+                self._send_motor_position_command(motor_id, target_pos, 'motor_set_pos')
+            elif command_name == 'motor_increase_pos_default':
+                # 位置增大默认值命令
+                target_pos = self._get_current_position(motor_id) + self._default_pos_step
+                self._send_motor_position_command(motor_id, target_pos, 'motor_set_pos')
+            elif command_name == 'motor_decrease_pos_default':
+                # 位置减小默认值命令
+                target_pos = self._get_current_position(motor_id) - self._default_pos_step
+                self._send_motor_position_command(motor_id, target_pos, 'motor_set_pos')
             elif command_name == 'motor_set_speed':
                 # 速度控制命令
                 args = [motor_id, speed]
                 self.logger.info(f"VoiceCommunicationHandler: 处理速度命令 {command_name}, 参数: {args}")
                 self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
-                
             else:
                 # 其他命令
                 args = [motor_id]
                 self.logger.info(f"VoiceCommunicationHandler: 处理其他命令 {command_name}, 参数: {args}")
                 self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
-            
-            self.logger.info(f"VoiceCommunicationHandler: 已请求执行 {command_name}{tuple(args)}")
-            
+                
         except Exception as e:
-            error_msg = f"处理电机命令 {command_name} 时发生错误: {str(e)}"
-            self.logger.error(error_msg)
-            self.voice_error_occurred.emit("motor_command_error", error_msg)
+            self.logger.error(f"VoiceCommunicationHandler: 处理电机命令失败: {e}")
+    
+    def _get_current_position(self, motor_id: int) -> float:
+        """获取电机当前位置"""
+        try:
+            motor_device = self.device_logic_manager.get_device_by_id('DeepMotor')
+            return motor_device.get_parameter_statistics('position')['latest']
+        except Exception as e:
+            self.logger.warning(f"获取电机 {motor_id} 当前位置失败，使用默认值0: {e}")
+            return 0.0
+    
+    def _send_motor_position_command(self, motor_id: int, position: float, command_name: str):
+        """发送电机位置控制命令的公共方法"""
+        args = [motor_id, position]
+        self.logger.info(f"VoiceCommunicationHandler: 处理位置命令 {command_name}, 参数: {args}")
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, args)
         
     def _handle_arm_command(self, command_name: str, params: list):
         """

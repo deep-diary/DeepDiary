@@ -136,17 +136,6 @@ class DeepMotorCommandConfigs:
                 "category": "position_control"
             },
             {
-                "param_count": 2,
-                "param_names": ["motor_id", "position"],
-                "param_types": [int, (int, float)],
-                "default_values": [1, 0.0],
-                "description": "设置电机位置",
-                "example": "motor_set_pos(1, 1.5)",
-                "validation": lambda args: isinstance(args[0], int) and isinstance(args[1], (int, float)),
-                "error_message": "设置电机位置命令需要电机ID(整数)和位置(数字)参数。",
-                "category": "position_control"
-            },
-            {
                 "name": "set_motor_pos_speed",
                 "param_count": 3,
                 "param_names": ["motor_id", "position", "speed"],
@@ -158,6 +147,66 @@ class DeepMotorCommandConfigs:
                                           isinstance(args[1], (int, float)) and 
                                           isinstance(args[2], (int, float))),
                 "error_message": "设置电机位置和速度命令需要电机ID(整数)、位置(数字)和速度(数字)参数。",
+                "category": "position_control"
+            },
+            {
+                "name": "motor_set_pos",
+                "param_count": 2,
+                "param_names": ["motor_id", "position"],
+                "param_types": [int, (int, float)],
+                "default_values": [1, 0.0],
+                "description": "设置电机位置",
+                "example": "motor_set_pos(1, 1.5)",
+                "validation": lambda args: isinstance(args[0], int) and isinstance(args[1], (int, float)),
+                "error_message": "设置电机位置命令需要电机ID(整数)和位置(数字)参数。",
+                "category": "position_control"
+            },
+            {
+                "name": "motor_decrease_pos_default",
+                "param_count": 1,
+                "param_names": ["motor_id"],
+                "param_types": [int],
+                "default_values": [1],
+                "description": "电机位置减小默认值",
+                "example": "motor_decrease_pos_default(1)",
+                "validation": lambda args: isinstance(args[0], int),
+                "error_message": "电机位置减小默认值命令需要电机ID(整数)参数。",
+                "category": "position_control"
+            },
+            {
+                "name": "motor_increase_pos_default",
+                "param_count": 1,
+                "param_names": ["motor_id"],
+                "param_types": [int],
+                "default_values": [1],
+                "description": "电机位置增大默认值",
+                "example": "motor_increase_pos_default(1)",
+                "validation": lambda args: isinstance(args[0], int),
+                "error_message": "电机位置增大默认值命令需要电机ID(整数)参数。",
+                "category": "position_control"
+            },
+            {
+                "name": "motor_increase_pos",
+                "param_count": 2,
+                "param_names": ["motor_id", "pos"],
+                "param_types": [int, (int, float)],
+                "default_values": [1, 0.0],
+                "description": "电机位置增大",
+                "example": "motor_increase_pos(1, 1.5)",
+                "validation": lambda args: isinstance(args[0], int) and isinstance(args[1], (int, float)),
+                "error_message": "电机位置增大命令需要电机ID(整数)和位置(数字)参数。",
+                "category": "position_control"
+            },
+            {
+                "name": "motor_decrease_pos",
+                "param_count": 2,
+                "param_names": ["motor_id", "pos"],
+                "param_types": [int, (int, float)],
+                "default_values": [1, 0.0],
+                "description": "电机位置减小",
+                "example": "motor_decrease_pos(1, 1.5)",
+                "validation": lambda args: isinstance(args[0], int) and isinstance(args[1], (int, float)),
+                "error_message": "电机位置减小命令需要电机ID(整数)和位置(数字)参数。",
                 "category": "position_control"
             }
         ]

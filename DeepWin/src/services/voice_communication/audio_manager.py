@@ -290,7 +290,7 @@ class VoiceManager(QObject):
             
             # 开始对话
             self.conversation.start_conversation()
-            self.conversation.conversation.request_to_respond('prompt','将电机位置调到1.5')
+            self.conversation.conversation.request_to_respond('prompt','将电机位置调大些')
             self.logger.info("VoiceManager: 文本对话启动成功")
             return True
         except Exception as e:

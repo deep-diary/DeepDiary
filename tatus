@@ -1,0 +1,6 @@
+warning: in the working copy of 'DeepWin/src/services/voice_communication/audio_manager.py', LF will be replaced by CRLF the next time Git touches it
+DeepWin/config.json
+DeepWin/src/app_logic/core_manager/coordinator.py
+DeepWin/src/app_logic/core_manager/handler/voice_communication.py
+DeepWin/src/app_logic/device_logic_manager/devices/deep_motor/command_configs.py
+DeepWin/src/services/voice_communication/audio_manager.py

@@ -15,7 +15,8 @@
     "deepmotor_can_bustype": "virtual",
     "deepmotor_dbc_name": "deep_motor",
     "deepmotor_teaching_interval": 0.1,
-    "deepmotor_trajectory_interp_freq": 50
+    "deepmotor_trajectory_interp_freq": 50,
+    "deepmotor_default_pos_step": 0.1
   },
   "network": {
     "server_address": "localhost:8000",
