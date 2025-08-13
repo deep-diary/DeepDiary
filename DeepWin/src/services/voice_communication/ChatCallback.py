@@ -28,12 +28,12 @@ from dashscope.multimodal.multimodal_request_params import (
 )
 
 # 导入音频工具类
-from .AudioRecorder import AudioRecorder
-from .ListeningStateMonitor import ListeningStateMonitor
+from AudioRecorder import AudioRecorder
+from ListeningStateMonitor import ListeningStateMonitor
 
 # 导入B64PCMPlayer用于音频播放
 import pyaudio
-from .B64PCMPlayer import B64PCMPlayer
+from B64PCMPlayer import B64PCMPlayer
 
 from PySide6.QtCore import QObject, Signal
 
@@ -48,6 +48,7 @@ class ChatCallback(MultiModalCallback, QObject):
     # 定义语音命令信号
     voice_command_received = Signal(dict)  # 语音命令接收信号 (command_data)
     voice_response_processed = Signal(dict)  # 语音响应处理完成信号 (payload)
+    state_changed = Signal(DialogState)  # 对话状态变化信号
     
     def __init__(self, listening_monitor: ListeningStateMonitor):
         """初始化回调处理器，创建音频播放器和录制器"""
@@ -124,6 +125,7 @@ class ChatCallback(MultiModalCallback, QObject):
         }
         if state in state_messages:
             logger.info(state_messages[state])
+            self.state_changed.emit(state)
         
         # 监控Listening状态
         if state == DialogState.LISTENING:

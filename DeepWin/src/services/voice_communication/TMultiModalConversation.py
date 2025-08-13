@@ -28,10 +28,10 @@ from dashscope.multimodal.multimodal_request_params import (
 )
 
 # 导入音频工具类
-from .AudioRecorder import AudioRecorder
-from .ListeningStateMonitor import ListeningStateMonitor
-from .B64PCMPlayer import B64PCMPlayer
-from .ChatCallback import ChatCallback
+from AudioRecorder import AudioRecorder
+from ListeningStateMonitor import ListeningStateMonitor
+from B64PCMPlayer import B64PCMPlayer
+from ChatCallback import ChatCallback
 
 # 导入B64PCMPlayer用于音频播放
 import pyaudio
@@ -62,7 +62,7 @@ class TMultiModalConversation:
         self.listening_monitor = ListeningStateMonitor()
         
         # Configure request parameters
-        up_stream = Upstream(type="AudioOnly", mode=conversation_mode, audio_format="pcm")
+        up_stream = Upstream(type="AudioOnly", mode=conversation_mode, audio_format="pcm") # AudioAndVideo, AudioOnly
         client_info = ClientInfo(user_id="demo_user", device=Device(uuid="demo_device_12345"))
         request_params = RequestParameters(
             upstream=up_stream,

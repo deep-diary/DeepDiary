@@ -1,117 +1,208 @@
-# 语音通信模块
+# VoiceManager 语音通信管理器
 
-本模块提供了基于阿里百炼平台的语音对话功能，支持语音识别、语音合成和智能对话。经过优化后，具有更好的错误处理能力和稳定性。
+## 概述
 
-## 模块结构
+VoiceManager 是一个功能完整的语音通信管理器，基于阿里百炼平台的多模态对话 API，支持文本对话、文本转录、VQA 功能和实时视频流功能。采用模块化设计，支持非阻塞运行，适合集成到上位机应用中。
+
+## 主要特性
+
+### 1. 文本对话功能
+
+- 支持随时发送文本，服务器返回语音文字结果
+- 支持连续对话，可发送多条文本消息
+- 非阻塞运行，不影响主线程
+
+### 2. 文本转录功能
+
+- 支持随时发送文本，服务器返回对应的语音
+- 适用于文本转语音(TTS)场景
+- 支持批量转录处理
+
+### 3. VQA 功能
+
+- 支持图片+文本的视觉问答
+- 可传递文本提示及图片路径
+- 支持等待语音指令作为问题
+- 参考官方示例 `run_vqa.py` 实现
+
+### 4. 实时视频流功能
+
+- 支持随时开启、关闭实时视频对话
+- 启用电脑摄像头，每隔 500ms 上传一帧图像
+- 参考官方示例 `run_live_ai.py` 实现
+- 摄像头管理独立封装，支持回调传递
+
+### 5. 非阻塞运行
+
+- 整个运行过程非阻塞
+- 适合作为上位机功能的一部分
+- 使用 Qt 信号槽机制进行异步通信
+
+### 6. 模块化架构
+
+- 代码结构清晰，功能分离明确
+- 各功能独立管理，便于维护和扩展
+- 支持单独拆分多个文件
+
+## 架构设计
 
 ```
-voice_communication/
-├── __init__.py                 # 模块初始化文件
-├── audio_manager.py            # 语音管理器主类
-├── TMultiModalConversation.py # 多模态对话管理类
-├── ChatCallback.py            # 对话回调处理器
-├── AudioRecorder.py           # 音频录制器
-├── B64PCMPlayer.py            # 音频播放器
-├── ListeningStateMonitor.py   # 监听状态监控器
-├── requirements.txt            # 依赖包列表
-├── demo.py                   # 测试脚本
-└── README.md                  # 本文件
+VoiceManager (主管理器)
+├── CameraManager (摄像头管理)
+├── VQAManager (VQA功能管理)
+├── TranscriptManager (转录功能管理)
+├── LiveStreamManager (实时视频流管理)
+└── TMultiModalConversation (对话实例)
 ```
 
-## 主要功能
+## 安装依赖
 
-### 1. VoiceManager (语音管理器)
+```bash
+pip install -r requirements.txt
+```
 
-- 管理语音对话的生命周期
-- 处理配置加载和日志记录
-- 提供 Qt 信号用于 UI 集成
-- 支持多轮对话管理
-- 智能错误处理和恢复机制
+### 主要依赖包
 
-### 2. TMultiModalConversation (多模态对话)
-
-- 管理与阿里百炼平台的 WebSocket 连接
-- 处理音频数据的发送和接收
-- 管理对话状态转换
-- 支持多种对话模式
-- 自动重连和错误恢复
-
-### 3. ChatCallback (对话回调)
-
-- 处理服务器事件回调
-- 管理音频播放和录制
-- 解析命令和意图
-- 监控对话状态变化
-- 优雅的错误处理，避免程序崩溃
-
-### 4. AudioRecorder (音频录制器)
-
-- 非阻塞音频录制
-- 自动音频流恢复机制
-- 多线程安全设计
-- 支持实时音频数据回调
-
-### 5. B64PCMPlayer (音频播放器)
-
-- 实时音频流播放
-- Base64 编码音频支持
-- 多线程解码和播放
-- 守护线程设计，支持程序正常退出
-
-### 6. ListeningStateMonitor (状态监控器)
-
-- 监控对话状态变化
-- 支持超时等待机制
-- 线程安全的状态管理
+- `PySide6`: Qt 界面框架
+- `opencv-python`: 摄像头和图像处理
+- `pyaudio`: 音频处理
+- `dashscope`: 阿里百炼平台 SDK
+- `python-dotenv`: 环境变量管理
 
 ## 使用方法
 
-### 基本使用
+### 1. 基本初始化
 
 ```python
-from src.data_management.log_manager import LogManager
-from src.data_management.config_manager import ConfigManager
-from src.services.voice_communication.audio_manager import VoiceManager
+from voice_manager import VoiceManager
+from data_management.log_manager import LogManager
+from data_management.config_manager import ConfigManager
 
-# 初始化管理器和语音管理器
+# 创建管理器实例
 log_manager = LogManager()
-config_manager = ConfigManager(log_manager)
+config_manager = ConfigManager()
 voice_manager = VoiceManager(log_manager, config_manager)
-
-# 开始语音对话
-success = voice_manager.start_voice_conversation()
-if success:
-    print("语音对话已启动")
-
-    # 获取对话状态
-    status = voice_manager.get_conversation_status()
-    print(f"对话状态: {status}")
-
-    # 停止语音对话
-    voice_manager.stop_voice_conversation()
 ```
 
-### 高级使用
+### 2. 文本对话
 
 ```python
-# 自定义对话参数
-voice_manager = VoiceManager(log_manager, config_manager)
+# 启动文本对话
+success = voice_manager.start_text_conversation("你好，请介绍一下你自己")
 
-# 设置对话模式
-config_manager.set('voice.conversation_mode', 'push2talk')
+# 发送后续消息
+voice_manager.send_text_message("你能帮我写一首诗吗？")
 
-# 开始对话并指定对话ID
-dialog_id = "custom_dialog_123"
-success = voice_manager.start_voice_conversation(dialog_id)
-
-# 监听对话状态变化
-voice_manager.voice_state_changed.connect(lambda state: print(f"状态变化: {state}"))
-voice_manager.conversation_error.connect(lambda error: print(f"错误: {error}"))
+# 停止对话
+voice_manager.stop_conversation()
 ```
 
-### 配置要求
+### 3. 文本转录
 
-在 `config.json` 中需要配置以下语音相关参数：
+```python
+# 启动文本转录
+success = voice_manager.start_transcript("这是一段需要转换为语音的文本")
+
+# 发送转录文本
+voice_manager.send_transcript_text("新的转录文本")
+
+# 停止转录
+voice_manager.stop_conversation()
+```
+
+### 4. VQA 功能
+
+```python
+# 使用图片启动VQA
+success = voice_manager.start_vqa_with_image(
+    image_path="path/to/image.jpg",
+    prompt="这张图片里有什么？"
+)
+
+# 使用base64图片启动VQA
+success = voice_manager.start_vqa_with_base64(
+    image_base64="base64_encoded_image_data",
+    prompt="描述这张图片"
+)
+
+# 发送VQA提示
+voice_manager.send_vqa_prompt("这是什么颜色？")
+
+# 停止VQA
+voice_manager.stop_conversation()
+```
+
+### 5. 实时视频流
+
+```python
+# 启动实时视频流
+success = voice_manager.start_live_stream(camera_index=0)
+
+# 停止实时视频流
+voice_manager.stop_live_stream()
+```
+
+### 6. 语音对话
+
+```python
+# 启动语音对话
+success = voice_manager.start_voice_conversation()
+
+# 停止语音对话
+voice_manager.stop_conversation()
+```
+
+## 信号和槽
+
+VoiceManager 提供了丰富的信号，用于状态监控和事件处理：
+
+### 主要信号
+
+- `conversation_started(dialog_type)`: 对话启动
+- `conversation_stopped()`: 对话停止
+- `conversation_error(error_message)`: 对话错误
+- `voice_command_received(command)`: 语音命令接收
+- `voice_state_changed(state_message)`: 语音状态变化
+
+### 功能状态信号
+
+- `text_conversation_started()`: 文本对话启动
+- `transcript_started()`: 转录启动
+- `vqa_started()`: VQA 启动
+- `live_stream_started()`: 实时视频流启动
+
+### 使用示例
+
+```python
+# 连接信号
+voice_manager.conversation_started.connect(self.on_conversation_started)
+voice_manager.conversation_error.connect(self.on_conversation_error)
+voice_manager.voice_command_received.connect(self.on_command_received)
+
+# 信号处理函数
+def on_conversation_started(self, dialog_type):
+    print(f"对话已启动: {dialog_type}")
+
+def on_conversation_error(self, error_msg):
+    print(f"对话错误: {error_msg}")
+
+def on_command_received(self, command):
+    print(f"收到命令: {command}")
+```
+
+## 配置管理
+
+VoiceManager 支持通过配置文件和环境变量进行配置：
+
+### 环境变量
+
+```bash
+export APP_ID="your_app_id"
+export WORKSPACE_ID="your_workspace_id"
+export DASHSCOPE_API_KEY="your_api_key"
+```
+
+### 配置文件
 
 ```json
 {
@@ -121,324 +212,104 @@ voice_manager.conversation_error.connect(lambda error: print(f"错误: {error}")
     "api_key": "your_api_key",
     "voice_name": "longxiaochun_v2",
     "sample_rate": 48000,
-    "audio_chunk_size": 3200,
-    "websocket_url": "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
-    "model_name": "multimodal-dialog",
     "conversation_mode": "duplex"
   }
 }
 ```
 
-### 环境变量
-
-也可以通过环境变量设置，支持多种路径查找：
-
-```bash
-# 在 DeepWin/.env 文件中设置
-APP_ID="your_app_id"
-WORKSPACE_ID="your_workspace_id"
-DASHSCOPE_API_KEY="your_api_key"
-
-# 或者在系统环境变量中设置
-export APP_ID="your_app_id"
-export WORKSPACE_ID="your_workspace_id"
-export DASHSCOPE_API_KEY="your_api_key"
-```
-
-## 对话模式
-
-支持以下对话模式：
-
-- **duplex**: 全双工模式，支持连续对话
-- **push2talk**: 按键通话模式
-- **tap2talk**: 点击通话模式
-
-## 音频格式
-
-- **输入**: PCM 格式，16kHz 采样率
-- **输出**: PCM 格式，48kHz 采样率
-- **块大小**: 3200 字节
-- **声道**: 单声道 (mono)
-
-## 错误处理与恢复
-
-### 自动恢复机制
-
-- **音频流异常**: 自动重新初始化音频设备
-- **网络连接**: 支持断线重连
-- **设备权限**: 优雅处理权限不足情况
-
-### 错误分类
-
-- **配置错误**: 缺少必要参数时提供详细错误信息
-- **设备错误**: 音频设备不可用时给出解决建议
-- **网络错误**: 连接失败时提供重试选项
-- **API 错误**: 认证失败时指导用户检查密钥
-
-## 性能优化
-
-### 线程管理
-
-- 所有音频处理线程设置为守护线程
-- 支持程序正常退出时的资源清理
-- 线程间通信使用队列，避免阻塞
-
-### 内存管理
-
-- 音频数据流式处理，避免大量内存占用
-- 及时释放不需要的音频资源
-- 支持音频数据缓冲池
-
-## 测试
-
-### 运行测试
-
-```bash
-cd DeepWin/src/services/voice_communication
-python demo.py  # 运行测试脚本
-```
-
-### 手动测试
+## 状态监控
 
 ```python
-# 测试音频设备
-from .AudioRecorder import AudioRecorder
-import pyaudio
+# 获取对话状态
+status = voice_manager.get_conversation_status()
+print(f"对话状态: {status}")
 
-pya = pyaudio.PyAudio()
-recorder = AudioRecorder(pya, sample_rate=16000)
-print("音频录制器初始化成功")
-
-# 测试音频播放
-from .B64PCMPlayer import B64PCMPlayer
-player = B64PCMPlayer(pya, sample_rate=48000)
-print("音频播放器初始化成功")
+# 状态信息包含
+# - is_active: 是否活跃
+# - current_conversation_type: 当前对话类型
+# - dialog_state: 对话状态
+# - 各功能管理器的详细状态
 ```
 
-## 依赖项
+## 错误处理
 
-### 核心依赖
-
-```txt
-# 阿里百炼平台SDK
-dashscope>=1.18.0
-
-# 音频处理
-pyaudio>=0.2.11
-
-# 环境变量管理
-python-dotenv>=1.0.0
-
-# Qt界面框架
-PySide6>=6.0.0
-```
-
-### 可选依赖
-
-```txt
-# 音频处理增强
-numpy>=1.21.0
-scipy>=1.7.0
-
-# 音频格式支持
-soundfile>=0.10.0
-```
-
-## 安装说明
-
-### 1. 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 配置环境
-
-```bash
-# 复制配置模板
-cp config_example.json config.json
-
-# 编辑配置文件
-# 填入你的阿里百炼API密钥
-```
-
-### 3. 验证安装
+VoiceManager 提供了完善的错误处理机制：
 
 ```python
-# 测试导入
-from src.services.voice_communication import VoiceManager
-print("模块导入成功")
+# 监听错误信号
+voice_manager.conversation_error.connect(self.handle_error)
+
+def handle_error(self, error_msg):
+    print(f"处理错误: {error_msg}")
+    # 进行错误恢复或用户提示
+```
+
+## 资源清理
+
+```python
+# 清理资源
+voice_manager.cleanup()
+
+# 或在应用退出时
+import atexit
+atexit.register(voice_manager.cleanup)
+```
+
+## 运行示例
+
+```bash
+# 运行完整示例
+python example_usage.py
+
+# 运行特定功能示例
+python -c "
+from example_usage import VoiceManagerExample
+example = VoiceManagerExample()
+example.run_text_conversation_example()
+"
 ```
 
 ## 注意事项
 
-### 系统要求
-
-1. **操作系统**: Windows 10+, macOS 10.14+, Ubuntu 18.04+
-2. **Python 版本**: Python 3.8+
-3. **音频设备**: 支持麦克风输入和扬声器输出
-4. **网络**: 稳定的互联网连接，支持 WebSocket
-
-### 权限要求
-
-1. **麦克风权限**: 需要访问麦克风进行语音录制
-2. **音频输出权限**: 需要访问扬声器进行语音播放
-3. **网络权限**: 需要访问互联网连接阿里百炼服务
-
-### 最佳实践
-
-1. **音频质量**: 使用高质量麦克风获得更好的识别效果
-2. **网络环境**: 在稳定的网络环境下使用，避免频繁断线
-3. **资源管理**: 及时停止不需要的对话，释放系统资源
-4. **错误监控**: 定期检查日志文件，及时发现和解决问题
+1. **环境配置**: 确保正确配置阿里百炼平台的认证信息
+2. **摄像头权限**: 实时视频流功能需要摄像头访问权限
+3. **网络连接**: 需要稳定的网络连接以访问阿里百炼服务
+4. **资源管理**: 及时清理资源，避免内存泄漏
+5. **错误处理**: 实现适当的错误处理机制
 
 ## 故障排除
 
 ### 常见问题
 
-#### 1. 导入错误
+1. **导入错误**: 检查依赖包是否正确安装
+2. **认证失败**: 验证 API 密钥和配置信息
+3. **摄像头无法访问**: 检查摄像头权限和驱动
+4. **网络连接失败**: 检查网络设置和防火墙
 
-**症状**: `ModuleNotFoundError` 或 `ImportError`
-
-**解决方案**:
-
-```bash
-# 检查Python路径
-python -c "import sys; print(sys.path)"
-
-# 确保在正确的目录下运行
-cd DeepWin
-python -m src.services.voice_communication.audio_manager
-```
-
-#### 2. 音频设备错误
-
-**症状**: `OSError: [Errno -9996] Invalid input device`
-
-**解决方案**:
-
-```python
-# 检查可用音频设备
-import pyaudio
-pya = pyaudio.PyAudio()
-for i in range(pya.get_device_count()):
-    info = pya.get_device_info_by_index(i)
-    print(f"设备 {i}: {info['name']}")
-```
-
-#### 3. 网络连接失败
-
-**症状**: `WebSocket connection failed`
-
-**解决方案**:
-
-- 检查网络连接
-- 验证防火墙设置
-- 确认 API 密钥有效
-- 检查服务状态
-
-#### 4. API 认证失败
-
-**症状**: `Authentication failed` 或 `Invalid API key`
-
-**解决方案**:
-
-```bash
-# 检查环境变量
-echo $DASHSCOPE_API_KEY
-
-# 检查配置文件
-cat config.json | grep api_key
-```
-
-### 调试技巧
-
-#### 1. 启用详细日志
+### 调试模式
 
 ```python
 import logging
 logging.basicConfig(level=logging.DEBUG)
-
-# 或者在配置中设置
-config_manager.set('general.log_level', 'DEBUG')
 ```
 
-#### 2. 检查音频流状态
+## 扩展开发
 
-```python
-# 检查录制器状态
-print(f"录制状态: {recorder.status}")
-print(f"音频流活跃: {recorder.recorder_stream.is_active()}")
+VoiceManager 采用模块化设计，便于扩展新功能：
 
-# 检查播放器状态
-print(f"播放状态: {player.status}")
-print(f"音频流活跃: {player.player_stream.is_active()}")
-```
-
-#### 3. 监控网络连接
-
-```python
-# 检查WebSocket连接状态
-if hasattr(voice_manager, 'conversation'):
-    state = voice_manager.conversation.get_dialog_state()
-    print(f"对话状态: {state}")
-```
-
-## 更新日志
-
-### v1.1.0 (最新)
-
-- ✅ 修复配置文件路径问题
-- ✅ 改进错误处理机制，避免程序崩溃
-- ✅ 优化线程管理，支持程序正常退出
-- ✅ 增强音频设备异常恢复能力
-- ✅ 改进环境变量文件路径查找
-
-### v1.0.0
-
-- 🎉 初始版本发布
-- 🎯 支持基本的语音对话功能
-- 🔧 集成阿里百炼平台
-- 📱 提供 Qt 界面集成支持
-
-## 贡献指南
-
-欢迎提交 Issue 和 Pull Request 来改进这个模块！
-
-### 开发环境设置
-
-```bash
-# 克隆项目
-git clone <repository-url>
-cd DeepDiary/DeepWin
-
-# 安装开发依赖
-pip install -r requirements.txt
-pip install -r src/services/voice_communication/requirements.txt
-
-# 运行测试
-python -m pytest tests/
-```
-
-### 代码规范
-
-- 遵循 PEP 8 代码风格
-- 添加适当的类型注解
-- 编写清晰的文档字符串
-- 确保代码覆盖率
+1. 创建新的功能管理器类
+2. 继承相应的基类
+3. 实现必要的接口方法
+4. 在 VoiceManager 中集成新功能
 
 ## 许可证
 
-MIT License - 详见 LICENSE 文件
+MIT License
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request 来改进 VoiceManager。
 
 ## 联系方式
 
-如有问题或建议，请通过以下方式联系：
-
-- 提交 GitHub Issue
-- 发送邮件至项目维护者
-- 在项目讨论区留言
-
----
-
-**注意**: 使用本模块需要有效的阿里百炼 API 密钥，请确保遵守相关服务条款和隐私政策。
+如有问题或建议，请通过项目仓库提交 Issue。
