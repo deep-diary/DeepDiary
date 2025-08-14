@@ -10,11 +10,10 @@ import cv2
 import threading
 import time
 import base64
-import logging
 from typing import Optional, Callable, Dict, Any
 from PySide6.QtCore import QObject, Signal, QThread
-
-logger = logging.getLogger(__name__)
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 class CameraManager(QObject):
     """摄像头管理器"""
@@ -24,15 +23,21 @@ class CameraManager(QObject):
     camera_error = Signal(str)    # 错误信息
     camera_status_changed = Signal(bool)  # 摄像头状态
     
-    def __init__(self, frame_interval: float = 0.5, parent=None):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, frame_interval: float = 0.5, parent=None):
         """
         初始化摄像头管理器
         
         Args:
+            log_manager: 日志管理器实例
+            config_manager: 配置管理器实例
             frame_interval: 帧捕获间隔（秒），默认500ms
             parent: QObject父对象
         """
         super().__init__(parent)
+        self.log_manager = log_manager
+        self.config_manager = config_manager
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
+        
         self.frame_interval = frame_interval
         self.camera = None
         self.is_running = False
@@ -45,7 +50,7 @@ class CameraManager(QObject):
         self.frame_height = 480
         self.frame_quality = 80  # JPEG质量
         
-        logger.info("CameraManager: 初始化完成")
+        self.logger.info("CameraManager: 初始化完成")
     
     def get_current_frame(self) -> Optional[str]:
         """
@@ -66,7 +71,7 @@ class CameraManager(QObject):
             callback: 回调函数，接收base64编码的图像数据
         """
         self.frame_callback = callback
-        logger.info("CameraManager: 帧回调函数已设置")
+        self.logger.info("CameraManager: 帧回调函数已设置")
     
     def start_camera(self, camera_index: int = 0) -> bool:
         """
@@ -80,7 +85,7 @@ class CameraManager(QObject):
         """
         try:
             if self.is_running:
-                logger.warning("摄像头已在运行中")
+                self.logger.warning("摄像头已在运行中")
                 return True
             
             self.camera_index = camera_index
@@ -104,12 +109,12 @@ class CameraManager(QObject):
             self.capture_thread.start()
             
             self.camera_status_changed.emit(True)
-            logger.info(f"摄像头 {camera_index} 启动成功")
+            self.logger.info(f"摄像头 {camera_index} 启动成功")
             return True
             
         except Exception as e:
             error_msg = f"启动摄像头失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.camera_error.emit(error_msg)
             return False
     
@@ -122,7 +127,7 @@ class CameraManager(QObject):
         """
         try:
             if not self.is_running:
-                logger.info("摄像头未在运行")
+                self.logger.info("摄像头未在运行")
                 return True
             
             self.is_running = False
@@ -137,18 +142,18 @@ class CameraManager(QObject):
                 self.camera = None
             
             self.camera_status_changed.emit(False)
-            logger.info("摄像头已停止")
+            self.logger.info("摄像头已停止")
             return True
             
         except Exception as e:
             error_msg = f"停止摄像头失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.camera_error.emit(error_msg)
             return False
     
     def _capture_loop(self):
         """帧捕获循环"""
-        logger.info("开始帧捕获循环")
+        self.logger.info("开始帧捕获循环")
         
         try:
             while self.is_running and self.camera and self.camera.isOpened():
@@ -172,15 +177,15 @@ class CameraManager(QObject):
                     # 等待指定间隔
                     time.sleep(self.frame_interval)
                 else:
-                    logger.warning("摄像头帧捕获失败")
+                    self.logger.warning("摄像头帧捕获失败")
                     time.sleep(0.1)
                     
         except Exception as e:
             error_msg = f"帧捕获循环错误: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.camera_error.emit(error_msg)
         finally:
-            logger.info("帧捕获循环结束")
+            self.logger.info("帧捕获循环结束")
     
     def _encode_frame(self, frame) -> str:
         """
@@ -205,7 +210,7 @@ class CameraManager(QObject):
             return frame_base64
             
         except Exception as e:
-            logger.error(f"帧编码失败: {e}")
+            self.logger.error(f"帧编码失败: {e}")
             return ""
     
     def set_frame_interval(self, interval: float):
@@ -216,7 +221,7 @@ class CameraManager(QObject):
             interval: 间隔时间（秒）
         """
         self.frame_interval = max(0.1, interval)  # 最小间隔100ms
-        logger.info(f"帧捕获间隔设置为 {self.frame_interval}s")
+        self.logger.info(f"帧捕获间隔设置为 {self.frame_interval}s")
     
     def set_frame_size(self, width: int, height: int):
         """
@@ -228,7 +233,7 @@ class CameraManager(QObject):
         """
         self.frame_width = max(320, width)
         self.frame_height = max(240, height)
-        logger.info(f"帧大小设置为 {self.frame_width}x{self.frame_height}")
+        self.logger.info(f"帧大小设置为 {self.frame_width}x{self.frame_height}")
     
     def set_frame_quality(self, quality: int):
         """
@@ -238,7 +243,7 @@ class CameraManager(QObject):
             quality: JPEG质量 (1-100)
         """
         self.frame_quality = max(1, min(100, quality))
-        logger.info(f"JPEG质量设置为 {self.frame_quality}")
+        self.logger.info(f"JPEG质量设置为 {self.frame_quality}")
     
     def get_camera_status(self) -> Dict[str, Any]:
         """
@@ -267,9 +272,9 @@ class CameraManager(QObject):
     
     def cleanup(self):
         """清理资源"""
-        logger.info("CameraManager: 开始清理...")
+        self.logger.info("CameraManager: 开始清理...")
         try:
             self.stop_camera()
         except Exception as e:
-            logger.warning(f"清理摄像头时出错: {e}")
-        logger.info("CameraManager: 清理完成")
+            self.logger.warning(f"清理摄像头时出错: {e}")
+        self.logger.info("CameraManager: 清理完成")

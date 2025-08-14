@@ -9,12 +9,10 @@
 
 import time
 import threading
-import logging
 from typing import Callable, Optional
-
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 import pyaudio
-
-logger = logging.getLogger('dashscope')
 
 # 配置常量
 AUDIO_CHUNK_SIZE = 3200
@@ -24,7 +22,10 @@ AUDIO_SLEEP_INTERVAL = 0.1
 class ListeningStateMonitor:
     """监控Listening状态的工具类"""
     
-    def __init__(self):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager):
+        self.log_manager = log_manager
+        self.config_manager = config_manager
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
         self.listening_event = threading.Event()
         self.listening_count = 0
         self.lock = threading.Lock()
@@ -33,13 +34,13 @@ class ListeningStateMonitor:
         """当进入Listening状态时调用"""
         with self.lock:
             self.listening_count += 1
-            logger.info(f"Listening state detected (count: {self.listening_count})")
+            self.logger.info(f"Listening state detected (count: {self.listening_count})")
             self.listening_event.set()
     
     def on_responding_ended(self):
         """当响应结束时调用，准备下一轮对话"""
         with self.lock:
-            logger.info("Response ended, preparing for next round")
+            self.logger.info("Response ended, preparing for next round")
             self.listening_event.set()
     
     def wait_for_next_listening(self, timeout: float = 30.0) -> bool:
@@ -55,15 +56,15 @@ class ListeningStateMonitor:
         # 清除当前事件状态
         self.listening_event.clear()
         
-        logger.info(f"Waiting for next Listening state (timeout: {timeout}s)...")
+        self.logger.info(f"Waiting for next Listening state (timeout: {timeout}s)...")
         
         # 等待事件被设置
         success = self.listening_event.wait(timeout)
         
         if success:
-            logger.info("Next Listening state detected!")
+            self.logger.info("Next Listening state detected!")
         else:
-            logger.warning(f"Timeout waiting for Listening state after {timeout}s")
+            self.logger.warning(f"Timeout waiting for Listening state after {timeout}s")
         
         return success
     

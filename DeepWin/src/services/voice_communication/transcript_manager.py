@@ -5,11 +5,10 @@
 负责处理文本转语音功能，支持随时发送文本并返回对应的语音
 """
 
-import logging
 from typing import Optional, Dict, Any, Callable
 from PySide6.QtCore import QObject, Signal
-
-logger = logging.getLogger(__name__)
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 class TranscriptManager(QObject):
     """文本转录管理器"""
@@ -19,20 +18,26 @@ class TranscriptManager(QObject):
     transcript_error = Signal(str)              # 错误信息
     transcript_status_changed = Signal(str)     # 状态变化
     
-    def __init__(self, conversation_instance=None, parent=None):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, conversation_instance=None, parent=None):
         """
         初始化转录管理器
         
         Args:
+            log_manager: 日志管理器实例
+            config_manager: 配置管理器实例
             conversation_instance: 对话实例
             parent: QObject父对象
         """
         super().__init__(parent)
+        self.log_manager = log_manager
+        self.config_manager = config_manager
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
+        
         self.conversation_instance = conversation_instance
         self.is_active = False
         self.current_text = ""
         
-        logger.info("TranscriptManager: 初始化完成")
+        self.logger.info("TranscriptManager: 初始化完成")
     
     def set_conversation_instance(self, conversation_instance):
         """
@@ -42,7 +47,7 @@ class TranscriptManager(QObject):
             conversation_instance: 对话实例
         """
         self.conversation_instance = conversation_instance
-        logger.info("TranscriptManager: 对话实例已设置")
+        self.logger.info("TranscriptManager: 对话实例已设置")
     
     def start_transcript(self, text: str) -> bool:
         """
@@ -65,12 +70,12 @@ class TranscriptManager(QObject):
             self.conversation_instance.conversation.request_to_respond("transcript", text)
             
             self.transcript_status_changed.emit("转录已启动")
-            logger.info(f"转录已启动，文本: {text}")
+            self.logger.info(f"转录已启动，文本: {text}")
             return True
             
         except Exception as e:
             error_msg = f"启动转录失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.transcript_error.emit(error_msg)
             return False
     
@@ -93,12 +98,12 @@ class TranscriptManager(QObject):
             # 发送转录请求
             self.conversation_instance.conversation.request_to_respond("transcript", text)
             
-            logger.info(f"转录文本已发送: {text}")
+            self.logger.info(f"转录文本已发送: {text}")
             return True
             
         except Exception as e:
             error_msg = f"发送转录文本失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.transcript_error.emit(error_msg)
             return False
     
@@ -111,19 +116,19 @@ class TranscriptManager(QObject):
         """
         try:
             if not self.is_active:
-                logger.info("转录未在运行")
+                self.logger.info("转录未在运行")
                 return True
             
             self.is_active = False
             self.current_text = ""
             
             self.transcript_status_changed.emit("转录已停止")
-            logger.info("转录已停止")
+            self.logger.info("转录已停止")
             return True
             
         except Exception as e:
             error_msg = f"停止转录失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.transcript_error.emit(error_msg)
             return False
     
@@ -144,9 +149,9 @@ class TranscriptManager(QObject):
     
     def cleanup(self):
         """清理资源"""
-        logger.info("TranscriptManager: 开始清理...")
+        self.logger.info("TranscriptManager: 开始清理...")
         try:
             self.stop_transcript()
         except Exception as e:
-            logger.warning(f"清理转录时出错: {e}")
-        logger.info("TranscriptManager: 清理完成")
+            self.logger.warning(f"清理转录时出错: {e}")
+        self.logger.info("TranscriptManager: 清理完成")

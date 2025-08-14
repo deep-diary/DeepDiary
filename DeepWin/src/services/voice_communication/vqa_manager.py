@@ -8,15 +8,14 @@ VQA功能管理器
 
 import os
 import base64
-import logging
 from typing import Optional, Dict, Any, Callable
 from PySide6.QtCore import QObject, Signal
 from dashscope.multimodal.multimodal_request_params import (
     Upstream, Downstream, ClientInfo, RequestParameters, 
     Device, RequestToRespondParameters,BizParams
 )
-
-logger = logging.getLogger(__name__)
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 class VQAManager(QObject):
     """VQA功能管理器"""
@@ -26,21 +25,27 @@ class VQAManager(QObject):
     vqa_error = Signal(str)              # 错误信息
     vqa_status_changed = Signal(str)     # 状态变化
     
-    def __init__(self, conversation_instance=None, parent=None):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, conversation_instance=None, parent=None):
         """
         初始化VQA管理器
         
         Args:
+            log_manager: 日志管理器实例
+            config_manager: 配置管理器实例
             conversation_instance: 对话实例
             parent: QObject父对象
         """
         super().__init__(parent)
+        self.log_manager = log_manager
+        self.config_manager = config_manager
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
+        
         self.conversation_instance = conversation_instance
         self.is_active = False
         self.current_image_path = ""
         self.current_prompt = ""
         
-        logger.info("VQAManager: 初始化完成")
+        self.logger.info("VQAManager: 初始化完成")
     
     def set_conversation_instance(self, conversation_instance):
         """
@@ -50,7 +55,7 @@ class VQAManager(QObject):
             conversation_instance: 对话实例
         """
         self.conversation_instance = conversation_instance
-        logger.info("VQAManager: 对话实例已设置")
+        self.logger.info("VQAManager: 对话实例已设置")
     
     def start_vqa_with_image(self, image_path: str, prompt: str = "") -> bool:
         """
@@ -66,7 +71,7 @@ class VQAManager(QObject):
         try:
             if not self.conversation_instance:
                 raise RuntimeError("对话实例未设置")
-            logger.info(f"VQA已启动，图片: {image_path}, 提示: {prompt}")
+            self.logger.info(f"VQA已启动，图片: {image_path}, 提示: {prompt}")
             
             if not os.path.exists(image_path):
                 raise FileNotFoundError(f"图片文件不存在: {image_path}")
@@ -90,20 +95,20 @@ class VQAManager(QObject):
                 self.conversation_instance.conversation.request_to_respond(
                     "prompt", prompt, parameters=images_params
                 )
-                logger.info(f"VQA已启动，图片: {image_path}, 提示: {prompt}")
+                self.logger.info(f"VQA已启动，图片: {image_path}, 提示: {prompt}")
             else:
                 # 无文本提示，等待语音指令
                 self.conversation_instance.conversation.request_to_respond(
                     "prompt", "", parameters=images_params
                 )
-                logger.info(f"VQA已启动，图片: {image_path}, 等待语音指令")
+                self.logger.info(f"VQA已启动，图片: {image_path}, 等待语音指令")
             
             self.vqa_status_changed.emit("VQA已启动")
             return True
             
         except Exception as e:
             error_msg = f"启动VQA失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.vqa_error.emit(error_msg)
             return False
     
@@ -135,20 +140,20 @@ class VQAManager(QObject):
                 self.conversation_instance.conversation.request_to_respond(
                     "prompt", prompt, parameters=images_params
                 )
-                logger.info(f"VQA已启动，base64图片, 提示: {prompt}")
+                self.logger.info(f"VQA已启动，base64图片, 提示: {prompt}")
             else:
                 # 无文本提示，等待语音指令
                 self.conversation_instance.conversation.request_to_respond(
                     "prompt", "", parameters=images_params
                 )
-                logger.info(f"VQA已启动，base64图片, 等待语音指令")
+                self.logger.info(f"VQA已启动，base64图片, 等待语音指令")
             
             self.vqa_status_changed.emit("VQA已启动")
             return True
             
         except Exception as e:
             error_msg = f"启动VQA失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.vqa_error.emit(error_msg)
             return False
     
@@ -174,18 +179,18 @@ class VQAManager(QObject):
             if prompt:
                 # 有文本提示，直接发送
                 self.conversation_instance.conversation.request_to_respond("prompt", prompt)
-                logger.info(f"实时视频流VQA已启动，提示: {prompt}")
+                self.logger.info(f"实时视频流VQA已启动，提示: {prompt}")
             else:
                 # 无文本提示，等待语音指令
                 self.conversation_instance.conversation.request_to_respond("prompt", "")
-                logger.info(f"实时视频流VQA已启动，等待语音指令")
+                self.logger.info(f"实时视频流VQA已启动，等待语音指令")
             
             self.vqa_status_changed.emit("实时视频流VQA已启动")
             return True
             
         except Exception as e:
             error_msg = f"启动实时视频流VQA失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.vqa_error.emit(error_msg)
             return False
     
@@ -212,12 +217,12 @@ class VQAManager(QObject):
             else:
                 # 无图片，直接发送文本请求
                 self.conversation_instance.conversation.request_to_respond("prompt", prompt)
-                logger.info(f"VQA提示已发送: {prompt}")
+                self.logger.info(f"VQA提示已发送: {prompt}")
                 return True
-                
+            
         except Exception as e:
             error_msg = f"发送VQA提示失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.vqa_error.emit(error_msg)
             return False
     
@@ -234,11 +239,11 @@ class VQAManager(QObject):
         try:
             with open(image_path, 'rb') as f:
                 image_data = base64.b64encode(f.read()).decode('utf-8')
-                logger.debug(f"图片编码成功: {image_path}")
+                self.logger.debug(f"图片编码成功: {image_path}")
                 return image_data
                 
         except Exception as e:
-            logger.error(f"图片编码失败 {image_path}: {e}")
+            self.logger.error(f"图片编码失败 {image_path}: {e}")
             return ""
     
     def stop_vqa(self) -> bool:
@@ -250,7 +255,7 @@ class VQAManager(QObject):
         """
         try:
             if not self.is_active:
-                logger.info("VQA未在运行")
+                self.logger.info("VQA未在运行")
                 return True
             
             self.is_active = False
@@ -258,12 +263,12 @@ class VQAManager(QObject):
             self.current_prompt = ""
             
             self.vqa_status_changed.emit("VQA已停止")
-            logger.info("VQA已停止")
+            self.logger.info("VQA已停止")
             return True
             
         except Exception as e:
             error_msg = f"停止VQA失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.vqa_error.emit(error_msg)
             return False
     
@@ -285,9 +290,9 @@ class VQAManager(QObject):
     
     def cleanup(self):
         """清理资源"""
-        logger.info("VQAManager: 开始清理...")
+        self.logger.info("VQAManager: 开始清理...")
         try:
             self.stop_vqa()
         except Exception as e:
-            logger.warning(f"清理VQA时出错: {e}")
-        logger.info("VQAManager: 清理完成")
+            self.logger.warning(f"清理VQA时出错: {e}")
+        self.logger.info("VQAManager: 清理完成")

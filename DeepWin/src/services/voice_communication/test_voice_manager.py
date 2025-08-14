@@ -30,11 +30,11 @@ logging.basicConfig(
 class VoiceManagerTester:
     """VoiceManager测试类"""
     
-    def __init__(self):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager):
         """初始化测试器"""
         self.logger = logging.getLogger(__name__)
-        self.log_manager = None
-        self.config_manager = None
+        self.log_manager = log_manager
+        self.config_manager = config_manager
         self.voice_manager = None
         
     def setup(self):
@@ -247,10 +247,10 @@ class VoiceManagerTester:
         self.logger.info("=== 测试综合功能 ===")
         try:
             # self.voice_manager.add_task_to_queue('vqa', data={'img': 'jpeg-bridge.jpg', 'prompt': '请描述下这张图片？'})
-            # self.voice_manager.add_task_to_queue('transcript', text='转录测试任务1')
-            # self.voice_manager.add_task_to_queue('transcript', text='转录测试任务2')
-            # self.voice_manager.add_task_to_queue('text', text='继续对话测试')
-            self.voice_manager.set_voice_enabled(True)
+            self.voice_manager.add_task_to_queue('transcript', text='转录测试任务1')
+            self.voice_manager.add_task_to_queue('transcript', text='转录测试任务2')
+            self.voice_manager.add_task_to_queue('text', text='继续对话测试')
+            # self.voice_manager.set_voice_enabled(True)
             # self.voice_manager.set_live_video_enabled(True)
             # self.voice_manager.add_task_to_queue('text', text='你好，这是一个测试')
             # self.voice_manager.add_task_to_queue('transcript', text='转录测试任务3')
@@ -372,9 +372,11 @@ def main():
     """主函数"""
     print("VoiceManager 测试脚本")
     print("=" * 50)
+    log_manager = LogManager()
+    config_manager = ConfigManager(log_manager=log_manager)
     
     # 创建测试器
-    tester = VoiceManagerTester()
+    tester = VoiceManagerTester(log_manager=log_manager, config_manager=config_manager)
     
     try:
         # 设置测试环境

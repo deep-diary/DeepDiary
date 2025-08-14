@@ -7,7 +7,6 @@
 参考官方示例run_live_ai.py实现
 """
 
-import logging
 import threading
 import time
 from typing import Optional, Dict, Any, Callable
@@ -15,10 +14,10 @@ from PySide6.QtCore import QObject, Signal
 
 # 导入摄像头管理器 - 使用绝对导入提高兼容性
 from camera_manager import CameraManager
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 # 导入必要的类
 from dashscope.multimodal.multimodal_request_params import RequestToRespondParameters
-
-logger = logging.getLogger(__name__)
 
 class LiveStreamManager(QObject):
     """实时视频流管理器"""
@@ -29,17 +28,28 @@ class LiveStreamManager(QObject):
     live_stream_error = Signal(str)     # 错误信息
     frame_sent = Signal(str)            # 帧已发送
     
-    def __init__(self, conversation_instance=None, parent=None):
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, conversation_instance=None, parent=None):
         """
         初始化实时视频流管理器
         
         Args:
+            log_manager: 日志管理器实例
+            config_manager: 配置管理器实例
             conversation_instance: 对话实例
             parent: QObject父对象
         """
         super().__init__(parent)
+        self.log_manager = log_manager
+        self.config_manager = config_manager
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
+        
         self.conversation_instance = conversation_instance
-        self.camera_manager = CameraManager(frame_interval=0.5, parent=self)
+        self.camera_manager = CameraManager(
+            log_manager=log_manager,
+            config_manager=config_manager,
+            frame_interval=0.5, 
+            parent=self
+        )
         self.is_active = False
         self.video_thread_running = False
         self.video_thread = None
@@ -48,7 +58,7 @@ class LiveStreamManager(QObject):
         self.camera_manager.frame_captured.connect(self._on_frame_captured)
         self.camera_manager.camera_error.connect(self._on_camera_error)
         
-        logger.info("LiveStreamManager: 初始化完成")
+        self.logger.info("LiveStreamManager: 初始化完成")
     
     def set_conversation_instance(self, conversation_instance):
         """
@@ -58,7 +68,7 @@ class LiveStreamManager(QObject):
             conversation_instance: 对话实例
         """
         self.conversation_instance = conversation_instance
-        logger.info("LiveStreamManager: 对话实例已设置")
+        self.logger.info("LiveStreamManager: 对话实例已设置")
     
     def start_live_stream(self, camera_index: int = 0) -> bool:
         """
@@ -72,7 +82,7 @@ class LiveStreamManager(QObject):
         """
         try:
             if self.is_active:
-                logger.warning("实时视频流已在运行中")
+                self.logger.warning("实时视频流已在运行中")
                 return True
             
             if not self.conversation_instance:
@@ -83,9 +93,9 @@ class LiveStreamManager(QObject):
                 raise RuntimeError("摄像头启动失败")
             
             # 发送切换到视频模式的指令
-            logger.info(f"发送切换到视频模式的指令")
+            self.logger.info(f"发送切换到视频模式的指令")
             self._send_connect_video_command()
-            logger.info(f"发送切换到视频模式的指令完成")
+            self.logger.info(f"发送切换到视频模式的指令完成")
             
             # 启动视频帧发送线程
             self.video_thread_running = True
@@ -98,12 +108,12 @@ class LiveStreamManager(QObject):
             self.is_active = True
             self.live_stream_started.emit()
             
-            logger.info("实时视频流已启动")
+            self.logger.info("实时视频流已启动")
             return True
             
         except Exception as e:
             error_msg = f"启动实时视频流失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.live_stream_error.emit(error_msg)
             return False
     
@@ -116,7 +126,7 @@ class LiveStreamManager(QObject):
         """
         try:
             if not self.is_active:
-                logger.info("实时视频流未在运行")
+                self.logger.info("实时视频流未在运行")
                 return True
             
             # 停止视频帧发送
@@ -132,12 +142,12 @@ class LiveStreamManager(QObject):
             self.is_active = False
             self.live_stream_stopped.emit()
             
-            logger.info("实时视频流已停止")
+            self.logger.info("实时视频流已停止")
             return True
             
         except Exception as e:
             error_msg = f"停止实时视频流失败: {e}"
-            logger.error(error_msg)
+            self.logger.error(error_msg)
             self.live_stream_error.emit(error_msg)
             return False
     
@@ -145,9 +155,9 @@ class LiveStreamManager(QObject):
         """发送切换到视频模式的指令"""
         try:
             if not self.conversation_instance:
-                logger.error(f"对话实例未设置")
+                self.logger.error(f"对话实例未设置")
                 return
-            logger.info(f"发送切换到视频模式的指令")
+            self.logger.info(f"发送切换到视频模式的指令")
             # 构造视频连接命令
             video_connect_command = [{"action": "connect", "type": "voicechat_video_channel"}]
             
@@ -160,14 +170,14 @@ class LiveStreamManager(QObject):
                 RequestToRespondParameters(biz_params=BizParams(videos=video_connect_command))
             )
             
-            logger.info("视频模式连接指令已发送")
+            self.logger.info("视频模式连接指令已发送")
             
         except Exception as e:
-            logger.error(f"发送视频连接指令失败: {e}")
+            self.logger.error(f"发送视频连接指令失败: {e}")
     
     def _video_frame_sending_loop(self):
         """视频帧发送循环"""
-        logger.info("开始视频帧发送循环")
+        self.logger.info("开始视频帧发送循环")
         
         try:
             while self.video_thread_running and self.is_active:
@@ -181,15 +191,15 @@ class LiveStreamManager(QObject):
                 if current_frame:
                     # 发送当前帧
                     self._send_video_frame(current_frame)
-                    logger.debug("视频帧已发送")
+                    self.logger.debug("视频帧已发送")
                 
                 # 等待下一帧
                 time.sleep(0.5)  # 500ms间隔
                 
         except Exception as e:
-            logger.error(f"视频帧发送循环错误: {e}")
+            self.logger.error(f"视频帧发送循环错误: {e}")
         finally:
-            logger.info("视频帧发送循环结束")
+            self.logger.info("视频帧发送循环结束")
     
     def _on_frame_captured(self, frame_data: str):
         """处理摄像头捕获的帧"""
@@ -204,7 +214,7 @@ class LiveStreamManager(QObject):
             self.frame_sent.emit(frame_data)
             
         except Exception as e:
-            logger.error(f"处理视频帧失败: {e}")
+            self.logger.error(f"处理视频帧失败: {e}")
     
     def _send_video_frame(self, frame_data: str):
         """发送单个视频帧"""
@@ -221,14 +231,14 @@ class LiveStreamManager(QObject):
             # 注意：这里使用update_info方法，与官方代码保持一致
             self.conversation_instance.conversation.update_info(parameters=images_params)
             
-            logger.debug("视频帧已发送")
+            self.logger.debug("视频帧已发送")
             
         except Exception as e:
-            logger.error(f"发送视频帧失败: {e}")
+            self.logger.error(f"发送视频帧失败: {e}")
     
     def _on_camera_error(self, error_msg: str):
         """处理摄像头错误"""
-        logger.error(f"摄像头错误: {error_msg}")
+        self.logger.error(f"摄像头错误: {error_msg}")
         self.live_stream_error.emit(f"摄像头错误: {error_msg}")
     
     def set_frame_interval(self, interval: float):
@@ -239,7 +249,7 @@ class LiveStreamManager(QObject):
             interval: 间隔时间（秒）
         """
         self.camera_manager.set_frame_interval(interval)
-        logger.info(f"帧捕获间隔设置为 {interval}s")
+        self.logger.info(f"帧捕获间隔设置为 {interval}s")
     
     def set_frame_size(self, width: int, height: int):
         """
@@ -250,7 +260,7 @@ class LiveStreamManager(QObject):
             height: 帧高度
         """
         self.camera_manager.set_frame_size(width, height)
-        logger.info(f"帧大小设置为 {width}x{height}")
+        self.logger.info(f"帧大小设置为 {width}x{height}")
     
     def get_live_stream_status(self) -> Dict[str, Any]:
         """
@@ -273,10 +283,10 @@ class LiveStreamManager(QObject):
     
     def cleanup(self):
         """清理资源"""
-        logger.info("LiveStreamManager: 开始清理...")
+        self.logger.info("LiveStreamManager: 开始清理...")
         try:
             self.stop_live_stream()
             self.camera_manager.cleanup()
         except Exception as e:
-            logger.warning(f"清理实时视频流时出错: {e}")
-        logger.info("LiveStreamManager: 清理完成")
+            self.logger.warning(f"清理实时视频流时出错: {e}")
+        self.logger.info("LiveStreamManager: 清理完成")

@@ -13,7 +13,6 @@ import sys
 import time
 import os
 import multiprocessing
-import logging
 import threading
 import signal
 import json
@@ -26,6 +25,8 @@ from dashscope.multimodal.multimodal_request_params import (
     Upstream, Downstream, ClientInfo, RequestParameters, 
     Device, RequestToRespondParameters
 )
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 # 导入音频工具类
 from AudioRecorder import AudioRecorder
@@ -50,10 +51,13 @@ class ChatCallback(MultiModalCallback, QObject):
     voice_response_processed = Signal(dict)  # 语音响应处理完成信号 (payload)
     state_changed = Signal(DialogState)  # 对话状态变化信号
     
-    def __init__(self, listening_monitor: ListeningStateMonitor):
+    def __init__(self, listening_monitor: ListeningStateMonitor, log_manager: LogManager, config_manager: ConfigManager):
         """初始化回调处理器，创建音频播放器和录制器"""
         QObject.__init__(self)
         MultiModalCallback.__init__(self)
+        self.log_manager = log_manager
+        self.config_manager = config_manager
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
         self.first_listening = True
         self.listening_monitor = listening_monitor
         self.conversation_instance = None
@@ -64,6 +68,8 @@ class ChatCallback(MultiModalCallback, QObject):
         # 创建B64PCMPlayer实例，使用与服务器相同的采样率
         self.audio_player = B64PCMPlayer(
             pya=self.pya,
+            log_manager=log_manager,
+            config_manager=config_manager,
             sample_rate=SAMPLE_RATE,  # 使用与服务器相同的采样率
             chunk_size_ms=100,  # 100毫秒的音频块
             save_file=False  # 不保存文件
@@ -76,7 +82,7 @@ class ChatCallback(MultiModalCallback, QObject):
         # 添加对话模式标识
         self.is_voice_mode = False  # 默认为文本模式
         
-        logger.info("音频播放器初始化完成")
+        self.logger.info("音频播放器初始化完成")
 
     def set_voice_mode(self, is_voice: bool):
         """设置对话模式

@@ -13,7 +13,6 @@ import sys
 import time
 import os
 import multiprocessing
-import logging
 import threading
 import signal
 import json
@@ -32,6 +31,8 @@ from AudioRecorder import AudioRecorder
 from ListeningStateMonitor import ListeningStateMonitor
 from B64PCMPlayer import B64PCMPlayer
 from ChatCallback import ChatCallback
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 # 导入B64PCMPlayer用于音频播放
 import pyaudio
@@ -53,13 +54,22 @@ SAMPLE_RATE = 48000
 class TMultiModalConversation:
     """Multi-modal conversation manager"""
     
-    def __init__(self, app_id: str, workspace_id: str, api_key: str, 
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager,
+                 app_id: str, workspace_id: str, api_key: str, 
                  dialog_id: str = "", conversation_mode: str = "duplex"):
+        
         """Initialize conversation with provided credentials"""
-        logger.debug("Initializing conversation")
+        self.log_manager = log_manager
+        self.config_manager = config_manager
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
+        
+        self.logger.debug("Initializing conversation")
         
         # 初始化Listening状态监控器
-        self.listening_monitor = ListeningStateMonitor()
+        self.listening_monitor = ListeningStateMonitor(
+            log_manager=log_manager,
+            config_manager=config_manager
+        )
         
         # Configure request parameters
         up_stream = Upstream(type="AudioOnly", mode=conversation_mode, audio_format="pcm") # AudioAndVideo, AudioOnly
@@ -71,7 +81,11 @@ class TMultiModalConversation:
         )
 
         # 创建带有音频播放功能的回调处理器
-        self.callback = ChatCallback(self.listening_monitor)
+        self.callback = ChatCallback(
+            self.listening_monitor,
+            log_manager=self.log_manager,
+            config_manager=self.config_manager
+        )
         
         # 设置回调处理器中的conversation实例引用
         self.callback.conversation_instance = self
@@ -79,6 +93,8 @@ class TMultiModalConversation:
         # 创建音频录制器，用于非阻塞录制
         self.audio_recorder = AudioRecorder(
             pya=self.callback.pya,
+            log_manager=self.log_manager,
+            config_manager=self.config_manager,
             sample_rate=16000,  # 麦克风采样率
             chunk_size=AUDIO_CHUNK_SIZE,
             callback=self._send_audio_data_callback

@@ -4,10 +4,8 @@ import pyaudio
 import threading
 import queue
 import base64
-import logging
-
-# 设置日志记录器
-logger = logging.getLogger(__name__)
+from src.data_management.log_manager import LogManager
+from src.data_management.config_manager import ConfigManager
 
 class B64PCMPlayer:
     """
@@ -15,18 +13,24 @@ class B64PCMPlayer:
     支持实时音频流播放，使用多线程处理音频解码和播放
     """
     
-    def __init__(self, pya: pyaudio.PyAudio, sample_rate=24000, chunk_size_ms=100, save_file=False):
+    def __init__(self, pya: pyaudio.PyAudio, log_manager: LogManager, config_manager: ConfigManager, 
+                 sample_rate=24000, chunk_size_ms=100, save_file=False):
         '''
         初始化音频播放器
         
         参数:
         pya: pyaudio.PyAudio - PyAudio实例
+        log_manager: 日志管理器实例
+        config_manager: 配置管理器实例
         sample_rate: int - 音频采样率，默认24000Hz
         chunk_size_ms: int - 音频块大小（毫秒），影响取消延迟
         save_file: bool - 是否保存音频文件，默认False
         '''
 
         self.pya = pya
+        self.log_manager = log_manager
+        self.config_manager = config_manager
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
         self.sample_rate = sample_rate
         # 计算每个音频块的字节数：采样率 * 2字节(16位) * 时间(毫秒) / 1000
         self.chunk_size_bytes = chunk_size_ms * sample_rate *2 // 1000
@@ -176,19 +180,19 @@ class B64PCMPlayer:
             self.b64_audio_buffer.queue.clear()
             self.raw_audio_buffer.queue.clear()
         except Exception as e:
-            logger.warning(f"清空队列时出错: {e}")
+            self.logger.warning(f"清空队列时出错: {e}")
         
         # 等待线程结束，但设置超时避免无限等待
         if self.decoder_thread.is_alive():
             self.decoder_thread.join(timeout=1.0)
             if self.decoder_thread.is_alive():
-                logger.warning("decoder_thread 未能在超时时间内结束，强制标记为停止")
+                self.logger.warning("decoder_thread 未能在超时时间内结束，强制标记为停止")
                 self.status = 'force_stop'
                 
         if self.player_thread.is_alive():
             self.player_thread.join(timeout=1.0)
             if self.player_thread.is_alive():
-                logger.warning("player_thread 未能在超时时间内结束，强制标记为停止")
+                self.logger.warning("player_thread 未能在超时时间内结束，强制标记为停止")
                 self.status = 'force_stop'
         
         # 关闭音频流
@@ -196,11 +200,11 @@ class B64PCMPlayer:
             try:
                 self.player_stream.close()
             except Exception as e:
-                logger.warning(f"关闭音频流时出错: {e}")
+                self.logger.warning(f"关闭音频流时出错: {e}")
         
         # 如果启用了文件保存，关闭文件
         if self.save_file and hasattr(self, 'out_file'):
             try:
                 self.out_file.close()
             except Exception as e:
-                logger.warning(f"关闭文件时出错: {e}")
+                self.logger.warning(f"关闭文件时出错: {e}")

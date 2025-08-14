@@ -124,6 +124,7 @@ class VoiceManager(QObject):
             parent: QObject父对象
         """
         super().__init__(parent)
+        self.log_manager = log_manager
         self.logger = log_manager.get_logger(__name__)
         self.config_manager = config_manager
         
@@ -148,7 +149,7 @@ class VoiceManager(QObject):
         self._load_config()
         
         # 监听状态监控
-        self.listening_monitor = ListeningStateMonitor()
+        self.listening_monitor = ListeningStateMonitor(log_manager=self.log_manager, config_manager=self.config_manager)
         
         # 消息队列 - 用于串行执行指令
         self.message_queue = queue.Queue()
@@ -223,10 +224,22 @@ class VoiceManager(QObject):
     def _init_function_managers(self):
         """初始化功能管理器"""
         try:
-            # 创建功能管理器
-            self.vqa_manager = VQAManager(parent=self)
-            self.transcript_manager = TranscriptManager(parent=self)
-            self.live_stream_manager = LiveStreamManager(parent=self)
+            # 创建功能管理器，传递日志和配置管理器
+            self.vqa_manager = VQAManager(
+                log_manager=self.log_manager,
+                config_manager=self.config_manager,
+                parent=self
+            )
+            self.transcript_manager = TranscriptManager(
+                log_manager=self.log_manager,
+                config_manager=self.config_manager,
+                parent=self
+            )
+            self.live_stream_manager = LiveStreamManager(
+                log_manager=self.log_manager,
+                config_manager=self.config_manager,
+                parent=self
+            )
             
             self.logger.info("功能管理器初始化完成")
             
@@ -251,7 +264,9 @@ class VoiceManager(QObject):
                 workspace_id=self.workspace_id,
                 api_key=self.api_key,
                 dialog_id=self.dialog_id,
-                conversation_mode=self.conversation_mode
+                conversation_mode=self.conversation_mode,
+                log_manager=self.log_manager,
+                config_manager=self.config_manager
             )
             
             # 设置功能管理器的对话实例
@@ -789,20 +804,11 @@ class VoiceManager(QObject):
                 status['dialog_state'] = 'unknown'
         
         # 添加各功能管理器的状态
-        if self.vqa_manager:
-            status['vqa_status'] = self.vqa_manager.get_vqa_status()
-        else:
-            status['vqa_status'] = {'status': 'not_initialized'}
-        
-        if self.transcript_manager:
-            status['transcript_status'] = self.transcript_manager.get_transcript_status()
-        else:
-            status['transcript_status'] = {'status': 'not_initialized'}
-        
-        if self.live_stream_manager:
-            status['live_stream_status'] = self.live_stream_manager.get_live_stream_status()
-        else:
-            status['live_stream_status'] = {'status': 'not_initialized'}
+
+        status['vqa_status'] = self.vqa_manager.get_vqa_status()
+        status['transcript_status'] = self.transcript_manager.get_transcript_status()
+        status['live_stream_status'] = self.live_stream_manager.get_live_stream_status()
+
         
         return status
     
