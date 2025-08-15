@@ -1,5 +1,5 @@
 from PySide6.QtCore import QObject
-from deepwin.data_management.log_manager import LogManager
+from .log_manager import LogManager
 from typing import Dict, Any
 
 class LocalDatabaseManager(QObject):

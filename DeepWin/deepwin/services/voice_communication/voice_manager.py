@@ -53,8 +53,8 @@ from .live_stream_manager import LiveStreamManager
 import dotenv
 
 # 导入项目相关模块
-from data_management.log_manager import LogManager
-from data_management.config_manager import ConfigManager
+from ...data_management.log_manager import LogManager
+from ...data_management.config_manager import ConfigManager
 from .TMultiModalConversation import TMultiModalConversation
 
 # 尝试加载环境变量文件，支持多种路径

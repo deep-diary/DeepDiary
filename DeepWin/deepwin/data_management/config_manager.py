@@ -6,7 +6,7 @@ import os
 from PySide6.QtCore import QObject, Signal
 from typing import Dict, Any, Optional
 
-from data_management.log_manager import LogManager
+from .log_manager import LogManager
 
 
 class ConfigManager(QObject):
