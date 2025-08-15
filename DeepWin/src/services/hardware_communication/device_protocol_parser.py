@@ -206,16 +206,17 @@ class DeviceProtocolParser(QObject):
             self.logger.error(error_msg)
             self.protocol_conversion_error.emit(device_id, error_msg)
 
-    def generate_low_level_command(self, device_id: str, abstract_command_name: str, *args) -> Union[bytes, str]:
+    def generate_low_level_command(self, device_id: str, abstract_command_name: str, params: Dict[str, Any]) -> Union[bytes, str]:
         """
-        将应用逻辑层的高级抽象命令转发给对应的具体协议解析器，转换为底层协议可发送的命令。
+        将应用逻辑层的高级抽象命令（带参数字典）转发给对应的具体协议解析器，转换为底层协议可发送的命令。
+        这是推荐的接口，避免了不必要的参数转换。
         :param device_id: 目标设备的唯一标识符。
         :param abstract_command_name: 抽象命令的名称 (如 "move_joint_angles", "set_motor_rpm")。
-        :param args: 抽象命令的参数。
+        :param params: 抽象命令的参数字典，键为参数名，值为参数值。
         :return: 转换后的底层命令 (bytes 或 str)。
         :raises ValueError: 如果设备或命令不被支持。
         """
-        self.logger.debug(f"生成设备 '{device_id}' 的底层命令: {abstract_command_name}")
+        self.logger.debug(f"生成设备 '{device_id}' 的底层命令: {abstract_command_name} 参数: {params}")
         
         # 根据 device_id 确定设备类型
         device_type = self._get_device_type_from_id(device_id)
@@ -227,8 +228,9 @@ class DeviceProtocolParser(QObject):
             raise ValueError(f"设备类型 '{device_type}' 的命令生成器未注册")
 
         try:
-            # 调用具体设备解析器的方法生成命令
-            low_level_command = device_parser.generate_output_command(abstract_command_name, *args)
+            # 调用具体设备解析器的方法生成命令（使用新的字典参数接口）
+            low_level_command = device_parser.generate_output_command(abstract_command_name, params)
+            
             self.logger.debug(f"已生成设备 '{device_id}' 的底层命令")
             return low_level_command
         except Exception as e:

@@ -13,8 +13,9 @@ from src.app_logic.device_logic_manager.devices.base_device import BaseDevice
 from src.app_logic.device_logic_manager.devices.base_device import DeviceStatus
 from .state_model import DeepMotorState
 from .teaching_capability import TeachingCapability
-from .command_configs import DeepMotorCommandConfigs
+
 from .data_buffer_manager import DeepMotorDataBufferManager
+from .command_parser import CommandParser
 from PySide6.QtCore import QObject, Signal, Slot
 
 class DeepMotor(BaseDevice):
@@ -36,6 +37,7 @@ class DeepMotor(BaseDevice):
         super().__init__(device_id, log_manager, parent)
         self._state: DeepMotorState = DeepMotorState(device_id=device_id)
         self.config_manager = config_manager
+        self.command_parser = CommandParser()
         
         # 初始化数据缓冲区管理器
         self.data_buffer_manager = DeepMotorDataBufferManager(config_manager, log_manager)
@@ -45,7 +47,8 @@ class DeepMotor(BaseDevice):
         self.add_capability(self.teaching_capability)
         
         # 连接TeachingCapability的信号到DeepMotor的信号（用于转发）
-        self.teaching_capability.send_command_request.connect(self.send_command_request.emit)
+        # 暂时注释掉有问题的信号连接
+        # self.teaching_capability.send_command_request.connect(self.send_command_request.emit)
         self.teaching_capability.trajectory_execution_progress_updated.connect(self.trajectory_execution_progress_updated.emit)
         self.teaching_capability.trajectory_execution_finished.connect(self.trajectory_execution_finished.emit)
         self.teaching_capability.trajectory_execution_error.connect(self.trajectory_execution_error.emit)
@@ -101,95 +104,36 @@ class DeepMotor(BaseDevice):
         self.logger.debug(f"DeepMotor '{self.device_id}': 特定状态更新完成。")
         self.device_states_updated.emit(self.device_id, current_state_dict)
 
-    def _get_command_config(self, command_name: str) -> Optional[Dict[str, Any]]:
+    def _convert_params_to_args(self, command_name: str, params: Dict[str, Any], command_config: Dict[str, Any]) -> List[Any]:
         """
-        根据命令名称获取命令配置
+        将参数字典转换为位置参数列表。
+        :param command_name: 命令名称。
+        :param params: 参数字典。
+        :param command_config: 命令配置。
+        :return: 位置参数列表。
         """
-        configs = DeepMotorCommandConfigs.get_command_configs()
-        for config in configs:
-            if config["name"] == command_name:
-                return config
-        return None
-
-    def _validate_and_prepare_args(self, command_config: Dict[str, Any], args: List[Any]) -> tuple[bool, List[Any], str]:
-        """
-        验证和准备命令参数
-        返回: (是否有效, 处理后的参数列表, 错误信息)
-        """
-        param_count = command_config["param_count"]
-        default_values = command_config["default_values"]
+        param_names = command_config.get('param_names', [])
+        default_values = command_config.get('default_values', [])
         
-        # 填充默认值
-        prepared_args = list(args)
-        while len(prepared_args) < param_count:
-            prepared_args.append(default_values[len(prepared_args)])
-        
-        # 验证参数数量
-        if len(prepared_args) != param_count:
-            return False, [], f"命令 '{command_config['name']}' 需要 {param_count} 个参数，但提供了 {len(prepared_args)} 个"
-        
-        # 验证参数类型和值
-        if "validation" in command_config and command_config["validation"]:
-            if not command_config["validation"](prepared_args):
-                return False, [], command_config.get("error_message", f"命令 '{command_config['name']}' 参数验证失败")
-        
-        return True, prepared_args, ""
-
-    def _execute_standard_command(self, command_config: Dict[str, Any], args: List[Any], send_request_signal: Signal):
-        """
-        执行标准命令（通过send_request_signal发送）
-        """
-        command_name = command_config["name"]
-        param_names = command_config["param_names"]
-        
-        # 构建参数字符串用于日志
-        param_str = ", ".join([f"{name}={value}" for name, value in zip(param_names, args)])
-        self.logger.debug(f"DeepMotor '{self.device_id}': 请求执行 {command_name}({param_str})")
-        
-        # 发送命令请求
-        send_request_signal.emit(self.device_id, command_name, args)
-        
-        self.logger.info(f"DeepMotor '{self.device_id}': 已请求执行 {command_name}({param_str})")
-
-    def execute_abstract_command(self,
-                                 command_name: str,
-                                 args: List[Any],
-                                 send_request_signal: Signal):
-        """
-        执行 DeepMotor 特定的抽象命令。
-        :param command_name: 抽象命令的名称 (如 "set_rpm", "get_status")。
-        :param args: 命令的参数列表。
-        :param send_request_signal: 用于请求 Coordinator 发送底层命令的信号。
-        """
-        self.logger.info(f"DeepMotor '{self.device_id}': 收到命令 '{command_name}' with args {args}")
-        
-        # 获取命令配置
-        command_config = self._get_command_config(command_name)
-        
-        if command_config:
-            # 验证和准备参数
-            is_valid, prepared_args, error_message = self._validate_and_prepare_args(command_config, args)
-            
-            if is_valid:
-                # 执行标准命令
-                self._execute_standard_command(command_config, prepared_args, send_request_signal)
+        args = []
+        for i, param_name in enumerate(param_names):
+            if param_name in params:
+                args.append(params[param_name])
+            elif i < len(default_values):
+                args.append(default_values[i])
             else:
-                # 参数验证失败
-                self.device_error.emit(self.device_id, error_message)
-                self.logger.error(f"DeepMotor '{self.device_id}': {error_message}")
-        elif command_name == "get_status":
-            # 特殊命令：获取状态
-            self.logger.info(f"DeepMotor '{self.device_id}': 返回当前状态: {self._state.to_dict()}")
-        else:
-            # 未知命令，转发到基类处理
-            super().execute_abstract_command(command_name, args, send_request_signal)
+                # 如果没有默认值，使用None
+                args.append(None)
+        
+        return args
 
     def get_supported_commands(self) -> List[str]:
         """
         获取 DeepMotor 支持的抽象命令列表。
         """
         base_commands = super().get_supported_commands()
-        config_commands = DeepMotorCommandConfigs.get_command_names()
+        # 从 CommandParser 获取命令名称，而不是从 DeepMotorCommandConfigs
+        config_commands = self.command_parser.get_all_command_names()
         return base_commands + config_commands
 
     def get_command_help(self, command_name: str = None) -> Dict[str, Any]:
@@ -199,19 +143,11 @@ class DeepMotor(BaseDevice):
         :return: 命令帮助信息字典
         """
         if command_name:
-            config = self._get_command_config(command_name)
-            if config:
-                return {
-                    "name": config["name"],
-                    "description": config["description"],
-                    "example": config["example"],
-                    "param_names": config["param_names"],
-                    "param_count": config["param_count"],
-                    "category": config.get("category", "other")
-                }
-            return {}
+            # 从 CommandParser 获取特定命令的帮助
+            return self.command_parser.get_command_help().get(command_name, {})
         else:
-            return DeepMotorCommandConfigs.get_command_help_by_category()
+            # 从 CommandParser 获取所有命令的帮助
+            return self.command_parser.get_command_help()
 
     def check_anomaly(self):
         """

@@ -22,7 +22,8 @@ class TeachingCapability(QObject, DeviceCapability):
     trajectory_execution_finished = Signal(str, str)  # (device_id, trajectory_name)
     trajectory_execution_error = Signal(str, str)  # (device_id, error_message)
     teaching_trajectory_updated = Signal(str, list, list)  # 示教轨迹实时更新
-    send_command_request = Signal(str, str, list)  # (device_id, command_name, args)
+    # 暂时注释掉有问题的信号
+    # send_command_request = Signal(str, str, list)  # (device_id, command_name, args)
 
     def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -44,7 +45,8 @@ class TeachingCapability(QObject, DeviceCapability):
         self.teaching_manager._trajectory_execution_finished.connect(self.trajectory_execution_finished.emit)
         self.teaching_manager._trajectory_execution_error.connect(self.trajectory_execution_error.emit)
         self.teaching_manager._teaching_trajectory_updated.connect(self.teaching_trajectory_updated.emit)
-        self.teaching_manager._send_command_request.connect(self.send_command_request.emit)
+        # 暂时注释掉有问题的信号连接
+        # self.teaching_manager._send_command_request.connect(self.send_command_request.emit)
         
         self.logger.info(f"TeachingCapability '{device_id}': 初始化完成")
 

@@ -430,6 +430,9 @@ class TeachingTrajectoryManager(QObject):
             # 过滤出有效的轨迹点（排除开始和结束标记）
             valid_points = [p for p in points if p.get('type') == 'point']
             
+            # 添加调试日志
+            self.logger.debug(f"TeachingTrajectoryManager: 设备 '{device_id}' 总点数: {len(points)}, 有效点数: {len(valid_points)}")
+            
             if len(valid_points) > 1:  # 至少需要2个点才能绘制
                 # 提取时间和位置数据
                 start_time = valid_points[0]['timestamp']
@@ -437,7 +440,10 @@ class TeachingTrajectoryManager(QObject):
                 positions = [p['position'] for p in valid_points]
                 
                 # 发送实时更新信号
+                self.logger.debug(f"TeachingTrajectoryManager: 发送示教轨迹更新信号，设备: {device_id}, 点数: {len(valid_points)}")
                 self._teaching_trajectory_updated.emit(device_id, times, positions)
+            else:
+                self.logger.debug(f"TeachingTrajectoryManager: 有效点数不足，不发送更新信号，设备: {device_id}, 有效点数: {len(valid_points)}")
         
         self.logger.debug(f"TeachingTrajectoryManager: 记录轨迹点 for device '{device_id}': pos={position:.2f}, vel={velocity:.2f}")
 

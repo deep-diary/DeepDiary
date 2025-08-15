@@ -34,7 +34,8 @@ class BaseProtocolParser(QObject, metaclass=ProtocolParserMeta):
         self.logger = log_manager.get_logger(f"{self.__class__.__name__}")
         self.config_manager = config_manager
         self.logger.info(f"{self.__class__.__name__}: 初始化中...")
-        self._setup_protocol_rules() # 在这里调用以允许子类加载其规则
+        # 移除自动调用_setup_protocol_rules，让子类自己决定何时调用
+        # self._setup_protocol_rules() # 在这里调用以允许子类加载其规则
         self.logger.info(f"{self.__class__.__name__}: 初始化完成。")
 
     @abstractmethod
@@ -54,12 +55,14 @@ class BaseProtocolParser(QObject, metaclass=ProtocolParserMeta):
         """
         pass
 
+
     @abstractmethod
-    def generate_output_command(self, abstract_command_name: str, *args) -> Union[bytes, str]:
+    def generate_output_command(self, abstract_command_name: str, params: Dict[str, Any]) -> Union[bytes, str]:
         """
-        抽象方法：将高级抽象命令转换为设备可发送的底层协议命令。
+        抽象方法：将高级抽象命令（带参数字典）转换为设备可发送的底层协议命令。
+        这是推荐的接口，避免了不必要的参数转换和解析。
         :param abstract_command_name: 抽象命令的名称（如 "move_joint_angles"）。
-        :param args: 抽象命令的参数。
+        :param params: 抽象命令的参数字典，键为参数名，值为参数值。
         :return: 转换后的底层命令（bytes 或 str）。
         :raises ValueError: 如果命令不被支持或参数错误。
         """

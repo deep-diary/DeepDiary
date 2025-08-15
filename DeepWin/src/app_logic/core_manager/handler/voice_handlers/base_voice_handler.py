@@ -16,6 +16,7 @@ class BaseVoiceHandler(BaseHandler):
         self.handler_name = self.__class__.__name__
         self.supported_commands: List[str] = []
         self.command_handlers: Dict[str, callable] = {}
+        self.command_params: Dict[str, Dict[str, Any]] = {}
         
     def initialize(self):
         """初始化处理器"""
@@ -36,13 +37,16 @@ class BaseVoiceHandler(BaseHandler):
         """检查是否可以处理指定的命令"""
         return command_name in self.supported_commands
         
-    def handle_command(self, command_name: str, params: List[Dict[str, Any]]) -> bool:
+    def handle_command(self, command_data: List[Dict[str, Any]]) -> bool:
         """
         处理语音命令
         :param command_name: 命令名称
         :param params: 命令参数列表
         :return: 是否成功处理
         """
+        command_name = command_data.get('name', '')
+        params = command_data.get('params', [])
+
         if not self.can_handle_command(command_name):
             self.logger.warning(f"{self.handler_name}: 不支持的命令: {command_name}")
             return False
@@ -50,7 +54,7 @@ class BaseVoiceHandler(BaseHandler):
         try:
             handler = self.command_handlers.get(command_name)
             if handler:
-                result = handler(params)
+                result = handler(command_data) # 完整命令数据
                 self.logger.info(f"{self.handler_name}: 成功处理命令 {command_name}, 结果: {result}")
                 return True
             else:
@@ -59,7 +63,15 @@ class BaseVoiceHandler(BaseHandler):
         except Exception as e:
             self.logger.error(f"{self.handler_name}: 处理命令 {command_name} 时发生错误: {e}")
             return False
-            
+
+    def handle_command_with_params(self, command_params: Dict[str, Any]) -> bool:
+        """
+        处理语音命令
+        :param command_params: 命令参数列表
+        :return: 是否成功处理
+        """
+        pass
+
     def get_supported_commands(self) -> List[str]:
         """获取支持的命令列表"""
         return self.supported_commands.copy()

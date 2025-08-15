@@ -3,6 +3,7 @@
 
 from typing import Dict, Any, List
 from .base_voice_handler import BaseVoiceHandler
+from src.app_logic.device_logic_manager.devices.deep_motor.command_parser import CommandParser
 
 class HardwareVoiceHandler(BaseVoiceHandler):
     """硬件控制语音处理器"""
@@ -10,6 +11,8 @@ class HardwareVoiceHandler(BaseVoiceHandler):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._default_pos_step = 0.1
+        self.motor_cmd_parser = CommandParser()
+        
         
     def _validate_dependencies(self):
         super()._validate_dependencies()
@@ -56,81 +59,58 @@ class HardwareVoiceHandler(BaseVoiceHandler):
             'motor_reset': self._handle_motor_reset,
         })
         
-    def _extract_motor_params(self, params: List[Dict[str, Any]]) -> tuple:
-        motor_id = 1
-        position = 0.0
-        speed = 0.0
-        
-        for param in params:
-            if param.get('name') == 'pos':
-                position = float(param.get('value', 0.0))
-            elif param.get('name') == 'speed':
-                speed = float(param.get('value', 0.0))
-            elif param.get('name') == 'motor_id':
-                motor_id = int(param.get('value', 1))
-                
-        return motor_id, position, speed
         
     def _handle_motor_set_pos(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, position, _ = self._extract_motor_params(params)
-        args = [motor_id, position]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', command_name, params_valid)
         return True
         
     def _handle_motor_increase_pos(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, position, _ = self._extract_motor_params(params)
-        current_pos = self._get_current_position(motor_id)
-        target_pos = current_pos + position
-        args = [motor_id, target_pos]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        current_pos = self._get_current_position(params_valid['motor_id'])
+        params_valid['pos'] = current_pos + params_valid['pos']
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', params_valid)
         return True
         
     def _handle_motor_decrease_pos(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, position, _ = self._extract_motor_params(params)
-        current_pos = self._get_current_position(motor_id)
-        target_pos = current_pos - position
-        args = [motor_id, target_pos]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        current_pos = self._get_current_position(params_valid['motor_id'])
+        params_valid['pos'] = current_pos - params_valid['pos']
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', params_valid)
         return True
         
     def _handle_motor_increase_pos_default(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, _, _ = self._extract_motor_params(params)
-        current_pos = self._get_current_position(motor_id)
-        target_pos = current_pos + self._default_pos_step
-        args = [motor_id, target_pos]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        current_pos = self._get_current_position(params_valid['motor_id'])
+        params_valid['pos'] = current_pos + self._default_pos_step
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', params_valid)
         return True
         
     def _handle_motor_decrease_pos_default(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, _, _ = self._extract_motor_params(params)
-        current_pos = self._get_current_position(motor_id)
-        target_pos = current_pos - self._default_pos_step
-        args = [motor_id, target_pos]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        current_pos = self._get_current_position(params_valid['motor_id'])
+        params_valid['pos'] = current_pos - self._default_pos_step
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_pos', params_valid)
         return True
         
     def _handle_motor_set_speed(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, _, speed = self._extract_motor_params(params)
-        args = [motor_id, speed]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_speed', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_set_speed', params_valid)
         return True
         
     def _handle_motor_start(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, _, _ = self._extract_motor_params(params)
-        args = [motor_id]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_start', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_start', params_valid)
         return True
         
     def _handle_motor_stop(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, _, _ = self._extract_motor_params(params)
-        args = [motor_id]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_stop', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_stop', params_valid)
         return True
         
     def _handle_motor_reset(self, params: List[Dict[str, Any]]) -> bool:
-        motor_id, _, _ = self._extract_motor_params(params)
-        args = [motor_id]
-        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_reset', args)
+        command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
+        self.device_logic_manager.send_device_abstract_command_requested.emit('DeepMotor', 'motor_reset', params_valid)
         return True
         
     def _get_current_position(self, motor_id: int) -> float:
@@ -140,3 +120,4 @@ class HardwareVoiceHandler(BaseVoiceHandler):
         except Exception as e:
             self.logger.warning(f"获取电机 {motor_id} 当前位置失败，使用默认值0: {e}")
             return 0.0
+        

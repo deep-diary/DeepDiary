@@ -43,6 +43,7 @@ class DeepMotorPage(BaseDevicePage):
         self._show_trajectory = False
         self._original_total_time = None
         self._is_executing_trajectory = False
+        self._is_teaching = False  # 示教录制状态（新增）
         self._last_execution_data = None
         self.current_motor_id = 6
         self._is_jogging = False
@@ -313,31 +314,31 @@ class DeepMotorPage(BaseDevicePage):
         """初始化按钮点击处理函数"""
         if self.logger:
             self.logger.info(f"初始化按钮被点击，电机ID: {self.id_spin.value()}")
-        self.send_command('init_motor', [self.id_spin.value()])
+        self.send_command('motor_init', [self.id_spin.value()])
 
     def on_enable_clicked(self):
         """使能按钮点击处理函数"""
         if self.logger:
             self.logger.info(f"使能按钮被点击，电机ID: {self.id_spin.value()}")
-        self.send_command('enable_motor', [self.id_spin.value()])   
+        self.send_command('motor_enable', [self.id_spin.value()])   
 
     def on_disable_clicked(self):
         """失能按钮点击处理函数"""
         if self.logger:
             self.logger.info(f"失能按钮被点击，电机ID: {self.id_spin.value()}")
-        self.send_command('disable_motor', [self.id_spin.value()])
+        self.send_command('motor_disable', [self.id_spin.value()])
 
     def on_set_pos_clicked(self):
         """设置位置按钮点击处理函数"""
         if self.logger:
             self.logger.info(f"设置位置按钮被点击，电机ID: {self.id_spin.value()}, 位置: {self.pos_spin.value()}")
-        self.send_command('set_motor_position', [self.id_spin.value(), self.pos_spin.value()])
+        self.send_command('motor_set_pos', [self.id_spin.value(), self.pos_spin.value()])
 
     def on_set_pos_speed_clicked(self):
         """设置位置和速度按钮点击处理函数"""
         if self.logger:
             self.logger.info(f"设置位置和速度按钮被点击，电机ID: {self.id_spin.value()}, 位置: {self.pos_spin.value()}, 速度: {self.speed_spin.value()}")
-        self.send_command('set_motor_pos_speed', [self.id_spin.value(), self.pos_spin.value(), self.speed_spin.value()])
+        self.send_command('motor_set_pos_speed', [self.id_spin.value(), self.pos_spin.value(), self.speed_spin.value()])
 
     def on_sim_data_clicked(self):
         """模拟数据按钮点击处理函数"""
@@ -349,13 +350,13 @@ class DeepMotorPage(BaseDevicePage):
         """点动按钮按下时的处理函数"""
         if self.logger:
             self.logger.info(f"点动按钮按下，电机ID: {self.current_motor_id}, 速度: {self.speed_spin.value()}")
-        self.send_command('jog_motor', [self.current_motor_id, self.speed_spin.value()])
+        self.send_command('motor_jog', [self.current_motor_id, self.speed_spin.value()])
 
     def on_jog_released(self):
         """点动按钮释放时的处理函数"""
         if self.logger:
             self.logger.info(f"点动按钮释放，电机ID: {self.current_motor_id}")
-        self.send_command('stop_jog_motor', [self.current_motor_id])
+        self.send_command('motor_jog_stop', [self.current_motor_id])
 
     def init_trajectory_list(self):
         """初始化轨迹列表"""
@@ -972,7 +973,7 @@ class DeepMotorPage(BaseDevicePage):
         """开始示教按钮点击处理函数"""
         if self.logger:
             self.logger.info("开始示教按钮被点击")
-        self._is_executing_trajectory = True
+        self._is_teaching = True  # 设置示教录制状态
         self.update_teaching_buttons_state()
         
         # 先清空画布，确保没有残留的图形
@@ -996,7 +997,7 @@ class DeepMotorPage(BaseDevicePage):
         """结束示教按钮点击处理函数"""
         if self.logger:
             self.logger.info("结束示教按钮被点击")
-        self._is_executing_trajectory = False
+        self._is_teaching = False  # 清除示教录制状态
         self.update_teaching_buttons_state()
         
         # 更新状态标签
@@ -1082,7 +1083,7 @@ class DeepMotorPage(BaseDevicePage):
 
     def update_teaching_buttons_state(self):
         """更新示教按钮状态"""
-        if self._is_executing_trajectory:
+        if self._is_teaching:  # 使用示教录制状态
             self.start_teaching_button.setEnabled(False)
             self.stop_teaching_button.setEnabled(True)
             self.execute_teaching_button.setEnabled(False)
@@ -1268,11 +1269,18 @@ class DeepMotorPage(BaseDevicePage):
         :param times: 时间列表
         :param positions: 位置列表
         """
-        if not self._is_executing_trajectory or self.current_selected_param != 'trajectory_teaching':
+        if self.logger:
+            self.logger.debug(f"DeepMotor页面: 收到示教轨迹更新，点数: {len(times) if times else 0}, 示教状态: {self._is_teaching}, 当前参数: {self.current_selected_param}")
+        
+        if not self._is_teaching or self.current_selected_param != 'trajectory_teaching':
+            if self.logger:
+                self.logger.debug(f"DeepMotor页面: 示教轨迹更新被拒绝，示教状态: {self._is_teaching}, 当前参数: {self.current_selected_param}")
             return
             
         # 检查是否有新的数据点
         if not times or not positions:
+            if self.logger:
+                self.logger.debug("DeepMotor页面: 示教轨迹数据为空")
             return
             
         # 如果是第一次更新，清空画布并设置基本属性

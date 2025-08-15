@@ -1,7 +1,7 @@
 # src/app_logic/core_manager/handler/device_logic_manager.py
 # 设备逻辑管理器处理器，负责处理设备逻辑管理相关的信号连接和事件处理
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Slot, Signal
 from src.app_logic.core_manager.base_handler import BaseHandler
 import time
 
@@ -10,7 +10,7 @@ class DeviceLogicManagerHandler(BaseHandler):
     DeviceLogicManager处理器
     负责处理设备逻辑管理相关的信号连接和事件处理
     """
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         
@@ -85,18 +85,18 @@ class DeviceLogicManagerHandler(BaseHandler):
             self.ai_coordinator.perceive_device_state(device_id, data)
 
     @Slot(str, str, list)
-    def _on_device_abstract_command_requested(self, device_id: str, abstract_command_name: str, args: list):
+    def _on_device_abstract_command_requested(self, device_id: str, command_name: str, params: dict = None):
         """
         槽函数：处理 DeviceLogicManager 发出的抽象命令发送请求。
         将抽象命令转换为底层协议命令并通过硬件通信服务发送。
         """
-        self.logger.info(f"DeviceLogicManagerHandler: 收到抽象命令发送请求 - 设备: {device_id}, 命令: {abstract_command_name}, 参数: {args}")
+        self.logger.info(f"DeviceLogicManagerHandler: 收到抽象命令发送请求 - 设备: {device_id}, 命令: {command_name}, 参数:  {params}")
         try:
-            self.logger.debug(f"DeviceLogicManagerHandler: 开始处理命令 - 设备: {device_id}, 命令: {abstract_command_name}, 参数: {args}")
             
             # 使用 DeviceProtocolParser 将抽象命令转换为底层字节命令（包含 AT 头等）
+
             low_level_command_bytes = self.device_protocol_parser.generate_low_level_command(
-                device_id, abstract_command_name, *args
+                device_id, command_name, params
             )
             
             # 根据设备类型决定通过哪个通信器发送
@@ -114,8 +114,8 @@ class DeviceLogicManagerHandler(BaseHandler):
             if not target_port_name:
                 self.logger.warning(f"DeviceLogicManagerHandler: 无法确定设备 '{device_id}' 对应的串口。")
                 self.coordinator_handler.app_status_message.emit(f"无法确定设备 '{device_id}' 对应的串口。")
-                # 反馈模拟数据 - 修复list index out of range错误
-                position = args[1] if len(args) > 1 else 0.0  # 如果args只有一个元素，使用默认值
+                # 反馈模拟数据 - 修复参数访问错误
+                position = params.get('pos', 0.0)  # 获取pos参数，如果没有则使用默认值0.0
                 self.serial_communicator.sim_read_serial_data(position = position)
                 return
 

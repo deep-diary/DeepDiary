@@ -44,7 +44,7 @@ class DeviceLogicManager(QObject):
     device_error = Signal(str)              # 设备相关操作发生错误 (str)
 
     # 新增信号：请求 Coordinator 发送抽象命令
-    send_device_abstract_command_requested = Signal(str, str, list) # (device_id, abstract_command_name, args)
+    send_device_abstract_command_requested = Signal(str, str, dict) # (device_id, abstract_command_name, args)
 
     # DeepArm 示教轨迹相关信号 (目前暂时不使用)
     teaching_started = Signal(str)
@@ -233,11 +233,12 @@ class DeviceLogicManager(QObject):
                 device_instance.device_states_updated.connect(self.device_status_updated)
                 
                 # 绑定设备向协调器发送命令的信号
-                if hasattr(device_instance, 'send_command_request'):
-                    device_instance.send_command_request.connect(self.send_device_abstract_command_requested)
-                elif hasattr(device_instance, 'command_to_coordinator'):
-                    # 兼容旧版本，使用 command_to_coordinator 信号
-                    device_instance.command_to_coordinator.connect(self.send_device_abstract_command_requested)
+                # 暂时注释掉有问题的信号连接
+                # if hasattr(device_instance, 'send_command_request'):
+                #     device_instance.send_command_request.connect(self.send_device_abstract_command_requested)
+                # elif hasattr(device_instance, 'command_to_coordinator'):
+                #     # 兼容旧版本，使用 command_to_coordinator 信号
+                #     device_instance.command_to_coordinator.connect(self.send_device_abstract_command_requested)
                 
                 # 绑定轨迹执行相关信号（如果设备支持）
                 if hasattr(device_instance, 'trajectory_execution_progress_updated'):
@@ -328,7 +329,6 @@ class DeviceLogicManager(QObject):
         
         return device.get_all_capabilities()
 
-    @Slot(str, str)
     def send_command_to_device(self, device_id: str, abstract_command: str) -> str:
         """
         接收来自 Coordinator 的抽象控制指令，并将其转发给对应的设备逻辑实例处理。
@@ -343,33 +343,10 @@ class DeviceLogicManager(QObject):
             error_msg = f"无法找到或创建设备实例 '{device_id}' 来发送命令"
             self.device_error.emit(error_msg)
             raise ValueError(error_msg)
-
         try:
-            # 解析抽象命令名称和参数
-            func_name_start = abstract_command.find("(")
-            if func_name_start != -1:
-                abstract_command_name = abstract_command[:func_name_start]
-                args_str = abstract_command[func_name_start+1:-1]
-                args = [arg.strip() for arg in args_str.split(',') if arg.strip()]
-                # 尝试转换为数字类型
-                parsed_args = []
-                for arg in args:
-                    try:
-                        if '.' in arg:
-                            parsed_args.append(float(arg))
-                        else:
-                            parsed_args.append(int(arg))
-                    except ValueError:
-                        parsed_args.append(arg) # 如果不是数字，保留为字符串
-            else:
-                abstract_command_name = abstract_command
-                parsed_args = []
-
             # 设备的逻辑实例负责将抽象命令映射到实际的底层命令请求
-            device_instance.execute_abstract_command(
-                abstract_command_name, parsed_args, self.send_device_abstract_command_requested
-            )
-            
+            command, params = device_instance.command_parser.parse_command_string(abstract_command)
+            self.send_device_abstract_command_requested.emit(device_id, command, params)
             self.device_command_response.emit(f"命令请求已发送至设备 '{device_id}' 的逻辑实例")
             return "Command request sent to device logic instance."
         except Exception as e:

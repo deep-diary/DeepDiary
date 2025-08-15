@@ -178,13 +178,29 @@ class BaseDevice(QObject):
 
     def execute_abstract_command(self,
                                  command_name: str,
-                                 args: List[Any],
-                                 send_request_signal: Callable[[str, str, List[Any]], Any]):
+                                 params: Dict[str, Any],
+                                 send_request_signal: Callable[[str, str, Dict[str, Any]], Any]):
         """
         执行一个抽象的设备命令。
         子类应重写此方法以处理特定设备的命令。
         :param command_name: 抽象命令的名称。
-        :param args: 命令的参数列表。
+        :param params: 命令的参数字典。
+        :param send_request_signal: 一个回调函数/信号发射器，用于请求 Coordinator 发送底层命令。
+                                     签名应为: (device_id, abstract_command_name, params)
+        """
+        self.logger.warning(f"Device '{self.device_id}': 抽象命令 '{command_name}' 未被子类实现。")
+        self.device_error.emit(self.device_id, f"抽象命令 '{command_name}' 未实现。")
+
+    def execute_abstract_command_with_params(self,
+                                           command_name: str,
+                                           params: Dict[str, Any],
+                                           send_request_signal: Callable[[str, str, List[Any]], Any]):
+        """
+        执行一个抽象的设备命令（使用参数字典）。
+        这是推荐的接口，避免了参数解析和转换，直接使用应用层传递的参数字典。
+        子类应重写此方法以处理特定设备的命令。
+        :param command_name: 抽象命令的名称。
+        :param params: 命令的参数字典，键为参数名，值为参数值。
         :param send_request_signal: 一个回调函数/信号发射器，用于请求 Coordinator 发送底层命令。
                                      签名应为: (device_id, abstract_command_name, args)
         """

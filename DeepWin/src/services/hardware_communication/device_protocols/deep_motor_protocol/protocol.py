@@ -7,6 +7,8 @@ import struct
 import logging
 import sys
 from typing import Dict, Any, List, Union, Optional
+from src.data_management.config_manager import ConfigManager
+from src.data_management.log_manager import LogManager
 
 class DeepMotorProtocol:
     """
@@ -63,12 +65,12 @@ class DeepMotorProtocol:
         },
     }
 
-    def __init__(self, log_manager: logging.Logger):
+    def __init__(self, log_manager: LogManager):
         """
         初始化协议对象。
         :param log_manager: 全局日志管理器实例。
         """
-        self.logger = log_manager.get_logger("DeepMotorProtocol")
+        self.logger = log_manager.get_logger(__name__)
         
         # 直接使用内联配置
         self.config = self._PROTOCOL_CONFIG 
@@ -613,7 +615,7 @@ class DeepMotorProtocol:
         payload[6:8] = struct.pack('>H', scaled_speed)
         return self.create_frame(0x12, motor_id, 0, self.master_id, payload)
     
-    def create_motor_jog_frame_stop(self, motor_id):
+    def create_motor_jog_stop_frame(self, motor_id):
         """
         Create a motor jog mode stop frame (mode 0x12)
         
@@ -782,6 +784,18 @@ class DeepMotorProtocol:
         
         # Return two frames, the caller needs to send them in order
         return [position_frame, speed_frame]
+    
+    def create_motor_spd_frame(self, motor_id, speed):
+        # Calculate the speed index
+        spd_index = self.index['LIMIT_SPD']
+        # Create and send the speed control frame
+        return self.create_motor_write_frame(motor_id, spd_index, speed)
+
+    def create_motor_torque_frame(self, motor_id, torque):
+        # Calculate the torque index
+        torque_index = self.index['LIMIT_CUR']
+        # Create and send the torque control frame
+        return self.create_motor_write_frame(motor_id, torque_index, torque)
 
     def create_motor_frame_all_pos_spd(self, motor_ids, positions, speeds):
         """
@@ -821,7 +835,7 @@ class DeepMotorProtocol:
         position = min(max(position, joint_range[0]), joint_range[1])
         return position
     
-    def create_motor_sinwave_test(self, motor_id, amplitude, frequency, start_stop):
+    def create_motor_sinwave_test_frame(self, motor_id, amplitude, frequency, start_stop):
         # 41 54 90 07 e8 34 08 03 70 00 00 00 00 80 3f 0d 0a # Set amplitude
         # 41 54 90 07 e8 34 08 02 70 00 00 00 00 80 3f 0d 0a # Set frequency
         # 41 54 90 07 e8 34 08 01 70 00 00 01 00 00 00 0d 0a # Start sine test
@@ -831,7 +845,7 @@ class DeepMotorProtocol:
         # 41 54 98 07 e8 34 08 1b 82 30 02 a0 42 32 0e 0d 0a # Load parameter table
         pass
 
-    def create_motor_scope_disp(self, motor_id, frequency, channel, start_stop):
+    def create_motor_scope_disp_frame(self, motor_id, frequency, channel, start_stop):
     # 41 54 50 07 e8 0c 08 14 00 11 00 00 10 0e 00 0d 0a    Set sampling frequency
     # 41 54 50 0f e8 0c 08 16 30 16 30 16 30 16 30 0d 0a    Set channel
     # 41 54 50 17 e8 0c 08 00 00 00 00 00 00 00 00 0d 0a    Start sampling
@@ -856,19 +870,19 @@ class DeepMotorProtocol:
         x = min(max(x, x_min), x_max)
         return int((x - offset) * ((1 << bits) - 1) / span)
 
-def uint_to_float(self, uint, x_min, x_max, bits):
-    """
-    Convert an unsigned integer to a float
-    
-    Args:
-        uint: Unsigned integer
-        x_min: Minimum value
-        x_max: Maximum value
-        bits: Number of bits
+    def uint_to_float(self, uint, x_min, x_max, bits):
+        """
+        Convert an unsigned integer to a float
         
-    Returns:
-        float: Converted float
-    """
-    span = x_max - x_min
-    offset = x_min
-    return uint * span / ((1 << bits) - 1) + offset
+        Args:
+            uint: Unsigned integer
+            x_min: Minimum value
+            x_max: Maximum value
+            bits: Number of bits
+            
+        Returns:
+            float: Converted float
+        """
+        span = x_max - x_min
+        offset = x_min
+        return uint * span / ((1 << bits) - 1) + offset

@@ -220,8 +220,8 @@ class Coordinator(QObject):
     def start_application(self):
         """启动应用程序"""
         self.logger.info("Coordinator: 启动应用程序...")
-        self.voice_manager.add_task_to_queue('text', text='打开实时视频通话')
-        self.voice_manager.add_task_to_queue('transcript', text='转录测试任务1')
+        self.voice_manager.add_task_to_queue('text', text='将电机位置调大些')
+        # self.voice_manager.add_task_to_queue('transcript', text='转录测试任务1')
         # self.voice_manager.start_voice_conversation()
         self.agent_manager.start_agents()
         self.logger.info("Coordinator: 应用程序启动完成。")

@@ -135,8 +135,12 @@ class VoiceCommunicationHandler(BaseHandler):
             if handler_type and handler_type in self.voice_handlers:
                 # 路由到专门的处理器
                 handler = self.voice_handlers[handler_type]
+                # handler.handle_command_with_params(command_data)
+
+
+                # # handler.handle_command(command_name, params)
                 if handler.can_handle_command(command_name):
-                    success = handler.handle_command(command_name, params)
+                    success = handler.handle_command(command_data)
                     if success:
                         self.logger.info(f"VoiceCommunicationHandler: 命令 {command_name} 已成功路由到 {handler_type} 处理器")
                     else:

@@ -227,7 +227,7 @@ class GuiDeviceInterfaceHandler(BaseHandler):
         self.logger.info(f"GuiDeviceInterfaceHandler: 收到开始示教请求，设备: {device_name}, motor_id: {motor_id}")
         
         # 先发送失能命令
-        self.device_logic_manager.send_command_to_device(device_name, f"disable_motor({motor_id})")
+        self.device_logic_manager.send_command_to_device(device_name, f"motor_disable({motor_id})")
         self.coordinator_handler.app_status_message.emit(f"电机{motor_id}已失能，开始示教模式")
         
         # 启动示教模式 - 使用预获取的设备实例
