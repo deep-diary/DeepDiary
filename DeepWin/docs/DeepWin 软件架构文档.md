@@ -100,8 +100,6 @@ DataMgr <--> [本地 SQLite 数据库] : 数据存储
 
 ![DiaryWin软件架构](https://deep-diary.oss-cn-hangzhou.aliyuncs.com/blog/DiaryWin%E8%BD%AF%E4%BB%B6%E6%9E%B6%E6%9E%84.png)
 
-
-
 ### 2.3 架构描述
 
 DeepWin 的分层架构和智能体就绪设计如下：
@@ -200,7 +198,7 @@ DeepWin 的分层架构和智能体就绪设计如下：
 - **技术栈**：Python (`httpx` for HTTP/REST, `paho-mqtt` for MQTT, `LiveKit client` for WebRTC/realtime voice/video)。
 - **主要子模块**：
   - **API 客户端**：
-    - 封装 DeepServer 提供的 RESTful API 调用，包括用户认证、数据CRUD操作（记忆、资源、需求、设备信息等）。
+    - 封装 DeepServer 提供的 RESTful API 调用，包括用户认证、数据 CRUD 操作（记忆、资源、需求、设备信息等）。
     - **集成 Immich API、Mem0 API 等**：直接调用这些第三方 API，获取其处理后的数据，并将其整合到 DeepDiary 的本地数据库或应用逻辑中。
     - 错误处理和重试机制。
   - **MQTT 客户端**：
@@ -329,7 +327,7 @@ DeepWin 的分层架构和智能体就绪设计如下：
 - **响应速度**：界面操作、本地数据查询应在毫秒级响应；与云端同步和设备交互的延迟应控制在可接受范围内。
 - **资源占用**：合理控制 CPU、内存和磁盘占用，避免对用户系统造成过大负担。
 - **图像/视频处理效率**：对于大量图像和视频的本地处理，应采用多线程或异步处理，避免 UI 卡顿。
-- **智能体运行效率**：确保智能体在后台运行时，不会显著影响DeepWin的主体性能和用户体验。
+- **智能体运行效率**：确保智能体在后台运行时，不会显著影响 DeepWin 的主体性能和用户体验。
 
 ### 6.2 可靠性
 
@@ -485,7 +483,7 @@ DeepWin/
 
 软件框架代码
 
-~~~python
+````python
 # main.py
 # DeepWin 应用程序入口
 
@@ -494,9 +492,9 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QThreadPool # 用于管理后台任务
 
 # 导入 DeepWin 核心组件
-from src.app_logic.core_manager.coordinator import Coordinator
-from src.ui.main_window import MainWindow
-from src.data_management.log_manager import LogManager # 导入日志管理器
+from deepwin.app_logic.core_manager.coordinator import Coordinator
+from deepwin.ui.main_window import MainWindow
+from deepwin.data_management.log_manager import LogManager # 导入日志管理器
 
 
 def main():
@@ -556,14 +554,14 @@ from typing import Dict, Any
 
 # 导入应用逻辑层的各个管理器/处理器
 # 注意：这里我们假设这些模块都存在，实际开发中需要逐步实现
-from src.app_logic.memory_processing.image_video_processing.processor import ImageVideoProcessor
-from src.app_logic.resource_demand_manager.manager import ResourceDemandManager # 假设的资源需求管理器
-from src.app_logic.device_logic_manager.manager import DeviceLogicManager     # 假设的设备逻辑管理器
-from src.app_logic.ai_coordinator.coordinator import AICoordinator         # 假设的AI协调器
-from src.app_logic.agents.agent_manager import AgentManager               # 智能体管理器
-from src.services.cloud_communication.api_client import CloudApiClient      # 云端API客户端示例
-from src.data_management.local_database import LocalDatabaseManager       # 本地数据库管理器
-from src.data_management.log_manager import LogManager # 日志管理器
+from deepwin.app_logic.memory_processing.image_video_processing.processor import ImageVideoProcessor
+from deepwin.app_logic.resource_demand_manager.manager import ResourceDemandManager # 假设的资源需求管理器
+from deepwin.app_logic.device_logic_manager.manager import DeviceLogicManager     # 假设的设备逻辑管理器
+from deepwin.app_logic.ai_coordinator.coordinator import AICoordinator         # 假设的AI协调器
+from deepwin.app_logic.agents.agent_manager import AgentManager               # 智能体管理器
+from deepwin.services.cloud_communication.api_client import CloudApiClient      # 云端API客户端示例
+from deepwin.data_management.local_database import LocalDatabaseManager       # 本地数据库管理器
+from deepwin.data_management.log_manager import LogManager # 日志管理器
 
 
 class WorkerRunnable(QRunnable):
@@ -752,8 +750,8 @@ from PySide6.QtGui import QIcon
 from PySide6.FluentWidgets import NavigationPanel, FluentWindow, InfoBar # 导入Fluent Design组件
 
 # 导入协调器（T类）以建立通信连接
-from src.app_logic.core_manager.coordinator import Coordinator
-from src.data_management.log_manager import LogManager
+from deepwin.app_logic.core_manager.coordinator import Coordinator
+from deepwin.data_management.log_manager import LogManager
 
 
 class MainWindow(FluentWindow): # 继承 FluentWindow 获取Fluent Design特性
@@ -941,7 +939,7 @@ class MainWindow(FluentWindow): # 继承 FluentWindow 获取Fluent Design特性
 import time
 import os
 from PySide6.QtCore import QObject, Signal # 用于发出信号，通知任务完成或进度
-from src.data_management.log_manager import LogManager
+from deepwin.data_management.log_manager import LogManager
 from typing import Dict, Any
 
 
@@ -1191,9 +1189,7 @@ class LocalDatabaseManager(QObject):
         self.logger.info("LocalDatabaseManager: 执行清理工作。")
 
 
-~~~
-
-
+````
 
 ```
 @startuml
@@ -1360,9 +1356,5 @@ note on link: 更新状态栏信息
 
 @enduml
 ```
-
-
-
-
 
 ![DiaryWin软件流程图](C:\Users\Blue\Desktop\DiaryWin软件流程图.png)

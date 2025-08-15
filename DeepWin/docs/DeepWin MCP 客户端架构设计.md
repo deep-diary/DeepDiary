@@ -15,7 +15,7 @@ DeepWin 的 MCP 客户端模块定位于 DeepWin 内部业务逻辑与外部 MCP
 - DeepWin 既可以作为 **MCP 的客户端** (连接 DeepServer 上部署的 MCP 服务，以及外部第三方 MCP 服务)，消费它们暴露的 Resources 和 Tools。
 - DeepWin 也可以作为 **LLM 的用户界面**，将用户的自然语言请求发送给 DeepServer 上的 LLM Agent (例如 Dify)，由 LLM Agent 协调 MCP 调用，并将结果反馈给 DeepWin。
 
-*图1: DeepWin MCP 客户端架构概览*
+_图 1: DeepWin MCP 客户端架构概览_
 
 ## 3. DeepWin 可集成的外部 MCP 服务
 
@@ -141,7 +141,7 @@ DeepWin/
 8. **`MCPDataAdapters` 数据适配：** 响应数据被传递给 `MCPDataAdapters`，转换为 DeepDiary 内部统一的数据模型。
 9. **结果回传至业务模块/UI：** 经过适配的数据返回给 DeepWin 的业务模块，业务模块更新其状态或直接通知 UI 进行显示更新。
 
-*图2: DeepWin 直接调用 MCP 服务数据流*
+_图 2: DeepWin 直接调用 MCP 服务数据流_
 
 ### 5.2 场景二：DeepWin 通过 LLM 调用 MCP 服务（LLM 作为核心决策者）
 
@@ -165,7 +165,7 @@ DeepWin/
 8. **LLM Agent 生成回复：** LLM Agent 综合所有 MCP 调用的结果，生成最终的自然语言回复。
 9. **DeepWin 显示回复：** LLM Agent 将回复发送回 DeepWin UI，展示给用户。
 
-*图3: DeepWin 通过 LLM 调用 MCP 服务数据流*
+_图 3: DeepWin 通过 LLM 调用 MCP 服务数据流_
 
 ## 6. 核心组件设计与解释
 
@@ -192,14 +192,14 @@ DeepWin/
     class MCPClientManager(QObject):
         mcp_response_ready = Signal(str, dict) # (mcp_id, data)
         mcp_error = Signal(str, str) # (mcp_id, error_message)
-    
+
         def __init__(self, config_manager: ConfigManager, log_manager: LogManager, parent=None):
             super().__init__(parent)
             self.config_manager = config_manager
             self.logger = log_manager.get_logger("MCPClientManager")
             self._mcp_wrappers: Dict[str, FastMCPClientWrapper] = {}
             self._load_mcp_configurations()
-    
+
         def _load_mcp_configurations(self):
             # 从 config_manager 加载所有 MCP 配置
             # 例如：app_settings.json 中有一个 "mcp_services" 列表
@@ -210,7 +210,7 @@ DeepWin/
                 mcp_api_key = config.get("api_key") # 可选
                 if mcp_id and mcp_url:
                     # NEW: 调整 import 路径
-                    from src.services.cloud_communication.mcp_client_wrappers.generic_mcp_wrapper import GenericFastMCPClientWrapper
+                    from deepwin.services.cloud_communication.mcp_client_wrappers.generic_mcp_wrapper import GenericFastMCPClientWrapper
                     wrapper = GenericFastMCPClientWrapper(
                         mcp_id, mcp_url, mcp_api_key, self.logger # 传入 logger
                     )
@@ -221,7 +221,7 @@ DeepWin/
                     self.logger.info(f"MCPClientManager: 已注册 MCP 服务 '{mcp_id}' (URL: {mcp_url})")
                 else:
                     self.logger.warning(f"MCPClientManager: 无效的 MCP 配置: {config}")
-    
+
         @Slot(str, str, list)
         async def perform_action(self, mcp_id: str, tool_name: str, args: list) -> Dict[str, Any]:
             """
@@ -234,7 +234,7 @@ DeepWin/
             if not wrapper:
                 raise ValueError(f"未找到 MCP 服务 '{mcp_id}' 的封装器。")
             return await wrapper.call_tool(tool_name, *args)
-    
+
         @Slot(str, str, dict)
         async def query_resource(self, mcp_id: str, resource_name: str, params: dict) -> Dict[str, Any]:
             """
@@ -247,12 +247,12 @@ DeepWin/
             if not wrapper:
                 raise ValueError(f"未找到 MCP 服务 '{mcp_id}' 的封装器。")
             return await wrapper.query_resource(resource_name, **params)
-    
+
         def cleanup(self):
             for wrapper in self._mcp_wrappers.values():
                 # 异步关闭 HTTP 客户端，确保所有 await 结束
                 try:
-                    asyncio.run(wrapper.close()) 
+                    asyncio.run(wrapper.close())
                 except RuntimeError as e:
                     self.logger.warning(f"清理 MCP wrapper 失败: {e}. 可能在非事件循环中调用异步操作.")
     ```
@@ -281,11 +281,11 @@ DeepWin/
     from fastmcp.client import Client
     from typing import Dict, Any, Optional
     from PySide6.QtCore import QObject, Signal, Slot # 导入 QObject, Signal, Slot
-    
+
     class GenericFastMCPClientWrapper(QObject): # 继承 QObject 以便使用信号槽
         response_ready = Signal(str, dict) # (mcp_id, data)
         error = Signal(str, str) # (mcp_id, error_message)
-    
+
         def __init__(self, mcp_id: str, mcp_url: str, api_key: Optional[str], logger: Any, parent=None):
             super().__init__(parent)
             self.mcp_id = mcp_id
@@ -294,7 +294,7 @@ DeepWin/
             self.logger = logger
             self.client = Client(server_url=mcp_url, api_key=api_key) # fastmcp 客户端实例
             self.logger.info(f"FastMCPClientWrapper for '{mcp_id}' initialized.")
-    
+
         async def call_tool(self, tool_name: str, *args) -> Dict[str, Any]:
             """调用 MCP 服务的 Tool。"""
             try:
@@ -306,8 +306,8 @@ DeepWin/
                     result = await self.client.tools.call(tool_name, city=city)
                 else:
                     # 对于其他通用工具调用
-                    result = await self.client.tools.call(tool_name, *args) 
-    
+                    result = await self.client.tools.call(tool_name, *args)
+
                 self.response_ready.emit(self.mcp_id, {"tool_name": tool_name, "result": result})
                 return result
             except Exception as e:
@@ -315,7 +315,7 @@ DeepWin/
                 self.logger.error(error_msg)
                 self.error.emit(self.mcp_id, error_msg)
                 raise
-    
+
         async def query_resource(self, resource_name: str, **params) -> Dict[str, Any]:
             """查询 MCP 服务的 Resource。"""
             try:
@@ -328,7 +328,7 @@ DeepWin/
                 self.logger.error(error_msg)
                 self.error.emit(self.mcp_id, error_msg)
                 raise
-    
+
         async def close(self):
             """关闭底层 HTTP 客户端连接 (如果 fastmcp 客户端支持)。"""
             # fastmcp client 通常不需要显式关闭，如果底层是 httpx，可能需要
@@ -354,7 +354,7 @@ DeepWin/
     ```
     # services/cloud_communication/mcp_client_wrappers/data_adapters.py
     from typing import Dict, Any, List
-    
+
     class NewsDataAdapter:
         """将 NewsFeedMCP 响应转换为 DeepDiary 统一的新闻数据模型。"""
         @staticmethod
@@ -370,7 +370,7 @@ DeepWin/
                     # ... 更多字段映射
                 })
             return adapted_articles
-    
+
     class WeatherDataAdapter:
         """
         将 Amap Maps MCP 的 maps_weather 工具响应转换为 DeepDiary 统一的天气数据模型。
@@ -434,7 +434,7 @@ DeepWin/
    }
    ```
 
-   *注：`mcp.so` 上的 MCP 服务可能需要其自身的 API Key，请查阅其文档。这里示例 `YOUR_AMAP_API_KEY_FOR_MCP_IF_NEEDED`。*
+   _注：`mcp.so` 上的 MCP 服务可能需要其自身的 API Key，请查阅其文档。这里示例 `YOUR_AMAP_API_KEY_FOR_MCP_IF_NEEDED`。_
 
 3. **实现 `FastMCPClientWrapper`：**
 
@@ -452,26 +452,26 @@ DeepWin/
    import asyncio
    from PySide6.QtCore import QObject, Signal, Slot
    from typing import Dict, Any
-   
+
    # NEW: 导入 MCPClientManager 和 WeatherDataAdapter
-   from src.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
-   from src.services.cloud_communication.mcp_client_wrappers.data_adapters import WeatherDataAdapter
-   from src.data_management.log_manager import LogManager # 假设有LogManager
-   
+   from deepwin.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
+   from deepwin.services.cloud_communication.mcp_client_wrappers.data_adapters import WeatherDataAdapter
+   from deepwin.data_management.log_manager import LogManager # 假设有LogManager
+
    class WeatherManager(QObject):
        weather_info_ready = Signal(dict) # 信号：天气信息已准备好 (adapted_data)
        weather_error = Signal(str)      # 信号：天气查询错误 (error_message)
-   
+
        def __init__(self, mcp_client_manager: MCPClientManager, log_manager: LogManager, parent=None):
            super().__init__(parent)
            self.mcp_client_manager = mcp_client_manager
            self.logger = log_manager.get_logger("WeatherManager")
-   
+
            # 连接 MCPClientManager 的通用错误信号，用于捕获来自 MCP 的错误
            self.mcp_client_manager.mcp_error.connect(self._handle_mcp_error)
            # 对于特定响应，也可以连接 mcp_response_ready 并根据 mcp_id 过滤
            # 但这里我们将直接在 perform_weather_query 中处理结果
-   
+
        @Slot(str)
        def query_city_weather(self, city_name: str):
            """
@@ -484,15 +484,15 @@ DeepWin/
            # 更好的方式是使用 QThreadPool 或 QThread 来运行异步代码
            # 简化起见，这里直接使用 asyncio.create_task (假定已有运行中的事件循环)
            # 或者通过一个 WorkerRunnable 来桥接
-   
+
            # 实际应用中，你可能需要一个 QThreadPool 来运行异步任务
-           # from src.app_logic.core_manager.coordinator import WorkerRunnable # 假设WorkerRunnable可用
+           # from deepwin.app_logic.core_manager.coordinator import WorkerRunnable # 假设WorkerRunnable可用
            # worker = WorkerRunnable(self._async_query_weather, city_name)
            # self.thread_pool.start(worker) # 需要在 __init__ 中注入 thread_pool
-   
+
            # 假设当前环境支持直接调用异步函数 (例如通过 PySide6-Asyncio)
            asyncio.create_task(self._async_query_weather(city_name))
-   
+
        async def _async_query_weather(self, city_name: str):
            """异步执行天气查询逻辑。"""
            try:
@@ -504,17 +504,17 @@ DeepWin/
                    "amap_maps_mcp", "maps_weather", [city_name]
                )
                self.logger.debug(f"WeatherManager: 收到原始天气数据: {raw_weather_data}")
-   
+
                # 使用数据适配器转换数据
                adapted_weather = WeatherDataAdapter.adapt(raw_weather_data)
                self.logger.info(f"WeatherManager: 已获取并适配天气数据: {adapted_weather}")
                self.weather_info_ready.emit(adapted_weather)
-   
+
            except Exception as e:
                error_message = f"查询城市 '{city_name}' 天气失败: {e}"
                self.logger.error(f"WeatherManager: {error_message}")
                self.weather_error.emit(error_message)
-   
+
        @Slot(str, str)
        def _handle_mcp_error(self, mcp_id: str, error_msg: str):
            """处理来自 MCPClientManager 的通用错误。"""
@@ -532,58 +532,58 @@ DeepWin/
    from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel, QMessageBox
    from PySide6.QtCore import Qt, Signal, Slot
    from typing import Dict, Any
-   
+
    # 导入 WeatherManager (业务逻辑)
-   from src.app_logic.weather_manager import WeatherManager # 假设路径正确
-   from src.data_management.log_manager import LogManager # 假设有LogManager
-   
+   from deepwin.app_logic.weather_manager import WeatherManager # 假设路径正确
+   from deepwin.data_management.log_manager import LogManager # 假设有LogManager
+
    # 导入 PySide6-Fluent-Widgets 组件以保持风格一致
    # from qfluentwidgets import LineEdit, PushButton, CardWidget, BodyLabel, SubtitleLabel # 仅作示例，需要实际导入
-   
+
    class WeatherQueryWidget(QWidget):
        # 信号，用于在 GUI 线程中接收异步结果
        _weather_result_received = Signal(dict)
        _weather_error_received = Signal(str)
-   
+
        def __init__(self, weather_manager: WeatherManager, log_manager: LogManager, parent=None):
            super().__init__(parent)
            self.weather_manager = weather_manager
            self.logger = log_manager.get_logger("WeatherQueryWidget")
-   
+
            self._weather_result_received.connect(self._display_weather_info)
            self._weather_error_received.connect(self._show_error_message)
-   
+
            self.init_ui()
            self._setup_connections()
-   
+
        def init_ui(self):
            self.setWindowTitle("天气查询")
            self.layout = QVBoxLayout(self)
-   
+
            # 城市输入
            self.city_input_layout = QHBoxLayout()
            self.city_label = QLabel("城市名称:")
            self.city_input = QLineEdit() # 替换为 Fluent Widgets 的 LineEdit
            self.city_input.setPlaceholderText("请输入城市名称，例如：北京")
            self.query_button = QPushButton("查询天气") # 替换为 Fluent Widgets 的 PushButton
-   
+
            self.city_input_layout.addWidget(self.city_label)
            self.city_input_layout.addWidget(self.city_input)
            self.city_input_layout.addWidget(self.query_button)
            self.layout.addLayout(self.city_input_layout)
-   
+
            # 天气信息显示
            self.weather_display_card = QWidget() # 替换为 Fluent Widgets 的 CardWidget
            self.weather_display_layout = QVBoxLayout(self.weather_display_card)
            self.weather_display_card.setObjectName("WeatherDisplayCard") # 用于QSS样式
-   
+
            self.city_display_label = QLabel("城市: -") # 替换为 Fluent Widgets 的 SubtitleLabel
            self.temperature_label = QLabel("温度: -")
            self.weather_label = QLabel("天气: -")
            self.wind_label = QLabel("风向/风力: -")
            self.humidity_label = QLabel("湿度: -")
            self.report_time_label = QLabel("更新时间: -")
-   
+
            self.weather_display_layout.addWidget(self.city_display_label)
            self.weather_display_layout.addWidget(self.temperature_label)
            self.weather_display_layout.addWidget(self.weather_label)
@@ -591,10 +591,10 @@ DeepWin/
            self.weather_display_layout.addWidget(self.humidity_label)
            self.weather_display_layout.addWidget(self.report_time_label)
            self.weather_display_layout.addStretch(1) # 填充空白
-   
+
            self.layout.addWidget(self.weather_display_card)
            self.layout.addStretch(1) # 填充空白
-   
+
            # 样式 (仅作示例，实际应在QSS文件中定义)
            # self.setStyleSheet("""
            #     #WeatherDisplayCard {
@@ -603,14 +603,14 @@ DeepWin/
            #         padding: 15px;
            #     }
            # """)
-   
+
        def _setup_connections(self):
            self.query_button.clicked.connect(self._on_query_button_clicked)
            # 将 WeatherManager 的信号连接到 WeatherQueryWidget 的内部槽函数，
            # 这些槽函数会发射自定义信号，确保在 GUI 线程中更新 UI
            self.weather_manager.weather_info_ready.connect(self._weather_result_received.emit)
            self.weather_manager.weather_error.connect(self._weather_error_received.emit)
-   
+
        @Slot()
        def _on_query_button_clicked(self):
            city = self.city_input.text().strip()
@@ -621,7 +621,7 @@ DeepWin/
                self.weather_manager.query_city_weather(city)
            else:
                QMessageBox.warning(self, "输入错误", "请输入城市名称。")
-   
+
        @Slot(dict)
        def _display_weather_info(self, adapted_weather: Dict[str, Any]):
            if adapted_weather and not adapted_weather.get("error"):
@@ -633,14 +633,14 @@ DeepWin/
                self.report_time_label.setText(f"更新时间: {adapted_weather.get('reporttime', '-')}")
            else:
                self._show_error_message(adapted_weather.get("error", "未知天气查询错误。"))
-   
+
        @Slot(str)
        def _show_error_message(self, error_message: str):
            self.logger.error(f"UI: 显示错误消息: {error_message}")
            QMessageBox.critical(self, "天气查询错误", f"查询失败: {error_message}")
            self._clear_weather_display()
            self.city_display_label.setText("城市: -") # 重置显示
-   
+
        def _clear_weather_display(self):
            self.temperature_label.setText("温度: -")
            self.weather_label.setText("天气: -")
@@ -654,37 +654,37 @@ DeepWin/
    ```
    # src/app_logic/core_manager/coordinator.py (仅显示关键更新部分)
    # ... 其他导入
-   from src.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
-   from src.app_logic.weather_manager import WeatherManager # NEW: 导入 WeatherManager
-   from src.ui.components.mcp_widgets.weather_query_widget import WeatherQueryWidget # NEW: 导入 WeatherQueryWidget
-   
+   from deepwin.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
+   from deepwin.app_logic.weather_manager import WeatherManager # NEW: 导入 WeatherManager
+   from deepwin.ui.components.mcp_widgets.weather_query_widget import WeatherQueryWidget # NEW: 导入 WeatherQueryWidget
+
    class Coordinator(QObject):
        # ... __init__ 方法
-   
+
        def __init__(self, log_manager: LogManager, parent: Optional[QObject] = None):
            super().__init__(parent)
            self.logger = log_manager.get_logger(__name__)
            # ...
-   
+
            self.config_manager = ConfigManager(log_manager=log_manager)
-   
+
            # 实例化 MCPClientManager
            self.mcp_client_manager = MCPClientManager(log_manager=log_manager, config_manager=self.config_manager) # NEW
            # 实例化 WeatherManager，并传入 mcp_client_manager
            self.weather_manager = WeatherManager(mcp_client_manager=self.mcp_client_manager, log_manager=log_manager) # NEW
-   
+
            self.gui_manager = MockGuiManager(log_manager=log_manager, config_manager=self.config_manager)
-   
+
            # ... 实例化其他服务层组件和设备逻辑管理器
-   
+
            self.logger.info("Coordinator: 正在设置信号和槽连接...")
            self._setup_connections()
            self.logger.info("Coordinator: 信号和槽连接设置完成。")
-   
+
            # 可以在这里（或 main.py）创建并显示 WeatherQueryWidget
            self.weather_widget = WeatherQueryWidget(weather_manager=self.weather_manager, log_manager=log_manager) # NEW
            # self.weather_widget.show() # 如果是独立测试
-   
+
        def _setup_connections(self):
            # ... 现有连接
            # MCPClientManager 的通用信号可以在这里连接到 Coordinator 的 app_status_message
@@ -693,9 +693,9 @@ DeepWin/
            # 例如，如果 MockGuiManager 有一个 update_weather_display 方法
            # self.weather_manager.weather_info_ready.connect(self.gui_manager.update_weather_display)
            # self.weather_manager.weather_error.connect(self.gui_manager.show_weather_error)
-   
+
            # ... 其他模块连接
-   
+
        def cleanup(self):
            # ... 现有清理
            self.mcp_client_manager.cleanup() # NEW: 清理 MCPClientManager

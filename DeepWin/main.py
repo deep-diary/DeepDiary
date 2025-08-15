@@ -6,12 +6,12 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QThreadPool # 用于管理后台任务
 
 # 配置matplotlib（必须在导入其他模块之前）
-from src.app_logic.device_logic_manager.devices.deep_motor.matplotlib_config import configure_matplotlib_globally
+from deepwin.app_logic.device_logic_manager.devices.deep_motor.matplotlib_config import configure_matplotlib_globally
 configure_matplotlib_globally()
 
 # 导入 DeepWin 核心组件
-from src.app_logic.core_manager.coordinator import Coordinator
-from src.data_management.log_manager import LogManager # 导入日志管理器
+from deepwin.app_logic.core_manager.coordinator import Coordinator
+from deepwin.data_management.log_manager import LogManager # 导入日志管理器
 
 def main():
     """
@@ -51,9 +51,5 @@ def main():
     sys.exit(exit_code)
 
 if __name__ == "__main__":
-    # 确保 src 目录在 Python 路径中，以便正确导入模块
-    # 在实际项目中，这通常通过构建系统或 IDE 配置来处理
-    # 这里为了演示方便，手动添加
-    if 'src' not in sys.path:
-        sys.path.insert(0, 'src')
+    # 不再需要手动添加路径，包安装后会自动处理
     main()

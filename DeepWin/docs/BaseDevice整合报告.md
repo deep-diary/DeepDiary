@@ -54,13 +54,13 @@ device_models.py (已删除)
 **更新前**：
 
 ```python
-from src.app_logic.device_logic_manager.device_models import BaseDeviceState, DeviceStatus
+from deepwin.app_logic.device_logic_manager.device_models import BaseDeviceState, DeviceStatus
 ```
 
 **更新后**：
 
 ```python
-from src.app_logic.device_logic_manager.devices.base_device import BaseDeviceState, DeviceStatus
+from deepwin.app_logic.device_logic_manager.devices.base_device import BaseDeviceState, DeviceStatus
 ```
 
 ## 📊 整合效果
@@ -155,7 +155,7 @@ devices/
 
    ```python
    # devices/new_device/state_model.py
-   from src.app_logic.device_logic_manager.devices.base_device import BaseDeviceState
+   from deepwin.app_logic.device_logic_manager.devices.base_device import BaseDeviceState
 
    @dataclass
    class NewDeviceState(BaseDeviceState):
@@ -167,7 +167,7 @@ devices/
 
    ```python
    # devices/new_device/new_device.py
-   from src.app_logic.device_logic_manager.devices.base_device import BaseDevice, DeviceStatus
+   from deepwin.app_logic.device_logic_manager.devices.base_device import BaseDevice, DeviceStatus
    from .state_model import NewDeviceState
 
    class NewDevice(BaseDevice):

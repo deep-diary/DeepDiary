@@ -49,14 +49,14 @@ def reinstall_deepwin():
     try:
         # 测试导入
         import src
-        print(f"✅ src包导入成功: {src.__file__}")
+        print(f"✅ src包导入成功: {deepwin.__file__}")
         
         # 测试子模块导入
         from src import services, data_management
         print("✅ 子模块导入成功")
         
         # 测试具体功能
-        from src.data_management.log_manager import LogManager
+        from deepwin.data_management.log_manager import LogManager
         print("✅ LogManager导入成功")
         
     except ImportError as e:
@@ -68,7 +68,7 @@ def reinstall_deepwin():
     print("\n现在您可以使用以下方式导入:")
     print("  import src")
     print("  from src import services, data_management")
-    print("  from src.data_management.log_manager import LogManager")
+    print("  from deepwin.data_management.log_manager import LogManager")
     
     return True
 

@@ -13,10 +13,10 @@ setup(
     description="DeepWin - AI-powered device management system",
     long_description=read_readme(),
     long_description_content_type="text/markdown",
-    # 修改这里：直接使用 find_packages() 而不是 find_packages(where="src")
-    packages=find_packages(),
-    # 删除 package_dir 配置
-    # package_dir={"": "src"},
+    # 修改这里：使用 find_packages(where="deepwin") 来找到deepwin目录下的包
+    packages=find_packages(where="deepwin"),
+    # 添加 package_dir 配置，指定包的根目录
+    package_dir={"": "deepwin"},
     install_requires=[
         "PySide6>=6.6.0",
         "PySide6-Fluent-Widgets>=1.4.0",

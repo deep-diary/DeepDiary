@@ -46,9 +46,9 @@ DeepMotor 类现在支持历史记录功能，可以自动保存每次状态更�
 ### 初始化
 
 ```python
-from src.app_logic.device_logic_manager.devices.deep_motor.deep_motor import DeepMotor
-from src.data_management.log_manager import LogManager
-from src.data_management.config_manager import ConfigManager
+from deepwin.app_logic.device_logic_manager.devices.deep_motor.deep_motor import DeepMotor
+from deepwin.data_management.log_manager import LogManager
+from deepwin.data_management.config_manager import ConfigManager
 
 # 初始化管理器
 log_manager = LogManager()
