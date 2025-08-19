@@ -1,0 +1,33 @@
+# DeepWin Database Module Dependencies
+# 数据库模块依赖包
+
+# SQLAlchemy ORM
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+
+# SQLAlchemy Utils (扩展数据类型和功能)
+sqlalchemy-utils>=0.41.0
+# 包含功能：
+# - EmailType, PhoneNumberType, CountryType
+# - TimestampMixin (自动时间戳)
+# - SoftDeleteMixin (软删除)
+# - AuditMixin (审计日志)
+# - URLType, IPAddressType, ColorType
+# - JSONType, UUIDType
+
+# Qdrant Vector Database
+qdrant-client>=1.7.0
+
+# LangChain Integration
+langchain-community>=0.0.20
+langchain-core>=0.1.0
+
+# PySide6 for Qt integration
+pyside6>=6.5.0
+
+# Async support
+asyncio-mqtt>=0.16.0
+
+# Additional utilities
+python-dateutil>=2.8.2
+pydantic>=2.0.0

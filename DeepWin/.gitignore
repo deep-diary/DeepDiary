@@ -1,0 +1,106 @@
+# DeepWin 项目 .gitignore 文件
+
+# 数据库文件（只忽略真正的数据库文件，不忽略源代码）
+database/sqlite/*.db
+database/sqlite/*.sqlite
+database/sqlite/*.sqlite3
+database/sqlite/*.db.backup
+database/sqlite/*.sqlite.backup
+database/qdrant/collection/
+database/qdrant/.lock
+database/qdrant/meta.json
+database/backup/
+database/logs/
+
+# 旧的数据库文件位置
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db.backup
+*.sqlite.backup
+
+# 日志文件
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# 单元测试 / 覆盖率报告
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# 环境变量
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 操作系统
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.temp
+temp/
+tmp/
+
+# 配置文件（包含敏感信息）
+config_local.json
+secrets.json
+*.key
+*.pem
+
+# 备份文件
+*.bak
+*.backup
+backup/
