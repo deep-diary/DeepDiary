@@ -11,8 +11,11 @@ from sqlalchemy import Column, Integer, DateTime, text, event, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_method, hybrid_property
 from sqlalchemy.sql import func
-
+from sqlalchemy_utils import Timestamp # 自动添加created_at/updated_at
+from sqlalchemy_utils import generic_repr, force_auto_coercion
+from sqlalchemy_utils.types import ScalarListType
 from ...config_manager import ConfigManager
+from ...log_manager import LogManager
 
 # 创建SQLAlchemy基类
 Base = declarative_base()
@@ -21,10 +24,14 @@ Base = declarative_base()
 class BaseModel:
     """数据模型基类，使用组合模式，避免SQLAlchemy继承问题"""
     
-    def __init__(self, config_manager: ConfigManager, **kwargs):
+    def __init__(self, config_manager: ConfigManager = None, log_manager: LogManager = None, **kwargs):
+        # 首先初始化变更检测相关的属性
+        self._changed_fields = set()
+        self._original_values = {}
+        
         # 设置配置管理器
         self.config_manager = config_manager
-        self.logger = config_manager.logger
+        self.logger = log_manager.get_logger(__name__) if log_manager else None
         
         # 设置属性值
         for key, value in kwargs.items():
@@ -33,7 +40,6 @@ class BaseModel:
         
         # 记录原始值用于变更检测
         self._original_values = self._get_current_values()
-        self._changed_fields = set()
 
     def has_changes(self) -> bool:
         """检查模型是否有变更"""
@@ -119,7 +125,7 @@ class BaseModel:
 
 
 # 创建基础字段的Mixin类
-class CommonFieldsMixin:
+class CommonFieldsMixin(Timestamp):
     """通用字段Mixin，提供基础字段定义"""
     
     id = Column(
@@ -129,18 +135,18 @@ class CommonFieldsMixin:
         comment='主键ID'
     )
     
-    created_at = Column(
-        DateTime,
-        server_default=func.now(),
-        comment='创建时间'
-    )
+    # created_at = Column(
+    #     DateTime,
+    #     server_default=func.now(),
+    #     comment='创建时间'
+    # )
     
-    updated_at = Column(
-        DateTime,
-        server_default=func.now(),
-        onupdate=func.current_timestamp(),
-        comment='更新时间'
-    )
+    # updated_at = Column(
+    #     DateTime,
+    #     server_default=func.now(),
+    #     onupdate=func.current_timestamp(),
+    #     comment='更新时间'
+    # )
     
     # 软删除字段
     deleted_at = Column(

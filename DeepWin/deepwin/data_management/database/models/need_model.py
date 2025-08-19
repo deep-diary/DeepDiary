@@ -12,7 +12,8 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from .base_model import BaseModel
-
+from ...config_manager import ConfigManager
+from ...log_manager import LogManager
 
 class NeedModel(BaseModel):
     """需求模型类，使用SQLAlchemy ORM，支持混合方法和关系"""
@@ -118,8 +119,8 @@ class NeedModel(BaseModel):
     # 关系定义
     user = relationship("UserModel", back_populates="needs")
 
-    def __init__(self, config_manager, **kwargs):
-        super().__init__(config_manager, **kwargs)
+    def __init__(self, config_manager: ConfigManager = None, log_manager: LogManager = None, **kwargs):
+        super().__init__(config_manager, log_manager, **kwargs)
 
     def validate(self) -> bool:
         """验证模型数据"""
@@ -262,10 +263,11 @@ class NeedModel(BaseModel):
         return ', '.join(tags_list) if tags_list else '无标签'
 
     @classmethod
-    def create_sample_need(cls, config_manager, user_id: int):
+    def create_sample_need(cls, config_manager=None, log_manager=None, user_id: int = 1):
         """创建示例需求"""
         return cls(
             config_manager=config_manager,
+            log_manager=log_manager,
             user_id=user_id,
             title="提升专业技能",
             description="学习新的编程语言和框架，提升技术能力",

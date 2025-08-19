@@ -12,6 +12,8 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from .base_model import BaseModel
+from ...config_manager import ConfigManager
+from ...log_manager import LogManager
 
 
 class ResourceModel(BaseModel):
@@ -98,8 +100,8 @@ class ResourceModel(BaseModel):
     # 关系定义
     user = relationship("UserModel", back_populates="resources")
 
-    def __init__(self, config_manager, **kwargs):
-        super().__init__(config_manager, **kwargs)
+    def __init__(self, config_manager: ConfigManager = None, log_manager: LogManager = None, **kwargs):
+        super().__init__(config_manager, log_manager, **kwargs)
 
     def validate(self) -> bool:
         """验证模型数据"""
@@ -254,10 +256,9 @@ class ResourceModel(BaseModel):
         return ', '.join(tags_list) if tags_list else '无标签'
 
     @classmethod
-    def create_sample_resource(cls, config_manager, user_id: int):
+    def create_sample_resource(cls, user_id: int):
         """创建示例资源"""
         return cls(
-            config_manager=config_manager,
             user_id=user_id,
             title="Python编程技能",
             description="熟练掌握Python语言及其常用库",

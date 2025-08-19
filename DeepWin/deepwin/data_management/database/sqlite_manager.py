@@ -185,8 +185,11 @@ class SQLiteManager(BaseDatabase):
     async def _init_tables(self):
         """初始化数据库表"""
         try:
-            # 导入所有模型以确保表被创建
-            from .models import UserModel, NeedModel, ResourceModel, PhotoModel
+            # 延迟导入模型以避免循环依赖
+            from .models import get_all_models
+            
+            # 获取所有模型以确保表被创建
+            models = get_all_models()
             
             # 创建所有表
             from .models.base_model import Base

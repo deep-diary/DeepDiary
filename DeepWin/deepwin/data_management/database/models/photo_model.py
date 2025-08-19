@@ -13,6 +13,8 @@ from sqlalchemy.sql import func
 from sqlalchemy_utils import URLType, IPAddressType, ColorType, JSONType
 
 from .base_model import BaseModel
+from ...config_manager import ConfigManager
+from ...log_manager import LogManager
 
 
 class PhotoModel(BaseModel):
@@ -115,8 +117,8 @@ class PhotoModel(BaseModel):
     # 关系定义
     user = relationship("UserModel", back_populates="photos")
 
-    def __init__(self, config_manager, **kwargs):
-        super().__init__(config_manager, **kwargs)
+    def __init__(self, config_manager: ConfigManager = None, log_manager: LogManager = None, **kwargs):
+        super().__init__(config_manager, log_manager, **kwargs)
 
     def validate(self) -> bool:
         """验证模型数据"""
@@ -319,10 +321,9 @@ class PhotoModel(BaseModel):
         return default
 
     @classmethod
-    def create_sample_photo(cls, config_manager, user_id: int):
+    def create_sample_photo(cls, user_id: int):
         """创建示例照片"""
         return cls(
-            config_manager=config_manager,
             user_id=user_id,
             file_path="/photos/sample.jpg",
             file_name="sample.jpg",

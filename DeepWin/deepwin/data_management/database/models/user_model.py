@@ -13,7 +13,8 @@ from sqlalchemy.sql import func
 from sqlalchemy_utils import EmailType, PhoneNumberType, CountryType, URLType, ColorType
 
 from .base_model import BaseModel, CommonFieldsMixin, Base
-
+from ...config_manager import ConfigManager
+from ...log_manager import LogManager
 
 class UserModel(CommonFieldsMixin, Base, BaseModel):
     """用户模型类，使用SQLAlchemy ORM，支持混合方法和关系"""
@@ -104,20 +105,21 @@ class UserModel(CommonFieldsMixin, Base, BaseModel):
     )
     
     # 状态信息
-    is_active = Column(
+    status_active = Column(
         Boolean,
         default=True,
         comment='是否激活'
     )
     
-    # 关系定义
-    needs = relationship("NeedModel", back_populates="user", cascade="all, delete-orphan")
-    resources = relationship("ResourceModel", back_populates="user", cascade="all, delete-orphan")
-    photos = relationship("PhotoModel", back_populates="user", cascade="all, delete-orphan")
+    # 关系定义 - 注释掉以避免循环依赖问题
+    # 外键关系已经足够，反向关系在子模型中定义
+    # needs = relationship("NeedModel", back_populates="user", cascade="all, delete-orphan", lazy="dynamic")
+    # resources = relationship("ResourceModel", back_populates="user", cascade="all, delete-orphan", lazy="dynamic")
+    # photos = relationship("PhotoModel", back_populates="user", cascade="all, delete-orphan", lazy="dynamic")
 
-    def __init__(self, config_manager, **kwargs):
+    def __init__(self, config_manager: ConfigManager = None, log_manager: LogManager = None, **kwargs):
         # 初始化BaseModel
-        BaseModel.__init__(self, config_manager, **kwargs)
+        BaseModel.__init__(self, config_manager, log_manager, **kwargs)
 
     def validate(self) -> bool:
         """验证模型数据"""
@@ -205,7 +207,9 @@ class UserModel(CommonFieldsMixin, Base, BaseModel):
         """检查是否为国际用户（非中国）"""
         if not self.country:
             return False
-        return self.country.code != 'CN'
+        # 处理 CountryType 和字符串两种情况
+        country_code = self.country.code if hasattr(self.country, 'code') else str(self.country)
+        return country_code != 'CN'
 
     @is_international_user.expression
     def is_international_user(cls):
@@ -243,10 +247,11 @@ class UserModel(CommonFieldsMixin, Base, BaseModel):
         return func.coalesce(cls.theme_color, '') != ''
 
     @classmethod
-    def create_sample_user(cls, config_manager):
+    def create_sample_user(cls, config_manager=None, log_manager=None):
         """创建示例用户"""
         return cls(
             config_manager=config_manager,
+            log_manager=log_manager,
             username="张三",
             email="zhangsan@example.com",
             phone="+86-138-0013-8000",
@@ -257,14 +262,16 @@ class UserModel(CommonFieldsMixin, Base, BaseModel):
             position="软件工程师",
             avatar_path="/avatars/zhangsan.jpg",
             website="https://zhangsan.dev",
-            theme_color="#3B82F6"
+            theme_color="#3B82F6",
+            status_active=True
         )
 
     @classmethod
-    def create_international_user(cls, config_manager):
+    def create_international_user(cls, config_manager=None, log_manager=None):
         """创建国际用户示例"""
         return cls(
             config_manager=config_manager,
+            log_manager=log_manager,
             username="John Smith",
             email="john.smith@company.com",
             phone="+1-555-123-4567",
@@ -275,5 +282,6 @@ class UserModel(CommonFieldsMixin, Base, BaseModel):
             position="Senior Engineer",
             avatar_path="/avatars/john.jpg",
             website="https://johnsmith.dev",
-            theme_color="#10B981"
+            theme_color="#10B981",
+            status_active=True
         )

@@ -13,11 +13,22 @@ from .log_manager import LogManager
 from .local_database import LocalDatabaseManager
 from .config_manager import ConfigManager
 
+# Database management classes
+from .database import (
+    BaseDatabase, SQLiteManager, QdrantManager, 
+    DatabaseFactory, DatabaseCoordinator
+)
+
 # Export main classes for easy access
 __all__ = [
     'LogManager',
     'LocalDatabaseManager',
     'ConfigManager',
+    'BaseDatabase',
+    'SQLiteManager',
+    'QdrantManager',
+    'DatabaseFactory',
+    'DatabaseCoordinator',
 ]
 
 # Version info
