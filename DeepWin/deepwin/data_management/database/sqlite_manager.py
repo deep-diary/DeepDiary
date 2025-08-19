@@ -220,3 +220,160 @@ class SQLiteManager(BaseDatabase):
         """关闭异步会话"""
         if session:
             await session.close()
+
+    # CRUD操作方法
+    async def create(self, model_class, data: Dict[str, Any]):
+        """创建新记录"""
+        if not self.is_connected:
+            raise ConnectionError("数据库未连接")
+        
+        try:
+            async with self.AsyncSessionLocal() as session:
+                # 创建模型实例
+                instance = model_class(**data)
+                session.add(instance)
+                await session.commit()
+                await session.refresh(instance)
+                
+                self.operation_completed.emit(self.name, f"创建{model_class.__name__}成功")
+                self.logger.info(f"创建{model_class.__name__}成功: {instance.id}")
+                return instance
+                
+        except Exception as e:
+            self.logger.error(f"创建{model_class.__name__}失败: {e}")
+            self.error_occurred.emit(self.name, f"创建失败: {e}")
+            return None
+
+    async def get_by_id(self, model_class, record_id: int):
+        """根据ID获取记录"""
+        if not self.is_connected:
+            raise ConnectionError("数据库未连接")
+        
+        try:
+            async with self.AsyncSessionLocal() as session:
+                instance = await session.get(model_class, record_id)
+                if instance:
+                    self.logger.info(f"查询{model_class.__name__}成功: {record_id}")
+                return instance
+                
+        except Exception as e:
+            self.logger.error(f"查询{model_class.__name__}失败: {e}")
+            self.error_occurred.emit(self.name, f"查询失败: {e}")
+            return None
+
+    async def update(self, model_class, record_id: int, data: Dict[str, Any]):
+        """更新记录"""
+        if not self.is_connected:
+            raise ConnectionError("数据库未连接")
+        
+        try:
+            async with self.AsyncSessionLocal() as session:
+                # 先查询现有记录
+                instance = await session.get(model_class, record_id)
+                if not instance:
+                    self.logger.warning(f"要更新的{model_class.__name__}不存在: {record_id}")
+                    return None
+                
+                # 简化更新：使用SQLAlchemy标准方式更新
+                for key, value in data.items():
+                    if hasattr(instance, key):
+                        # 绕过所有自定义逻辑，直接更新
+                        instance.__dict__[key] = value
+                
+                # 标记实例为dirty，确保SQLAlchemy知道需要更新
+                session.add(instance)
+                
+                # 提交更改
+                await session.commit()
+                await session.refresh(instance)
+                
+                self.operation_completed.emit(self.name, f"更新{model_class.__name__}成功")
+                self.logger.info(f"更新{model_class.__name__}成功: {record_id}")
+                return instance
+                
+        except Exception as e:
+            self.logger.error(f"更新{model_class.__name__}失败: {e}")
+            self.error_occurred.emit(self.name, f"更新失败: {e}")
+            return None
+
+    async def delete(self, model_class, record_id: int) -> bool:
+        """删除记录"""
+        if not self.is_connected:
+            raise ConnectionError("数据库未连接")
+        
+        try:
+            async with self.AsyncSessionLocal() as session:
+                instance = await session.get(model_class, record_id)
+                if not instance:
+                    self.logger.warning(f"要删除的{model_class.__name__}不存在: {record_id}")
+                    return False
+                
+                await session.delete(instance)
+                await session.commit()
+                
+                self.operation_completed.emit(self.name, f"删除{model_class.__name__}成功")
+                self.logger.info(f"删除{model_class.__name__}成功: {record_id}")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"删除{model_class.__name__}失败: {e}")
+            self.error_occurred.emit(self.name, f"删除失败: {e}")
+            return False
+
+    async def get_all(self, model_class, limit: Optional[int] = None, offset: int = 0):
+        """获取所有记录"""
+        if not self.is_connected:
+            raise ConnectionError("数据库未连接")
+        
+        try:
+            async with self.AsyncSessionLocal() as session:
+                from sqlalchemy import select
+                
+                stmt = select(model_class)
+                if offset > 0:
+                    stmt = stmt.offset(offset)
+                if limit:
+                    stmt = stmt.limit(limit)
+                
+                result = await session.execute(stmt)
+                instances = result.scalars().all()
+                
+                self.logger.info(f"查询{model_class.__name__}列表成功: {len(instances)}条记录")
+                return instances
+                
+        except Exception as e:
+            self.logger.error(f"查询{model_class.__name__}列表失败: {e}")
+            self.error_occurred.emit(self.name, f"查询列表失败: {e}")
+            return []
+
+    async def filter(self, model_class, filters: Dict[str, Any], limit: Optional[int] = None, offset: int = 0):
+        """根据条件过滤记录"""
+        if not self.is_connected:
+            raise ConnectionError("数据库未连接")
+        
+        try:
+            async with self.AsyncSessionLocal() as session:
+                from sqlalchemy import select
+                
+                stmt = select(model_class)
+                
+                # 应用过滤条件
+                for field, value in filters.items():
+                    if hasattr(model_class, field):
+                        stmt = stmt.where(getattr(model_class, field) == value)
+                
+                if offset > 0:
+                    stmt = stmt.offset(offset)
+                if limit:
+                    stmt = stmt.limit(limit)
+                
+                result = await session.execute(stmt)
+                instances = result.scalars().all()
+                
+                self.logger.info(f"过滤{model_class.__name__}成功: {len(instances)}条记录")
+                return instances
+                
+        except Exception as e:
+            self.logger.error(f"过滤{model_class.__name__}失败: {e}")
+            self.error_occurred.emit(self.name, f"过滤失败: {e}")
+            return []

@@ -12,12 +12,12 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from sqlalchemy_utils import URLType, IPAddressType, ColorType, JSONType
 
-from .base_model import BaseModel
+from .base_model import BaseModel, CommonFieldsMixin, Base
 from ...config_manager import ConfigManager
 from ...log_manager import LogManager
 
 
-class PhotoModel(BaseModel):
+class PhotoModel(CommonFieldsMixin, Base, BaseModel):
     """照片模型类，使用SQLAlchemy ORM，支持混合方法和关系"""
     
     __tablename__ = 'photos'
@@ -108,17 +108,28 @@ class PhotoModel(BaseModel):
         comment='主要颜色（自动验证颜色格式）'
     )
     
-    metadata = Column(
+    photo_metadata = Column(
         JSONType,
         nullable=True,
         comment='照片元数据（JSON格式）'
     )
     
     # 关系定义
-    user = relationship("UserModel", back_populates="photos")
+    user = relationship("UserModel")
 
-    def __init__(self, config_manager: ConfigManager = None, log_manager: LogManager = None, **kwargs):
-        super().__init__(config_manager, log_manager, **kwargs)
+    def __init__(self, **kwargs):
+        # 初始化BaseModel的属性
+        self._changed_fields = set()
+        self._original_values = {}
+        
+        # 直接设置属性，避免构造函数冲突
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        
+        # 记录原始值用于变更检测
+        if hasattr(self, '__table__'):
+            self._original_values = self._get_current_values()
 
     def validate(self) -> bool:
         """验证模型数据"""
@@ -276,12 +287,12 @@ class PhotoModel(BaseModel):
     @hybrid_method
     def has_metadata(self) -> bool:
         """检查是否有元数据"""
-        return bool(self.metadata)
+        return bool(self.photo_metadata)
 
     @has_metadata.expression
     def has_metadata(cls):
         """数据库表达式版本"""
-        return func.coalesce(cls.metadata, '') != ''
+        return func.coalesce(cls.photo_metadata, '') != ''
 
     def add_tag(self, tag: str):
         """添加标签"""
@@ -310,14 +321,14 @@ class PhotoModel(BaseModel):
 
     def set_metadata(self, key: str, value: Any):
         """设置元数据"""
-        if self.metadata is None:
-            self.metadata = {}
-        self.metadata[key] = value
+        if self.photo_metadata is None:
+            self.photo_metadata = {}
+        self.photo_metadata[key] = value
 
     def get_metadata(self, key: str, default: Any = None) -> Any:
         """获取元数据"""
-        if self.metadata and key in self.metadata:
-            return self.metadata[key]
+        if self.photo_metadata and key in self.photo_metadata:
+            return self.photo_metadata[key]
         return default
 
     @classmethod
@@ -336,7 +347,7 @@ class PhotoModel(BaseModel):
             source_url="https://example.com/photo",
             device_ip="192.168.1.100",
             dominant_color="#FF6B6B",
-            metadata={
+            photo_metadata={
                 "camera": "iPhone 13",
                 "iso": 100,
                 "shutter_speed": "1/60",

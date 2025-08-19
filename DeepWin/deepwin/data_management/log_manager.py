@@ -19,7 +19,7 @@ class LogManager:
             cls._instance = super(LogManager, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, log_dir="logs", log_file_name="deepwin"):
+    def __init__(self, log_dir="logs", log_file_name="deepwin", console_level=logging.INFO, file_level=logging.DEBUG):
         if self._initialized:
             return
 
@@ -33,22 +33,22 @@ class LogManager:
 
         # 配置根 logger
         self.root_logger = logging.getLogger()
-        self.root_logger.setLevel(logging.DEBUG) # 默认最低级别
+        self.root_logger.setLevel(logging.DEBUG) # 根级别保持DEBUG，让handlers控制输出
 
         # 避免重复添加 handlers
         if not self.root_logger.handlers:
-            # 文件处理器
+            # 文件处理器 - 保持DEBUG级别，记录所有日志
             file_handler = logging.FileHandler(self.log_file_path, encoding='utf-8')
-            file_handler.setLevel(logging.DEBUG)
+            file_handler.setLevel(file_level)
             file_formatter = logging.Formatter(
                 '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(funcName)s:%(lineno)d - %(message)s'
             )
             file_handler.setFormatter(file_formatter)
             self.root_logger.addHandler(file_handler)
 
-            # 控制台处理器
+            # 控制台处理器 - 默认INFO级别，减少控制台输出
             console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setLevel(logging.DEBUG)
+            console_handler.setLevel(console_level)
             console_formatter = logging.Formatter(
                 '%(levelname)s - %(filename)s:%(funcName)s - %(message)s'
             )
@@ -67,3 +67,35 @@ class LogManager:
             logging.Logger: logger 实例。
         """
         return logging.getLogger(name)
+    
+    def set_console_level(self, level: int):
+        """
+        设置控制台日志级别
+        Args:
+            level (int): 日志级别，如 logging.INFO, logging.WARNING, logging.ERROR
+        """
+        for handler in self.root_logger.handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                handler.setLevel(level)
+                self.get_logger(__name__).info(f"控制台日志级别已设置为: {logging.getLevelName(level)}")
+    
+    def set_file_level(self, level: int):
+        """
+        设置文件日志级别
+        Args:
+            level (int): 日志级别，如 logging.DEBUG, logging.INFO, logging.WARNING
+        """
+        for handler in self.root_logger.handlers:
+            if isinstance(handler, logging.FileHandler):
+                handler.setLevel(level)
+                self.get_logger(__name__).info(f"文件日志级别已设置为: {logging.getLevelName(level)}")
+    
+    def set_all_levels(self, console_level: int, file_level: int):
+        """
+        同时设置控制台和文件的日志级别
+        Args:
+            console_level (int): 控制台日志级别
+            file_level (int): 文件日志级别
+        """
+        self.set_console_level(console_level)
+        self.set_file_level(file_level)
