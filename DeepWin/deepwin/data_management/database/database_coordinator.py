@@ -24,7 +24,7 @@ class DatabaseCoordinator(QObject):
     transaction_started = Signal(list)  # 事务开始
     transaction_committed = Signal(list)  # 事务提交
     transaction_rollback = Signal(list)  # 事务回滚
-    operation_completed = Signal(str, str)  # 操作完成
+    data_operation_completed = Signal(str, str)  # 数据操作完成（增删改查、同步等）
     error_occurred = Signal(str, str)  # 错误发生
 
     def __init__(self, config_manager: ConfigManager, log_manager: LogManager, parent=None):
@@ -70,14 +70,19 @@ class DatabaseCoordinator(QObject):
             
             # 创建Qdrant数据库
             if 'qdrant' in db_configs:
+                # 使用内存模式避免文件冲突
+                qdrant_config = db_configs.get('qdrant', {}).copy()
+                qdrant_config['local_path'] = None  # 不使用本地文件路径
+                qdrant_config['use_memory'] = True  # 使用内存模式
+                
                 qdrant_db = self.factory.create_database(
                     'qdrant', 
                     'qdrant_main',
-                    **db_configs.get('qdrant', {})
+                    **qdrant_config
                 )
                 if qdrant_db:
                     self.databases['qdrant'] = qdrant_db
-                    self.logger.info("Qdrant数据库创建成功")
+                    self.logger.info("Qdrant数据库创建成功（内存模式）")
             
             self.logger.info(f"数据库设置完成，共创建 {len(self.databases)} 个数据库")
             
@@ -103,6 +108,7 @@ class DatabaseCoordinator(QObject):
             
             if success_count == total_count:
                 self.databases_connected.emit(list(self.databases.keys()))
+                self.data_operation_completed.emit("connect_all", f"所有数据库连接成功: {success_count}/{total_count}")
                 self.logger.info(f"所有数据库连接成功: {success_count}/{total_count}")
                 return True
             else:
@@ -132,6 +138,7 @@ class DatabaseCoordinator(QObject):
             
             if success_count == total_count:
                 self.databases_disconnected.emit(list(self.databases.keys()))
+                self.data_operation_completed.emit("disconnect_all", f"所有数据库断开连接成功: {success_count}/{total_count}")
                 self.logger.info(f"所有数据库断开连接成功: {success_count}/{total_count}")
                 return True
             else:
@@ -281,7 +288,7 @@ class DatabaseCoordinator(QObject):
                     if not await self.commit_transaction():
                         raise RuntimeError("事务提交失败")
                 
-                self.operation_completed.emit("cross_database", f"成功执行 {len(operations)} 个操作")
+                self.data_operation_completed.emit("cross_database", f"成功执行 {len(operations)} 个操作")
                 return results
                 
             except Exception as e:

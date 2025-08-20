@@ -4,11 +4,13 @@
 # 完善模块协调和事件分发逻辑。
 
 from PySide6.QtCore import QObject, Signal, Slot, QThreadPool, QTimer
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 import time
 import os
 import importlib
 import inspect
+import asyncio
+import concurrent.futures
 from deepwin.app_logic.core_manager.base_handler import BaseHandler
 
 # 导入公共的 WorkerRunnable 和 WorkerSignals，以解决循环导入问题
@@ -36,6 +38,9 @@ from deepwin.services.cloud_communication.api_client import CloudApiClient
 from deepwin.services.voice_communication.voice_manager import VoiceManager
 from deepwin.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
 from deepwin.app_logic.weather_manager import WeatherManager
+from datetime import datetime
+from deepwin.data_management.database.sqlite_manager import SQLiteManager
+from deepwin.data_management.database.qdrant_manager import QdrantManager
 
 class Coordinator(QObject):
     """
@@ -69,20 +74,20 @@ class Coordinator(QObject):
         # 1. 初始化配置管理器
         self.config_manager = ConfigManager(log_manager=log_manager)
 
-        # 2. 初始化管理器
+        # 2. 初始化管理器（包括数据库管理器，会自动初始化数据库）
         self.init_managers()
 
-        # 4. 初始化处理器
+        # 3. 初始化处理器
         self.init_handlers()
 
-        # 5. 启动定时任务 (例如：数据同步) TODO: 暂时不启动, 目前代码启动后会异常退出
+        # 4. 启动定时任务 (例如：数据同步) TODO: 暂时不启动, 目前代码启动后会异常退出
         # self.setup_initial_tasks()
 
-        # 6. 启动应用程序
+        # 5. 启动应用程序
         self.start_application()
 
         self.logger.info("Coordinator: 初始化完成。")
-
+    
     def init_managers(self):
         """
         初始化管理器
@@ -104,7 +109,7 @@ class Coordinator(QObject):
         # ----------------------------------------------------------------------
         self.task_scheduler = TaskScheduler(log_manager=self.log_manager, thread_pool=self.thread_pool)
         self.cloud_api_client = CloudApiClient(log_manager=self.log_manager)
-        self.local_database_manager = LocalDatabaseManager(log_manager=self.log_manager)
+        self.local_database_manager = LocalDatabaseManager(log_manager=self.log_manager, config_manager=self.config_manager)
         self.gui_manager = GuiManager(log_manager=self.log_manager, config_manager=self.config_manager) # GUI 管理器用于管理 UI 视图
 
 
@@ -119,6 +124,21 @@ class Coordinator(QObject):
         self.mcp_client_manager = MCPClientManager(log_manager=self.log_manager, config_manager=self.config_manager) # NEW
         # 实例化 WeatherManager，并传入 mcp_client_manager
         self.weather_manager = WeatherManager(mcp_client_manager=self.mcp_client_manager, log_manager=self.log_manager) # NEW
+
+        # 实例化数据库管理器
+        # 注意：LocalDatabaseManager在创建时会自动初始化数据库
+        # 这里只需要获取数据库实例即可
+        self.sqlite_db: Optional[SQLiteManager] = None
+        self.qdrant_db: Optional[QdrantManager] = None
+        self.local_database_manager = LocalDatabaseManager(log_manager=self.log_manager, config_manager=self.config_manager)
+        
+        # 获取数据库实例（数据库已经初始化完成）
+        if self.local_database_manager.is_ready:
+            self.sqlite_db = self.local_database_manager.coordinator.get_database('sqlite')
+            self.qdrant_db = self.local_database_manager.coordinator.get_database('qdrant')
+            self.logger.info(f"Coordinator: 数据库实例获取成功: {self.sqlite_db} {self.qdrant_db}")
+        else:
+            self.logger.warning("Coordinator: 数据库未就绪，实例获取失败")
 
     def init_handlers(self):
         """
@@ -197,7 +217,7 @@ class Coordinator(QObject):
                         if (inspect.isclass(obj) and 
                             issubclass(obj, BaseHandler) and 
                             obj != BaseHandler):
-                            
+                            self.logger.info(f"Coordinator: 开始初始化处理器--------------------------------: {name}")
                             # 创建处理器实例
                             handler_instance = obj(parent=self)
                             
@@ -211,7 +231,7 @@ class Coordinator(QObject):
                             handler_name = name.lower()
                             self.handlers[handler_name] = handler_instance
                             
-                            self.logger.info(f"Coordinator: 成功初始化处理器: {name}")
+                            self.logger.info(f"Coordinator: 成功初始化处理器--------------------------------: {name}")
                             
                 except Exception as e:
                     self.logger.error(f"Coordinator: 初始化处理器 {module_name} 失败: {e}")
@@ -220,9 +240,13 @@ class Coordinator(QObject):
     def start_application(self):
         """启动应用程序"""
         self.logger.info("Coordinator: 启动应用程序...")
-        self.voice_manager.add_task_to_queue('text', text='将电机位置调大些')
+        # self.voice_manager.add_task_to_queue('text', text='将电机位置调大些')
         # self.voice_manager.add_task_to_queue('transcript', text='转录测试任务1')
         # self.voice_manager.start_voice_conversation()
+        # 发送数据库准备就绪信号, 让数据库handler 开始创建示例数据, 初始化的时候，由于handler 还没初始化，所以信号发不出来
+        self.local_database_manager.database_ready.emit()
+        
+        
         self.agent_manager.start_agents()
         self.logger.info("Coordinator: 应用程序启动完成。")
 

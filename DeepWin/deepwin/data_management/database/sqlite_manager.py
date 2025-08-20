@@ -197,183 +197,144 @@ class SQLiteManager(BaseDatabase):
             self.logger.info("SQLite表结构初始化完成")
         except Exception as e:
             self.logger.error(f"表结构初始化失败: {e}")
-            raise
 
-    def get_session(self):
+    @property
+    def session(self):
         """获取同步会话"""
-        if not self.SessionLocal:
+        if not self.is_connected:
             raise ConnectionError("数据库未连接")
         return self.SessionLocal()
 
-    async def get_async_session(self):
+    @property
+    def async_session(self):
         """获取异步会话"""
-        if not self.AsyncSessionLocal:
+        if not self.is_connected:
             raise ConnectionError("数据库未连接")
         return self.AsyncSessionLocal()
 
-    def close_session(self, session):
-        """关闭同步会话"""
-        if session:
-            session.close()
-
-    async def close_async_session(self, session):
-        """关闭异步会话"""
-        if session:
-            await session.close()
-
-    # CRUD操作方法
-    async def create(self, model_class, data: Dict[str, Any]):
-        """创建新记录"""
+    async def insert_model(self, model_instance) -> bool:
+        """插入模型实例"""
         if not self.is_connected:
-            raise ConnectionError("数据库未连接")
+            return False
         
         try:
             async with self.AsyncSessionLocal() as session:
-                # 创建模型实例
-                instance = model_class(**data)
-                session.add(instance)
+                session.add(model_instance)
                 await session.commit()
-                await session.refresh(instance)
-                
-                self.operation_completed.emit(self.name, f"创建{model_class.__name__}成功")
-                self.logger.info(f"创建{model_class.__name__}成功: {instance.id}")
-                return instance
-                
-        except Exception as e:
-            self.logger.error(f"创建{model_class.__name__}失败: {e}")
-            self.error_occurred.emit(self.name, f"创建失败: {e}")
-            return None
-
-    async def get_by_id(self, model_class, record_id: int):
-        """根据ID获取记录"""
-        if not self.is_connected:
-            raise ConnectionError("数据库未连接")
-        
-        try:
-            async with self.AsyncSessionLocal() as session:
-                instance = await session.get(model_class, record_id)
-                if instance:
-                    self.logger.info(f"查询{model_class.__name__}成功: {record_id}")
-                return instance
-                
-        except Exception as e:
-            self.logger.error(f"查询{model_class.__name__}失败: {e}")
-            self.error_occurred.emit(self.name, f"查询失败: {e}")
-            return None
-
-    async def update(self, model_class, record_id: int, data: Dict[str, Any]):
-        """更新记录"""
-        if not self.is_connected:
-            raise ConnectionError("数据库未连接")
-        
-        try:
-            async with self.AsyncSessionLocal() as session:
-                # 先查询现有记录
-                instance = await session.get(model_class, record_id)
-                if not instance:
-                    self.logger.warning(f"要更新的{model_class.__name__}不存在: {record_id}")
-                    return None
-                
-                # 简化更新：使用SQLAlchemy标准方式更新
-                for key, value in data.items():
-                    if hasattr(instance, key):
-                        # 绕过所有自定义逻辑，直接更新
-                        instance.__dict__[key] = value
-                
-                # 标记实例为dirty，确保SQLAlchemy知道需要更新
-                session.add(instance)
-                
-                # 提交更改
-                await session.commit()
-                await session.refresh(instance)
-                
-                self.operation_completed.emit(self.name, f"更新{model_class.__name__}成功")
-                self.logger.info(f"更新{model_class.__name__}成功: {record_id}")
-                return instance
-                
-        except Exception as e:
-            self.logger.error(f"更新{model_class.__name__}失败: {e}")
-            self.error_occurred.emit(self.name, f"更新失败: {e}")
-            return None
-
-    async def delete(self, model_class, record_id: int) -> bool:
-        """删除记录"""
-        if not self.is_connected:
-            raise ConnectionError("数据库未连接")
-        
-        try:
-            async with self.AsyncSessionLocal() as session:
-                instance = await session.get(model_class, record_id)
-                if not instance:
-                    self.logger.warning(f"要删除的{model_class.__name__}不存在: {record_id}")
-                    return False
-                
-                await session.delete(instance)
-                await session.commit()
-                
-                self.operation_completed.emit(self.name, f"删除{model_class.__name__}成功")
-                self.logger.info(f"删除{model_class.__name__}成功: {record_id}")
+                self.logger.info(f"模型实例插入成功: {type(model_instance).__name__}")
                 return True
-                
         except Exception as e:
-            self.logger.error(f"删除{model_class.__name__}失败: {e}")
-            self.error_occurred.emit(self.name, f"删除失败: {e}")
+            self.logger.error(f"模型实例插入失败: {e}")
             return False
 
-    async def get_all(self, model_class, limit: Optional[int] = None, offset: int = 0):
-        """获取所有记录"""
+    async def insert_models(self, model_instances: List) -> bool:
+        """批量插入模型实例"""
         if not self.is_connected:
-            raise ConnectionError("数据库未连接")
+            return False
         
         try:
             async with self.AsyncSessionLocal() as session:
-                from sqlalchemy import select
-                
-                stmt = select(model_class)
-                if offset > 0:
-                    stmt = stmt.offset(offset)
-                if limit:
-                    stmt = stmt.limit(limit)
-                
-                result = await session.execute(stmt)
-                instances = result.scalars().all()
-                
-                self.logger.info(f"查询{model_class.__name__}列表成功: {len(instances)}条记录")
-                return instances
-                
+                session.add_all(model_instances)
+                await session.commit()
+                self.logger.info(f"批量插入成功: {len(model_instances)} 个实例")
+                return True
         except Exception as e:
-            self.logger.error(f"查询{model_class.__name__}列表失败: {e}")
-            self.error_occurred.emit(self.name, f"查询列表失败: {e}")
+            self.logger.error(f"批量插入失败: {e}")
+            return False
+
+    async def query_models(self, model_class, filters: Optional[Dict] = None) -> List:
+        """查询模型实例"""
+        if not self.is_connected:
+            return []
+        
+        try:
+            async with self.AsyncSessionLocal() as session:
+                query = session.query(model_class)
+                
+                # 应用过滤器
+                if filters:
+                    for key, value in filters.items():
+                        if hasattr(model_class, key):
+                            query = query.filter(getattr(model_class, key) == value)
+                
+                result = await session.execute(query)
+                return result.scalars().all()
+        except Exception as e:
+            self.logger.error(f"查询模型失败: {e}")
             return []
 
-    async def filter(self, model_class, filters: Dict[str, Any], limit: Optional[int] = None, offset: int = 0):
-        """根据条件过滤记录"""
+    async def get_table_info(self) -> Dict[str, Any]:
+        """获取表信息"""
         if not self.is_connected:
-            raise ConnectionError("数据库未连接")
+            return {}
         
         try:
             async with self.AsyncSessionLocal() as session:
-                from sqlalchemy import select
+                # 获取所有表名
+                result = await session.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))
+                tables = [row[0] for row in result.fetchall()]
                 
-                stmt = select(model_class)
+                table_info = {}
+                for table in tables:
+                    # 获取表结构
+                    result = await session.execute(text(f"PRAGMA table_info({table})"))
+                    columns = result.fetchall()
+                    table_info[table] = {
+                        'columns': [col[1] for col in columns],
+                        'column_count': len(columns)
+                    }
                 
-                # 应用过滤条件
-                for field, value in filters.items():
-                    if hasattr(model_class, field):
-                        stmt = stmt.where(getattr(model_class, field) == value)
-                
-                if offset > 0:
-                    stmt = stmt.offset(offset)
-                if limit:
-                    stmt = stmt.limit(limit)
-                
-                result = await session.execute(stmt)
-                instances = result.scalars().all()
-                
-                self.logger.info(f"过滤{model_class.__name__}成功: {len(instances)}条记录")
-                return instances
-                
+                return table_info
         except Exception as e:
-            self.logger.error(f"过滤{model_class.__name__}失败: {e}")
-            self.error_occurred.emit(self.name, f"过滤失败: {e}")
-            return []
+            self.logger.error(f"获取表信息失败: {e}")
+            return {}
+
+    async def get_record_count(self, table_name: str) -> int:
+        """获取表的记录数"""
+        if not self.is_connected:
+            return 0
+        
+        try:
+            async with self.AsyncSessionLocal() as session:
+                result = await session.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+                count = result.scalar()
+                return count or 0
+        except Exception as e:
+            self.logger.error(f"获取记录数失败: {e}")
+            return 0
+
+    def insert_model_sync(self, model_instance) -> bool:
+        """同步插入模型实例"""
+        if not self.is_connected:
+            return False
+        try:
+            with self.session as session:
+                session.add(model_instance)
+                session.commit()
+                self.logger.info(f"模型实例同步插入成功: {type(model_instance).__name__}")
+                # 发送操作完成信号
+                self.operation_completed.emit(self.name, f"插入成功: {type(model_instance).__name__}")
+                return True
+        except Exception as e:
+            self.logger.error(f"模型实例同步插入失败: {e}")
+            # 发送错误信号
+            self.error_occurred.emit(self.name, f"插入失败: {e}")
+            return False
+
+    def insert_models_sync(self, model_instances: List) -> bool:
+        """同步插入多个模型实例"""
+        if not self.is_connected:
+            return False
+        try:
+            with self.session as session:
+                session.add_all(model_instances)
+                session.commit()
+                self.logger.info(f"批量模型实例同步插入成功: {len(model_instances)} 个")
+                # 发送操作完成信号
+                self.operation_completed.emit(self.name, f"批量插入成功: {len(model_instances)} 个")
+                return True
+        except Exception as e:
+            self.logger.error(f"批量模型实例同步插入失败: {e}")
+            # 发送错误信号
+            self.error_occurred.emit(self.name, f"批量插入失败: {e}")
+            return False

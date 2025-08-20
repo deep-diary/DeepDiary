@@ -27,6 +27,8 @@ from deepwin.services.voice_communication.voice_manager import VoiceManager
 
 from deepwin.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
 from deepwin.app_logic.weather_manager import WeatherManager
+from deepwin.data_management.database.sqlite_manager import SQLiteManager
+from deepwin.data_management.database.qdrant_manager import QdrantManager
 
 # 避免循环导入
 if TYPE_CHECKING:
@@ -70,6 +72,10 @@ class BaseHandler(QObject):
         self.task_scheduler: Optional[TaskScheduler] = None
         self.mcp_client_manager: Optional[MCPClientManager] = None
         self.weather_manager: Optional[WeatherManager] = None
+
+        # 数据库管理器
+        self.sqlite_db: Optional[SQLiteManager] = None
+        self.qdrant_db: Optional[QdrantManager] = None
         
         # 线程池
         self.thread_pool: Optional[QThreadPool] = None
@@ -106,10 +112,11 @@ class BaseHandler(QObject):
         self.weather_manager = coordinator.weather_manager
         
         # 设置语音管理器（新增）
-        if hasattr(coordinator, 'voice_manager'):
-            self.voice_manager = coordinator.voice_manager
-        else:
-            self.voice_manager = None
+        self.voice_manager = coordinator.voice_manager
+
+        # 设置数据库管理器
+        self.sqlite_db = coordinator.sqlite_db
+        self.qdrant_db = coordinator.qdrant_db
         
         # 设置线程池
         self.thread_pool = coordinator.thread_pool

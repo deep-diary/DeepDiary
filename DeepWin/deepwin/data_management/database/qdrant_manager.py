@@ -30,6 +30,7 @@ class QdrantManager(BaseDatabase):
         self.port = kwargs.get('port', config_manager.get('database.qdrant.port', 6333))
         self.local_path = kwargs.get('local_path', config_manager.get('database.qdrant.local_path', None))
         self.api_key = kwargs.get('api_key', config_manager.get('database.qdrant.api_key', None))
+        self.use_memory = kwargs.get('use_memory', False)  # 新增：内存模式标志
         
         # 客户端和集合
         self.client = None
@@ -51,9 +52,41 @@ class QdrantManager(BaseDatabase):
     async def connect(self) -> bool:
         """连接到Qdrant数据库"""
         try:
-            if self.local_path:
-                self.client = QdrantClient(path=self.local_path)
-                self.logger.info(f"连接到本地Qdrant数据库: {self.local_path}")
+            # 如果已经有连接，先断开
+            if self.client:
+                await self.disconnect()
+            
+            # 优先使用内存模式
+            if self.use_memory:
+                self.client = QdrantClient(":memory:")
+                self.logger.info("使用内存模式Qdrant数据库")
+            # 检查本地路径是否存在，如果不存在则创建
+            elif self.local_path:
+                os.makedirs(self.local_path, exist_ok=True)
+                
+                # 尝试连接到本地Qdrant数据库
+                try:
+                    self.client = QdrantClient(path=self.local_path)
+                    # 测试连接
+                    self.client.get_collections()
+                    self.logger.info(f"连接到本地Qdrant数据库: {self.local_path}")
+                except Exception as local_error:
+                    self.logger.warning(f"本地Qdrant连接失败: {local_error}")
+                    # 如果本地连接失败，尝试使用HTTP模式
+                    try:
+                        self.client = QdrantClient(
+                            host="localhost",
+                            port=6333,
+                            prefer_grpc=False  # 使用HTTP模式
+                        )
+                        # 测试连接
+                        self.client.get_collections()
+                        self.logger.info(f"通过HTTP模式连接到Qdrant: localhost:6333")
+                    except Exception as http_error:
+                        self.logger.warning(f"HTTP模式连接也失败: {http_error}")
+                        # 最后尝试使用内存模式
+                        self.client = QdrantClient(":memory:")
+                        self.logger.info("使用内存模式Qdrant数据库")
             else:
                 self.client = QdrantClient(
                     host=self.host,
@@ -75,6 +108,52 @@ class QdrantManager(BaseDatabase):
         except Exception as e:
             self.logger.error(f"Qdrant数据库连接失败: {e}")
             self.error_occurred.emit(self.name, str(e))
+            return False
+    
+    async def _start_local_qdrant_service(self) -> bool:
+        """启动本地Qdrant服务"""
+        try:
+            # 检查是否已经有Qdrant进程在运行
+            if self._is_qdrant_running():
+                self.logger.info("Qdrant服务已在运行")
+                return True
+            
+            # 启动本地Qdrant服务
+            self.logger.info("启动本地Qdrant服务...")
+            
+            # 使用subprocess启动Qdrant
+            cmd = ["qdrant", "--storage-path", self.local_path]
+            self.web_ui_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+            
+            # 等待服务启动
+            await asyncio.sleep(3)
+            
+            # 检查服务是否启动成功
+            if self.web_ui_process.poll() is None:
+                self.logger.info("本地Qdrant服务启动成功")
+                return True
+            else:
+                self.logger.error("本地Qdrant服务启动失败")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"启动本地Qdrant服务失败: {e}")
+            return False
+    
+    def _is_qdrant_running(self) -> bool:
+        """检查Qdrant服务是否在运行"""
+        try:
+            # 尝试连接到默认端口
+            test_client = QdrantClient(host="localhost", port=6333)
+            test_client.get_collections()
+            test_client.close()
+            return True
+        except:
             return False
 
     async def disconnect(self) -> bool:
@@ -269,6 +348,209 @@ class QdrantManager(BaseDatabase):
         """为指定集合设置embeddings"""
         if collection_name in self.langchain_stores:
             self.langchain_stores[collection_name].embeddings = embeddings
+
+    async def _ensure_collection_exists(self, collection_name: str, vector_size: int) -> bool:
+        """确保集合存在，如果不存在则创建"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return False
+            
+            # 检查集合是否存在
+            collections = self.client.get_collections()
+            existing_collections = [col.name for col in collections.collections]
+            
+            if collection_name not in existing_collections:
+                # 创建新集合
+                from qdrant_client.models import VectorParams, Distance
+                
+                self.client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE
+                    )
+                )
+                self.logger.info(f"创建集合: {collection_name}")
+            else:
+                self.logger.info(f"集合已存在: {collection_name}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"确保集合存在失败 {collection_name}: {e}")
+            return False
+
+    async def insert_vector(self, collection_name: str, vector_id: str, vector: List[float], payload: Dict[str, Any] = None) -> bool:
+        """插入单个向量"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return False
+            
+            # 确保集合存在
+            await self._ensure_collection_exists(collection_name, len(vector))
+            
+            # 创建点结构
+            point = PointStruct(
+                id=vector_id,
+                vector=vector,
+                payload=payload or {}
+            )
+            
+            # 插入向量
+            self.client.upsert(
+                collection_name=collection_name,
+                points=[point]
+            )
+            
+            self.logger.info(f"向量插入成功: {collection_name}/{vector_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"向量插入失败: {e}")
+            return False
+
+    async def insert_vectors(self, collection_name: str, vectors: List[Dict[str, Any]]) -> bool:
+        """批量插入向量"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return False
+            
+            if not vectors:
+                self.logger.warning("没有向量数据需要插入")
+                return True
+            
+            # 确保集合存在
+            vector_size = len(vectors[0].get('vector', []))
+            await self._ensure_collection_exists(collection_name, vector_size)
+            
+            # 创建点结构列表
+            points = []
+            for vector_data in vectors:
+                point = PointStruct(
+                    id=vector_data.get('id'),
+                    vector=vector_data.get('vector'),
+                    payload=vector_data.get('payload', {})
+                )
+                points.append(point)
+            
+            # 批量插入
+            self.client.upsert(
+                collection_name=collection_name,
+                points=points
+            )
+            
+            self.logger.info(f"批量向量插入成功: {collection_name}/{len(points)} 个向量")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"批量向量插入失败: {e}")
+            return False
+
+    async def search_vectors(self, collection_name: str, query_vector: List[float], limit: int = 10, score_threshold: float = 0.0) -> List[Dict[str, Any]]:
+        """搜索向量"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return []
+            
+            # 执行向量搜索
+            search_result = self.client.search(
+                collection_name=collection_name,
+                query_vector=query_vector,
+                limit=limit,
+                score_threshold=score_threshold
+            )
+            
+            # 转换结果格式
+            results = []
+            for point in search_result:
+                results.append({
+                    'id': point.id,
+                    'score': point.score,
+                    'payload': point.payload,
+                    'vector': point.vector
+                })
+            
+            self.logger.info(f"向量搜索完成: {collection_name}, 找到 {len(results)} 个结果")
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"向量搜索失败: {e}")
+            return []
+
+    async def delete_vector(self, collection_name: str, vector_id: str) -> bool:
+        """删除向量"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return False
+            
+            self.client.delete(
+                collection_name=collection_name,
+                points_selector=[vector_id]
+            )
+            
+            self.logger.info(f"向量删除成功: {collection_name}/{vector_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"向量删除失败: {e}")
+            return False
+
+    async def get_collection_info(self, collection_name: str) -> Dict[str, Any]:
+        """获取集合信息"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return {}
+            
+            info = self.client.get_collection(collection_name)
+            return {
+                'name': info.name,
+                'vectors_count': info.vectors_count,
+                'points_count': info.points_count,
+                'segments_count': info.segments_count,
+                'config': {
+                    'vector_size': info.config.params.vectors.size,
+                    'distance': info.config.params.vectors.distance
+                }
+            }
+            
+        except Exception as e:
+            self.logger.error(f"获取集合信息失败: {e}")
+            return {}
+
+    async def get_all_collections(self) -> List[str]:
+        """获取所有集合名称"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return []
+            
+            collections = self.client.get_collections()
+            return [col.name for col in collections.collections]
+            
+        except Exception as e:
+            self.logger.error(f"获取集合列表失败: {e}")
+            return []
+
+    async def delete_collection(self, collection_name: str) -> bool:
+        """删除集合"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return False
+            
+            self.client.delete_collection(collection_name)
+            self.logger.info(f"集合删除成功: {collection_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"集合删除失败: {e}")
+            return False
 
     # ==================== Web UI 管理方法 ====================
     
@@ -1010,3 +1292,48 @@ class QdrantManager(BaseDatabase):
             html += f"<option value='{name}'>{name}</option>"
         
         return html
+
+    def insert_vector_sync(self, collection_name: str, vector_id: str, vector: List[float], payload: Dict[str, Any] = None) -> bool:
+        """同步插入向量"""
+        try:
+            if not self.is_connected:
+                self.logger.error("Qdrant数据库未连接")
+                return False
+            
+            # 确保集合存在
+            if not self._ensure_collection_exists_sync(collection_name, len(vector)):
+                return False
+            
+            point = PointStruct(id=vector_id, vector=vector, payload=payload or {})
+            self.client.upsert(collection_name=collection_name, points=[point])
+            self.logger.info(f"向量同步插入成功: {collection_name}/{vector_id}")
+            # 发送操作完成信号
+            self.operation_completed.emit(self.name, f"向量插入成功: {collection_name}/{vector_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"向量同步插入失败: {e}")
+            # 发送错误信号
+            self.error_occurred.emit(self.name, f"向量插入失败: {e}")
+            return False
+    
+    def _ensure_collection_exists_sync(self, collection_name: str, vector_size: int) -> bool:
+        """同步确保集合存在"""
+        try:
+            # 检查集合是否存在
+            collections = self.client.get_collections()
+            collection_names = [col.name for col in collections.collections]
+            
+            if collection_name not in collection_names:
+                # 创建新集合
+                self.client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
+                )
+                self.logger.info(f"创建新集合: {collection_name}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"确保集合存在失败: {e}")
+            return False
