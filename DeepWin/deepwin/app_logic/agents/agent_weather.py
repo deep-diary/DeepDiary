@@ -10,6 +10,7 @@ import json
 from langchain_core.tools import tool
 from langchain.agents import create_tool_calling_agent, tool, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 
 load_dotenv(dotenv_path="../../../.env", override=True) 
 
@@ -20,7 +21,10 @@ print(f"DeepSeek_API_KEY: {DeepSeek_API_KEY}")  # 可以通过打印查看
 
 
 #----------------------------------------------------------------------------------
-@tool
+class WeatherQuery(BaseModel):
+    loc: str = Field(description="The location name of the city")
+
+@tool(args_schema = WeatherQuery)
 def get_weather(loc):
     """
     查询即时天气函数
