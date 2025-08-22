@@ -1,0 +1,20 @@
+{
+  "keyboard": {
+    "enabled": true,
+    "poll_interval": 0.1
+  },
+  "mouse": {
+    "enabled": true,
+    "poll_interval": 0.1
+  },
+  "handlers": {
+    "camera": {
+      "enabled": true,
+      "priority": 1
+    },
+    "image": {
+      "enabled": true,
+      "priority": 2
+    }
+  }
+}

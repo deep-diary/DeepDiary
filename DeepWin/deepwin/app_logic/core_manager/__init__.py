@@ -30,6 +30,9 @@ from .handler.hardware_communication import HardwareCommunicationHandler
 from .handler.memory_processing import MemoryProcessingHandler
 from .handler.voice_communication import VoiceCommunicationHandler
 
+# Input handling
+from .input_handling.input_manager import InputManager
+
 # Export main classes for easy access
 __all__ = [
     # Core coordination
@@ -53,6 +56,9 @@ __all__ = [
     'HardwareCommunicationHandler',
     'MemoryProcessingHandler',
     'VoiceCommunicationHandler',
+    
+    # Input handling
+    'InputManager',
 ]
 
 # Version info

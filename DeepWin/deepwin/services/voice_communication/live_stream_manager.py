@@ -15,7 +15,7 @@ from PySide6.QtCore import QObject, Signal
 # 导入摄像头管理器 - 使用相对导入提高兼容性
 from .camera_manager import CameraManager
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 # 导入必要的类
 from dashscope.multimodal.multimodal_request_params import RequestToRespondParameters
 

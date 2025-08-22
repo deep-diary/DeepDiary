@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Union, Optional
 from PySide6.QtCore import QObject, Signal, QMetaObject
 
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 
 class ProtocolParserMeta(ABCMeta, type(QObject)):

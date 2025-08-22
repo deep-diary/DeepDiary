@@ -11,7 +11,7 @@ from ..common.translator import Translator
 from .gallery_interface import GalleryInterface
 from .device_pages import DeepMotorPage, DeepArmPage, DeepToyPage, SerialConfigWidget
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 class DeviceCard(CardWidget):
     """ 设备卡片 """

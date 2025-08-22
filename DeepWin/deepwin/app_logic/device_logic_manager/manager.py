@@ -7,7 +7,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 from typing import Dict, Any, Optional, List
 
 from ...data_management.log_manager import LogManager
-from ...data_management.config_manager import ConfigManager
+from ...config.config_manager import ConfigManager
 from .devices.base_device import BaseDevice
 
 # 直接从具体模块导入，避免循环导入

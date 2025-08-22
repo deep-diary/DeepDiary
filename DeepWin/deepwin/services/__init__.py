@@ -18,6 +18,9 @@ from .hardware_communication.serial_communicator import SerialCommunicator
 # Voice communication services
 from .voice_communication.voice_manager import VoiceManager
 
+# System processing services
+from .system_processing.system_info_manager import SystemInfoManager
+
 # Export main classes for easy access
 __all__ = [
     # Cloud communication
@@ -29,6 +32,9 @@ __all__ = [
     
     # Voice communication
     'VoiceManager',
+    
+    # System processing
+    'SystemInfoManager',
 ]
 
 # Version info

@@ -1,0 +1,55 @@
+{
+  "canvas": {
+    "output_folder": "output/processed_folder/canvas",
+    "min_images": 20,
+    "target_aspect": 0.5625,
+    "min_width": 800,
+    "resize_method": "LANCZOS",
+    "background_color": "white"
+  },
+  "collage": {
+    "output_folder": "output/processed_folder/collage",
+    "min_images": 20,
+    "target_aspect": 0.5625,
+    "min_width": 800,
+    "background_color": [255, 255, 255]
+  },
+  "rename": {
+    "output_folder": "output/processed_folder/rename",
+    "prefix": "pre",
+    "suffix": "tail",
+    "start_number": 1,
+    "include_date": true,
+    "remove_original_name": true,
+    "create_copy": true
+  },
+  "duplicate": {
+    "output_folder": "output/processed_folder/duplicate",
+    "move_duplicates": true,
+    "min_size": 1024,
+    "save_report": true
+  },
+  "classifier": {
+    "output_folder": "output/processed_folder/classifier",
+    "create_copy": false,
+    "save_report": true,
+    "file_types": {
+      "Images": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff"],
+      "Documents": [
+        ".doc",
+        ".docx",
+        ".pdf",
+        ".txt",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx"
+      ],
+      "Audio": [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg"],
+      "Video": [".mp4", ".avi", ".mkv", ".mov", ".wmv", ".flv"],
+      "Archives": [".zip", ".rar", ".7z", ".tar", ".gz"],
+      "Code": [".py", ".java", ".cpp", ".h", ".js", ".html", ".css"],
+      "Others": []
+    }
+  }
+}

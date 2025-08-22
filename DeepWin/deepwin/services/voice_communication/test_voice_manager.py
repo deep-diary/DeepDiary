@@ -18,7 +18,7 @@ sys.path.insert(0, str(project_root))
 
 # 导入必要的模块
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from deepwin.services.voice_communication.voice_manager import VoiceManager
 
 # 配置日志

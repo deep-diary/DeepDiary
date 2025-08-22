@@ -50,24 +50,11 @@ from .transcript_manager import TranscriptManager
 from .live_stream_manager import LiveStreamManager
 
 
-import dotenv
-
 # 导入项目相关模块
 from ...data_management.log_manager import LogManager
-from ...data_management.config_manager import ConfigManager
+from ...config.config_manager import ConfigManager
 from .TMultiModalConversation import TMultiModalConversation
 
-# 尝试加载环境变量文件，支持多种路径
-env_paths = [
-    os.path.join(os.path.dirname(__file__), '..', '..', '..', '.env'),  # DeepWin/.env
-    os.path.join(os.path.dirname(__file__), '..', '..', '.env'),       # DeepWin/src/.env
-    '.env'  # 当前工作目录
-]
-
-for env_path in env_paths:
-    if os.path.exists(env_path):
-        dotenv.load_dotenv(dotenv_path=env_path)
-        break
 
 # 配置常量
 AUDIO_CHUNK_SIZE = 3200
@@ -182,11 +169,15 @@ class VoiceManager(QObject):
         try:
             # 尝试从配置文件加载
             voice_config = self.config_manager.get('voice', {})
+            APP_ID = os.getenv("APP_ID")
+            WORKSPACE_ID = os.getenv("WORKSPACE_ID")
+            DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
+            self.logger.info(f"APP_ID: {APP_ID}, WORKSPACE_ID: {WORKSPACE_ID}, DASHSCOPE_API_KEY: {DASHSCOPE_API_KEY}")
             
             # 设置默认值
-            self.app_id = voice_config.get('app_id') or os.getenv("APP_ID")
-            self.workspace_id = voice_config.get('workspace_id') or os.getenv("WORKSPACE_ID")
-            self.api_key = voice_config.get('api_key') or os.getenv("DASHSCOPE_API_KEY")
+            self.app_id = voice_config.get('app_id') or APP_ID
+            self.workspace_id = voice_config.get('workspace_id') or WORKSPACE_ID
+            self.api_key = voice_config.get('api_key') or DASHSCOPE_API_KEY
             
             # 语音参数
             self.voice_name = voice_config.get('voice_name', 'longxiaochun_v2')

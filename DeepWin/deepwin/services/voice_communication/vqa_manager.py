@@ -15,7 +15,7 @@ from dashscope.multimodal.multimodal_request_params import (
     Device, RequestToRespondParameters,BizParams
 )
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 class VQAManager(QObject):
     """VQA功能管理器"""

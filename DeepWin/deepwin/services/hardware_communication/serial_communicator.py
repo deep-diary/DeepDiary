@@ -7,7 +7,7 @@ import re # 用于模拟简单的串口数据解析
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from typing import Dict, Any, Optional, Union, List, Tuple
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 import random
 
 

@@ -76,7 +76,7 @@ pip install -r requirements.txt
 ```python
 from voice_manager import VoiceManager
 from data_management.log_manager import LogManager
-from data_management.config_manager import ConfigManager
+from config.config_manager import ConfigManager
 
 # 创建管理器实例
 log_manager = LogManager()

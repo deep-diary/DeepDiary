@@ -1,0 +1,89 @@
+# DeepWin Configuration File (YAML Format)
+# 支持YAML格式的配置文件，更易读易维护
+
+general:
+  theme: "light"
+  language: "zh_CN"
+  auto_sync_interval_minutes: 60
+  data_storage_path: "data/"
+
+device_settings:
+  deeparm:
+    serial_port: "COM11"
+    baud_rate: 115200
+    can_bustype: "virtual"
+    dbc_path: "deeparm.dbc"
+    dbc_name: "deep_arm"
+
+  deepmotor:
+    serial_port: "COM16"
+    baud_rate: 115200
+    history_length: 100
+    teaching_interval: 0.1
+    trajectory_interp_freq: 50
+    can_bustype: "virtual"
+    dbc_name: "deep_motor"
+    default_pos_step: 0.1
+
+network:
+  server_address: "localhost:8000"
+  mqtt:
+    broker_host: "localhost"
+    broker_port: 1883
+
+ai_settings:
+  image_recognition_enabled: true
+  voice_recognition_enabled: true
+  llm_api_key: "your_llm_api_key_here"
+
+voice:
+  app_id: ""
+  workspace_id: ""
+  api_key: ""
+  voice_name: "longxiaochun_v2"
+  sample_rate: 48000
+  audio_chunk_size: 3200
+  websocket_url: "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+  model_name: "multimodal-dialog"
+  conversation_mode: "duplex"
+
+database:
+  sqlite:
+    path: "database/sqlite/deepwin_demo.db"
+    echo: false
+    pool_size: 10
+    max_overflow: 20
+    backup_path: "database/backup/"
+    log_path: "database/logs/"
+
+  qdrant:
+    local_path: "database/qdrant/demo"
+    host: "localhost"
+    port: 6333
+    api_key: null
+    backup_path: "database/backup/qdrant/"
+    vector_sizes:
+      user_embeddings: 1536
+      photo_embeddings: 512
+      memory_embeddings: 1536
+
+mcp_services:
+  - id: "news_feed_mcp"
+    url: "https://api.some-news-mcp.com/v1"
+    api_key: "YOUR_NEWS_API_KEY"
+    type: "external_news"
+
+  - id: "amap_maps_mcp"
+    url: "https://mcp.so/server/amap-maps/amap"
+    api_key: "fd18a18f74ff824346df1d1c7185f07f"
+    type: "external_maps"
+
+  - id: "deepserver_memory_mcp"
+    url: "https://your-deepserver-ip/mcp"
+    api_key: "YOUR_DEEPSERVER_MCP_API_KEY"
+    type: "internal_memory_resource"
+
+# 环境特定配置
+environment: "development"
+debug_mode: true
+log_level: "INFO"

@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional, Union, List
 from PySide6.QtCore import QObject, Signal, Slot
 
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 # 导入基础协议解析器
 from deepwin.services.hardware_communication.device_protocols.base_protocol_parser import BaseProtocolParser

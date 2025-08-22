@@ -8,7 +8,7 @@ from qfluentwidgets import FluentStyleSheet
 
 from ..common.translator import Translator
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 
 class ResourceCard(CardWidget):

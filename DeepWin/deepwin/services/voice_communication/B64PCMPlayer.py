@@ -5,7 +5,7 @@ import threading
 import queue
 import base64
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 class B64PCMPlayer:
     """

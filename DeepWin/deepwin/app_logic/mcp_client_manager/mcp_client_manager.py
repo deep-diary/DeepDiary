@@ -1,7 +1,7 @@
 from PySide6.QtCore import QObject, Signal, Slot
 from typing import Dict, Any
 import asyncio
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from deepwin.data_management.log_manager import LogManager
 from deepwin.services.cloud_communication.mcp_client_wrappers.generic_mcp_wrapper import GenericFastMCPClientWrapper
 

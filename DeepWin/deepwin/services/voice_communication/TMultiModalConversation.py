@@ -32,7 +32,7 @@ from .ListeningStateMonitor import ListeningStateMonitor
 from .B64PCMPlayer import B64PCMPlayer
 from .ChatCallback import ChatCallback
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 # 导入B64PCMPlayer用于音频播放
 import pyaudio

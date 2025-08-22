@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, TYPE_CHECKING
 from abc import ABC, abstractmethod
 
 # 导入应用逻辑层的各个管理器/处理器
-from deepwin.app_logic.memory_processing.image_video_processing.processor import ImageVideoProcessor
+from deepwin.app_logic.memory_processing.image_processing.processor import ImageVideoProcessor
 from deepwin.app_logic.resource_demand_manager.manager import ResourceDemandManager
 from deepwin.app_logic.device_logic_manager.manager import DeviceLogicManager
 from deepwin.app_logic.ai_coordinator.coordinator import AICoordinator
@@ -15,7 +15,7 @@ from deepwin.app_logic.core_manager.task_scheduler import TaskScheduler # 导入
 
 from deepwin.data_management.local_database import LocalDatabaseManager
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 from deepwin.ui.gui_manager import GuiManager
 

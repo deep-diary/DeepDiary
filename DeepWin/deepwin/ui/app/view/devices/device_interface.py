@@ -12,7 +12,7 @@ from deepwin.ui.app.view.gallery_interface import GalleryInterface
 from .base_device_page import SerialConfigWidget
 from .device_page_manager import DevicePageManager
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from deepwin.ui.app.view.devices.deep_motor.deep_motor_page import DeepMotorPage
 from deepwin.ui.app.view.devices.deep_arm.deep_arm_page import DeepArmPage
 from deepwin.ui.app.view.devices.deep_toy.deep_toy_page import DeepToyPage

@@ -8,7 +8,7 @@
 from typing import Optional, Dict, Any, Callable
 from PySide6.QtCore import QObject, Signal
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 class TranscriptManager(QObject):
     """文本转录管理器"""

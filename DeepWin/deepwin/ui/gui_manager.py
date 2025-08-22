@@ -5,7 +5,7 @@
 
 # 导入协调器（T类）以建立通信连接
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 import os
 import sys

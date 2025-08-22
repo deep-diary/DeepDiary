@@ -13,7 +13,7 @@ import base64
 from typing import Optional, Callable, Dict, Any
 from PySide6.QtCore import QObject, Signal, QThread
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 class CameraManager(QObject):
     """摄像头管理器"""

@@ -8,7 +8,7 @@ import logging
 import os
 
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from deepwin.app_logic.device_logic_manager.devices.base_device import BaseDevice
 from deepwin.app_logic.device_logic_manager.devices.base_device import DeviceStatus
 from .state_model import DeepMotorState

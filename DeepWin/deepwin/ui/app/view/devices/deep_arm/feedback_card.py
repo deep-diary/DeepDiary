@@ -3,7 +3,7 @@ from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QProg
 from qfluentwidgets import CardWidget, PrimaryPushButton, FluentIcon as FIF
 
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 class DeepArmFeedbackCard(CardWidget):
     """DeepArm 反馈卡片 - 包含状态显示和反馈信息"""

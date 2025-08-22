@@ -1,6 +1,6 @@
 from deepwin.ui.app.view.devices.base_device_page import BaseDevicePage
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from PySide6.QtWidgets import QVBoxLayout, QLabel
 from PySide6.QtCore import Signal
 

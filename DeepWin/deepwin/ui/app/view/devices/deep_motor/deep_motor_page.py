@@ -14,7 +14,7 @@ import pandas as pd
 
 # 添加日志管理
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from ..base_device_page import BaseDevicePage
 
 class DeepMotorPage(BaseDevicePage):

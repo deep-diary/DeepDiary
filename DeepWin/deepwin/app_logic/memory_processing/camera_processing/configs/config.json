@@ -1,0 +1,27 @@
+{
+  "camera": {
+    "default_index": 0,
+    "default_baudrate": 115200,
+    "frame_width": 1280,
+    "frame_height": 720,
+    "fps": 30,
+    "max_cameras": 2
+  },
+  "processors": {
+    "frame": {
+      "enabled": true,
+      "save_frames": false,
+      "show_fps": true
+    },
+    "recorder": {
+      "enabled": true,
+      "video_format": "XVID",
+      "video_fps": 20,
+      "save_path": "output/processed_cameras/video"
+    }
+  },
+  "save_path": {
+    "frame_dir": "output/processed_cameras/image",
+    "video_dir": "output/processed_cameras/video"
+  }
+}

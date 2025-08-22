@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 # 添加项目路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from deepwin.data_management.log_manager import LogManager
 from deepwin.data_management.database.qdrant_manager import QdrantManager
 

@@ -7,7 +7,7 @@ import struct
 import logging
 import sys
 from typing import Dict, Any, List, Union, Optional
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from deepwin.data_management.log_manager import LogManager
 
 class DeepMotorProtocol:

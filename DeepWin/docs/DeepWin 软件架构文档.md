@@ -395,7 +395,7 @@ DeepWin/
 │   │   │
 │   │   ├── memory_processing/            # 记忆处理子模块
 │   │   │   ├── __init__.py
-│   │   │   ├── image_video_processing/   # 图像与视频处理逻辑（例如 processor.py）
+│   │   │   ├── image_processing/   # 图像与视频处理逻辑（例如 processor.py）
 │   │   │   │   ├── __init__.py
 │   │   │   │   └── processor.py
 │   │   │   ├── diary_note_processing/    # 日记与笔记处理逻辑
@@ -554,7 +554,7 @@ from typing import Dict, Any
 
 # 导入应用逻辑层的各个管理器/处理器
 # 注意：这里我们假设这些模块都存在，实际开发中需要逐步实现
-from deepwin.app_logic.memory_processing.image_video_processing.processor import ImageVideoProcessor
+from deepwin.app_logic.memory_processing.image_processing.processor import ImageVideoProcessor
 from deepwin.app_logic.resource_demand_manager.manager import ResourceDemandManager # 假设的资源需求管理器
 from deepwin.app_logic.device_logic_manager.manager import DeviceLogicManager     # 假设的设备逻辑管理器
 from deepwin.app_logic.ai_coordinator.coordinator import AICoordinator         # 假设的AI协调器
@@ -932,7 +932,7 @@ class MainWindow(FluentWindow): # 继承 FluentWindow 获取Fluent Design特性
         event.accept()
 
 ```python
-# src/app_logic/memory_processing/image_video_processing/processor.py
+# src/app_logic/memory_processing/image_processing/processor.py
 # 图像与视频处理器 (I类 - 业务逻辑示例)
 # 专注于图像和视频文件的处理逻辑，不直接与 UI 交互。
 

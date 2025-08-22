@@ -4,7 +4,7 @@ from qfluentwidgets import (CardWidget, PrimaryPushButton, ComboBox,
                            FluentIcon as FIF, FlowLayout, SwitchButton)
 
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 class DeepArmTeachingCard(CardWidget):
     """DeepArm 示教卡片 - 包含示教控制和轨迹管理功能"""

@@ -11,7 +11,7 @@ import time
 import threading
 from typing import Callable, Optional
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 import pyaudio
 
 # 配置常量

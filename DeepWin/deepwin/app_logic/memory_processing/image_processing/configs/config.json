@@ -1,0 +1,99 @@
+{
+  "display": {
+    "max_display_pixel": -1,
+    "show_fps": true
+  },
+  "save": {
+    "base_dir": "output/processed_images",
+    "save_original": false,
+    "save_processed": true
+  },
+  "tracking": {
+    "enable_tracking": true,
+    "history_length": 30,
+    "enable_kalman": true,
+    "enable_mean_filter": true,
+    "default_tracker": "CSRT",
+    "draw_trajectory": true,
+    "trajectory_colors": {
+      "raw": [0, 255, 255],
+      "mean": [255, 0, 255],
+      "kalman": [255, 255, 0]
+    },
+    "kalman_filter": {
+      "process_noise": 0.1,
+      "measurement_noise": 10
+    }
+  },
+  "processors": {
+    "face_recognition": {
+      "enabled": true,
+      "draw": true,
+      "save": true,
+      "save_faces": true,
+      "face_scale": 1.2,
+      "det_thresh": 0.25,
+      "det_size": [1280, 1280],
+      "ctx_id": 0
+    },
+    "face_mesh": {
+      "enabled": true,
+      "draw": true,
+      "save": true,
+      "calibration": {
+        "ref_face_width_px": 300,
+        "ref_face_width_cm": 15,
+        "ref_distance_cm": 50
+      },
+      "thresholds": {
+        "eye_aspect_ratio": 0.2,
+        "eye_gaze": 0.2,
+        "mouth_aspect_ratio": 0.5
+      },
+      "tracking": {
+        "enable": true,
+        "use_nose_point": true,
+        "error_scale": 1.0
+      }
+    },
+    "pose": {
+      "enabled": true,
+      "draw": true,
+      "save": true
+    },
+    "hand_gesture": {
+      "enabled": true,
+      "draw": true,
+      "save": false,
+      "pinch_min_distance": 20,
+      "pinch_max_distance": 200
+    },
+    "easy_ocr": {
+      "enabled": true,
+      "draw": true,
+      "save": true
+    },
+    "face_detection": {
+      "enabled": true,
+      "draw": true,
+      "save": true,
+      "min_detection_confidence": 0.5,
+      "model_selection": 1
+    },
+    "qr_code": {
+      "enabled": true,
+      "draw": true,
+      "save": true,
+      "history_size": 10
+    },
+    "yolo": {
+      "enabled": true,
+      "draw": true,
+      "save": false,
+      "model_type": "yolo11n.pt",
+      "conf_thresh": 0.25,
+      "task": "detect",
+      "track": true
+    }
+  }
+}

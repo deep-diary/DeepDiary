@@ -15,7 +15,7 @@ from dashscope.common.logging import logger
 from dashscope.multimodal.dialog_state import DialogState
 from dashscope.multimodal.multimodal_dialog import MultiModalCallback
 from ...data_management.log_manager import LogManager
-from ...data_management.config_manager import ConfigManager
+from ...config.config_manager import ConfigManager
 
 # 导入音频工具类
 from .ListeningStateMonitor import ListeningStateMonitor

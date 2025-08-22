@@ -4,7 +4,7 @@ from qfluentwidgets import CardWidget
 
 # 导入日志管理
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from ..base_device_page import BaseDevicePage
 
 # 导入自定义卡片组件

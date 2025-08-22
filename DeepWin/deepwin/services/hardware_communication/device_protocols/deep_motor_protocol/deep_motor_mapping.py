@@ -5,7 +5,7 @@ from typing import Dict, Any, Callable, Optional
 
 # 为了测试，我们使用类型提示而不是实际导入
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 
 class DeepMotorMapping():
     def __init__(self, log_manager: LogManager, config_manager: ConfigManager):

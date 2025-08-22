@@ -38,7 +38,7 @@ DeepWin/
     │   │
     │   ├── memory_processing/          # 记忆数据处理模块
     │   │   ├── __init__.py
-    │   │   └── image_video_processing/ # 图像/视频处理
+    │   │   └── image_processing/ # 图像/视频处理
     │   │       ├── __init__.py
     │   │       └── processor.py        # 图像/视频处理器
     │   │

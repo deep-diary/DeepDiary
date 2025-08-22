@@ -11,13 +11,16 @@ import importlib
 import inspect
 import asyncio
 import concurrent.futures
+from datetime import datetime
+
+
 from deepwin.app_logic.core_manager.base_handler import BaseHandler
 
 # 导入公共的 WorkerRunnable 和 WorkerSignals，以解决循环导入问题
 from deepwin.app_logic.core_manager.workers import WorkerRunnable, WorkerSignals
 
 # 导入应用逻辑层的各个管理器/处理器
-from deepwin.app_logic.memory_processing.image_video_processing.processor import ImageVideoProcessor
+from deepwin.app_logic.memory_processing.image_processing.processor import ImageVideoProcessor
 from deepwin.app_logic.resource_demand_manager.manager import ResourceDemandManager
 from deepwin.app_logic.device_logic_manager.manager import DeviceLogicManager
 from deepwin.app_logic.ai_coordinator.coordinator import AICoordinator
@@ -29,8 +32,7 @@ from deepwin.app_logic.core_manager.handler.hardware_communication import Hardwa
 
 from deepwin.data_management.local_database import LocalDatabaseManager
 from deepwin.data_management.log_manager import LogManager
-from deepwin.data_management.config_manager import ConfigManager
-from deepwin.ui.gui_manager import GuiManager
+from deepwin.config.config_manager import ConfigManager
 from deepwin.services.hardware_communication.serial_communicator import SerialCommunicator
 from deepwin.services.hardware_communication.can_bus_communicator import CanBusCommunicator
 from deepwin.services.hardware_communication.device_protocol_parser import DeviceProtocolParser
@@ -38,9 +40,10 @@ from deepwin.services.cloud_communication.api_client import CloudApiClient
 from deepwin.services.voice_communication.voice_manager import VoiceManager
 from deepwin.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
 from deepwin.app_logic.weather_manager import WeatherManager
-from datetime import datetime
+
 from deepwin.data_management.database.sqlite_manager import SQLiteManager
 from deepwin.data_management.database.qdrant_manager import QdrantManager
+from deepwin.ui.gui_manager import GuiManager
 
 class Coordinator(QObject):
     """
@@ -73,6 +76,7 @@ class Coordinator(QObject):
 
         # 1. 初始化配置管理器
         self.config_manager = ConfigManager(log_manager=log_manager)
+        self.config_manager.load_env() # 加载环境变量
 
         # 2. 初始化管理器（包括数据库管理器，会自动初始化数据库）
         self.init_managers()

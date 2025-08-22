@@ -4,7 +4,7 @@
 import pandas as pd
 import time
 from typing import Dict, Any, Optional
-from deepwin.data_management.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
 from deepwin.data_management.log_manager import LogManager
 
 class DeepMotorDataBufferManager:

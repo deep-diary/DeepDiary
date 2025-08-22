@@ -1,0 +1,48 @@
+{
+  "hardware": {
+    "cpu": {
+      "show_details": true,
+      "monitor_frequency": 1.0
+    },
+    "gpu": {
+      "show_details": true,
+      "monitor_frequency": 1.0,
+      "monitor_memory": true
+    },
+    "memory": {
+      "show_details": true,
+      "monitor_frequency": 1.0,
+      "warning_threshold": 90
+    }
+  },
+  "network": {
+    "ip_location": {
+      "enable": true,
+      "api_url": "http://ip-api.com/json/",
+      "timeout": 5
+    },
+    "mac_address": {
+      "show_all": false,
+      "preferred_interface": "eth0"
+    }
+  },
+  "environment": {
+    "os": {
+      "show_details": true
+    },
+    "python": {
+      "show_details": true,
+      "show_packages": false
+    },
+    "env_vars": {
+      "show_all": false,
+      "important_vars": [
+        "PATH",
+        "PYTHONPATH",
+        "CUDA_PATH",
+        "CUDA_HOME",
+        "JAVA_HOME"
+      ]
+    }
+  }
+}
