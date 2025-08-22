@@ -26,7 +26,20 @@ class ConfigManager:
     """统一的配置管理器，支持多种配置格式和环境"""
     
     def __init__(self, log_manager: LogManager = None, config_dir: Optional[str] = None):
-        self.logger = log_manager.get_logger(__name__) if log_manager else LogManager.get_logger(__name__)
+        # 修复日志管理器初始化问题
+        if log_manager:
+            self.logger = log_manager.get_logger(__name__)
+        else:
+            # 如果没有提供日志管理器，创建一个简单的日志记录器
+            import logging
+            self.logger = logging.getLogger(__name__)
+            if not self.logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                handler.setFormatter(formatter)
+                self.logger.addHandler(handler)
+                self.logger.setLevel(logging.INFO)
+        
         self.config_dir = Path(config_dir) if config_dir else Path(__file__).parent
         self.config_cache = {}
         self.current_env = os.getenv('DEEPWIN_ENV', 'development')
