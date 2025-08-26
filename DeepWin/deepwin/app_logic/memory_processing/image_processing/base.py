@@ -4,12 +4,13 @@ import numpy as np
 from PIL import Image
 import os
 import time
-from .config_manager import ConfigManager
+# 配置管理器现在从外部传入
 from .tracker_base import ImageTracker
+from deepwin.data_management.log_manager import LogManager
 
 class ImageProcessor(ABC):
     """图像处理器基类"""
-    def __init__(self):
+    def __init__(self, config_manager=None, log_manager=None):
         # 基础属性
         self.image = None
         self.image_processed = None
@@ -17,19 +18,42 @@ class ImageProcessor(ABC):
         self.results = None
         
         # 配置管理
-        self.config = ConfigManager()
+        self.config = config_manager
+        if log_manager:
+            self.logger = log_manager.get_logger(__name__)
+        else:
+            # 如果没有提供日志管理器，创建一个简单的日志记录器
+            import logging
+            self.logger = logging.getLogger(__name__)
+            if not self.logger.handlers:
+                handler = logging.StreamHandler()
+                formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+                handler.setFormatter(formatter)
+                self.logger.addHandler(handler)
+                self.logger.setLevel(logging.INFO)
         
         # 追踪器实例化
-        tracking_config = self.config.get('tracking', {})
-        if tracking_config.get('enable_tracking', False):
-            self.tracker = ImageTracker()
+        if self.config:
+            tracking_config = self.config.get('image_processing.tracking', {})
+            if tracking_config.get('enable_tracking', False):
+                self.tracker = ImageTracker(self.config)
+            else:
+                self.tracker = None
         else:
             self.tracker = None
         
-        # 路径相关
-        self.output_dir = 'output\processed_images'
-        self.output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), self.output_dir)
-        os.makedirs(self.output_dir, exist_ok=True)
+        # 路径相关 - 使用路径管理器
+        from deepwin.utils.path_manager import get_path_manager
+        path_manager = get_path_manager(self.config)
+        self.output_dir = str(path_manager.get_image_processing_output_path())
+        
+        # 初始化追踪相关属性
+        self.target_found = False
+        self.target_center = None
+        self.target_size = None
+        self.error_x = 0.0
+        self.error_y = 0.0
+        self.confidence = 0.0
 
     def enable_tracking(self):
         """启用追踪功能"""
@@ -76,16 +100,19 @@ class ImageProcessor(ABC):
             # 确保numpy已导入
             import numpy as np
             
-            if isinstance(input_source, str):
+            if isinstance(input_source, str) or hasattr(input_source, '__str__'):
+                # 转换为字符串
+                input_str = str(input_source)
+                
                 # 检查是否是URL
-                if input_source.startswith(('http://', 'https://')):
+                if input_str.startswith(('http://', 'https://')):
                     # 使用requests下载图片
                     import requests
-                    response = requests.get(input_source, timeout=10)
+                    response = requests.get(input_str, timeout=10)
                     if response.status_code == 200:
                         # 将图片数据转换为numpy数组
                         image_array = np.asarray(bytearray(response.content), dtype=np.uint8)
-                        name = input_source.split('/')[-1]  # 使用URL最后部分作为名称
+                        name = input_str.split('/')[-1]  # 使用URL最后部分作为名称
                         if format == 'PIL':
                             # 直接转换为PIL图像
                             from io import BytesIO
@@ -95,11 +122,11 @@ class ImageProcessor(ABC):
                             image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
                 else:
                     # 本地文件路径
-                    name = input_source
+                    name = input_str
                     if format == 'PIL':
-                        image = Image.open(input_source)
+                        image = Image.open(input_str)
                     else:
-                        image = cv2.imread(input_source)
+                        image = cv2.imread(input_str)
             elif isinstance(input_source, np.ndarray):
                 # 输入是OpenCV图像
                 image = input_source.copy()  # 创建副本以避免修改原图
@@ -128,9 +155,9 @@ class ImageProcessor(ABC):
             return image, name
             
         except Exception as e:
-            print(f"Error opening image: {e}")
+            self.logger.error(f"打开图像失败: {e}")
             import traceback
-            traceback.print_exc()  # 打印详细错误信息
+            self.logger.debug(f"详细错误信息: {traceback.format_exc()}")
             return None, None
 
     def save(self, image=None):
@@ -144,7 +171,7 @@ class ImageProcessor(ABC):
             image = self.image
         
         if image is None:
-            print("No image to save")
+            self.logger.warning("没有图像可保存")
             return None
             
         timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -156,10 +183,10 @@ class ImageProcessor(ABC):
                 image.save(filepath)
             else:
                 cv2.imwrite(filepath, image)
-            print(f"Image saved to: {filepath}")
+            self.logger.info(f"图像已保存到: {filepath}")
             return filepath
         except Exception as e:
-            print(f"Error saving image: {e}")
+            self.logger.error(f"保存图像失败: {e}")
             return None
 
     def clear(self):
@@ -169,9 +196,9 @@ class ImageProcessor(ABC):
                 file_path = os.path.join(self.output_dir, file)
                 if os.path.isfile(file_path):
                     os.unlink(file_path)
-            print(f"Cleared output directory: {self.output_dir}")
+            self.logger.info(f"已清空输出目录: {self.output_dir}")
         except Exception as e:
-            print(f"Error clearing output directory: {e}")
+            self.logger.error(f"清空输出目录失败: {e}")
 
     def reset(self):
         """重置处理器状态"""

@@ -41,7 +41,7 @@ class MemoryProcessingHandler(BaseHandler):
     def _on_image_processing_done(self, result: str):
         """
         处理图像处理任务完成的信号。
-        由 ImageVideoProcessor 发出 (通过 WorkerRunnable 转发)。
+        由 ImageProcessor 发出 (通过 WorkerRunnable 转发)。
         然后 Coordinator 通过自己的信号通知 UI。
         :param result: 图像处理的结果字符串。
         """
@@ -54,7 +54,7 @@ class MemoryProcessingHandler(BaseHandler):
     def _on_image_processing_error(self, error_msg: str):
         """
         处理图像处理任务出错的信号。
-        由 ImageVideoProcessor 发出 (通过 WorkerRunnable 转发)。
+        由 ImageProcessor 发出 (通过 WorkerRunnable 转发)。
         然后 Coordinator 通过自己的信号通知 UI。
         :param error_msg: 错误信息字符串。
         """
@@ -67,7 +67,7 @@ class MemoryProcessingHandler(BaseHandler):
     def _on_image_processing_progress(self, progress: int):
         """
         处理图像处理任务进度更新的信号。
-        由 ImageVideoProcessor 发出 (通过 WorkerRunnable 转发)。
+        由 ImageProcessor 发出 (通过 WorkerRunnable 转发)。
         可以考虑转发给 UI 更新进度条。
         :param progress: 进度百分比 (0-100)。
         """

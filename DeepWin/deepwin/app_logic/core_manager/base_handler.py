@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, TYPE_CHECKING
 from abc import ABC, abstractmethod
 
 # 导入应用逻辑层的各个管理器/处理器
-from deepwin.app_logic.memory_processing.image_processing.processor import ImageVideoProcessor
+from deepwin.app_logic.memory_processing.image_processing.manager import ImageManager
 from deepwin.app_logic.resource_demand_manager.manager import ResourceDemandManager
 from deepwin.app_logic.device_logic_manager.manager import DeviceLogicManager
 from deepwin.app_logic.ai_coordinator.coordinator import AICoordinator
@@ -29,6 +29,10 @@ from deepwin.app_logic.mcp_client_manager.mcp_client_manager import MCPClientMan
 from deepwin.app_logic.weather_manager import WeatherManager
 from deepwin.data_management.database.sqlite_manager import SQLiteManager
 from deepwin.data_management.database.qdrant_manager import QdrantManager
+
+from deepwin.app_logic.memory_processing.image_processing.manager import ImageManager
+from deepwin.utils.path_manager import PathManager
+
 
 # 避免循环导入
 if TYPE_CHECKING:
@@ -67,11 +71,14 @@ class BaseHandler(QObject):
         self.device_logic_manager: Optional[DeviceLogicManager] = None
         self.ai_coordinator: Optional[AICoordinator] = None
         self.agent_manager: Optional[AgentManager] = None
-        self.image_video_processor: Optional[ImageVideoProcessor] = None
+        self.image_manager: Optional[ImageManager] = None
         self.resource_demand_manager: Optional[ResourceDemandManager] = None
         self.task_scheduler: Optional[TaskScheduler] = None
         self.mcp_client_manager: Optional[MCPClientManager] = None
         self.weather_manager: Optional[WeatherManager] = None
+
+        # 路径管理器
+        self.path_manager: Optional[PathManager] = None
 
         # 数据库管理器
         self.sqlite_db: Optional[SQLiteManager] = None
@@ -105,11 +112,14 @@ class BaseHandler(QObject):
         self.device_logic_manager = coordinator.device_logic_manager
         self.ai_coordinator = coordinator.ai_coordinator
         self.agent_manager = coordinator.agent_manager
-        self.image_video_processor = coordinator.image_video_processor
+        self.image_manager = coordinator.image_manager
         self.resource_demand_manager = coordinator.resource_demand_manager
         self.task_scheduler = coordinator.task_scheduler
         self.mcp_client_manager = coordinator.mcp_client_manager
         self.weather_manager = coordinator.weather_manager
+
+        # 设置路径管理器
+        self.path_manager = coordinator.path_manager
         
         # 设置语音管理器（新增）
         self.voice_manager = coordinator.voice_manager

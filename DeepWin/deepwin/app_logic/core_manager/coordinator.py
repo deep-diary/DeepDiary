@@ -20,7 +20,7 @@ from deepwin.app_logic.core_manager.base_handler import BaseHandler
 from deepwin.app_logic.core_manager.workers import WorkerRunnable, WorkerSignals
 
 # 导入应用逻辑层的各个管理器/处理器
-from deepwin.app_logic.memory_processing.image_processing.processor import ImageVideoProcessor
+from deepwin.app_logic.memory_processing.image_processing.manager import ImageManager
 from deepwin.app_logic.resource_demand_manager.manager import ResourceDemandManager
 from deepwin.app_logic.device_logic_manager.manager import DeviceLogicManager
 from deepwin.app_logic.ai_coordinator.coordinator import AICoordinator
@@ -44,6 +44,8 @@ from deepwin.app_logic.weather_manager import WeatherManager
 from deepwin.data_management.database.sqlite_manager import SQLiteManager
 from deepwin.data_management.database.qdrant_manager import QdrantManager
 from deepwin.ui.gui_manager import GuiManager
+
+from deepwin.utils.path_manager import PathManager
 
 class Coordinator(QObject):
     """
@@ -101,12 +103,13 @@ class Coordinator(QObject):
         # 1. 初始化应用逻辑层的各个管理器/处理器
         # 这些模块专注于各自的业务逻辑，不直接与 UI 交互
         # ----------------------------------------------------------------------
-        self.image_video_processor = ImageVideoProcessor(log_manager=self.log_manager)
+        self.image_manager = ImageManager(log_manager=self.log_manager, config_manager=self.config_manager)
         self.resource_demand_manager = ResourceDemandManager(log_manager=self.log_manager)
         self.device_logic_manager = DeviceLogicManager(log_manager=self.log_manager, config_manager=self.config_manager)
         self.ai_coordinator = AICoordinator(log_manager=self.log_manager) # 避免与 Coordinator 类名冲突
         self.agent_manager = AgentManager(log_manager=self.log_manager) # 智能体管理器需要协调器引用
         self.agent_manager.set_coordinator(self)
+        self.path_manager = PathManager(log_manager=self.log_manager, config_manager=self.config_manager)
 
         # ----------------------------------------------------------------------
         # 2. 初始化核心服务模块
@@ -248,7 +251,13 @@ class Coordinator(QObject):
         # self.voice_manager.add_task_to_queue('transcript', text='转录测试任务1')
         # self.voice_manager.start_voice_conversation()
         # 发送数据库准备就绪信号, 让数据库handler 开始创建示例数据, 初始化的时候，由于handler 还没初始化，所以信号发不出来
-        self.local_database_manager.database_ready.emit()
+        # self.local_database_manager.database_ready.emit()
+
+        # 测试图像处理
+        img_path = self.path_manager.get_path('userdata', 'img/demo.jpg')
+        self.logger.info(f"Coordinator: 测试图像处理: {img_path}")
+        self.image_manager.process_image(img_path, 'face_recognition')
+        self.logger.info(f"Coordinator: 测试图像处理完成")
         
         
         self.agent_manager.start_agents()

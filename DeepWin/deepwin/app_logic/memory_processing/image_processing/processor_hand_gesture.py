@@ -8,9 +8,9 @@ import time
 import json
 
 class HandGestureProcessor(ImageProcessor):
-    def __init__(self):
-        super().__init__()
-        print('HandGestureProcessor init\r\n')
+    def __init__(self, config_manager=None, log_manager=None):
+        super().__init__(config_manager, log_manager)
+        self.logger.info('HandGestureProcessor 初始化开始')
         # 更新保存路径
         self.output_dir = os.path.join(self.output_dir, 'hand_gesture')
         os.makedirs(self.output_dir, exist_ok=True)
@@ -26,7 +26,7 @@ class HandGestureProcessor(ImageProcessor):
         self.mpDraw = mp.solutions.drawing_utils
         
         # 从配置文件加载处理器特定配置
-        hand_config = self.config.get('processors', 'hand_gesture')
+        hand_config = self.config.get('image_processing.processors.hand_gesture', {}) if self.config else {}
         self.enable_draw = hand_config.get('draw', True)
         self.enable_save = hand_config.get('save', False)
         

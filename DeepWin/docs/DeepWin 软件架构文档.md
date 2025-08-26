@@ -554,7 +554,7 @@ from typing import Dict, Any
 
 # 导入应用逻辑层的各个管理器/处理器
 # 注意：这里我们假设这些模块都存在，实际开发中需要逐步实现
-from deepwin.app_logic.memory_processing.image_processing.processor import ImageVideoProcessor
+from deepwin.app_logic.memory_processing.image_processing.manager import ImageProcessor
 from deepwin.app_logic.resource_demand_manager.manager import ResourceDemandManager # 假设的资源需求管理器
 from deepwin.app_logic.device_logic_manager.manager import DeviceLogicManager     # 假设的设备逻辑管理器
 from deepwin.app_logic.ai_coordinator.coordinator import AICoordinator         # 假设的AI协调器
@@ -626,7 +626,7 @@ class Coordinator(QObject):
 
         # 初始化应用逻辑层的各个管理器/处理器
         # 这些是我们的 'I类'，它们不直接与 UI 交互
-        self.image_video_processor = ImageVideoProcessor(log_manager=log_manager)
+        self.image_video_processor = ImageProcessor(log_manager=log_manager)
         self.resource_demand_manager = ResourceDemandManager(log_manager=log_manager)
         self.device_logic_manager = DeviceLogicManager(log_manager=log_manager)
         self.ai_coordinator = AICoordinator(log_manager=log_manager)
@@ -709,7 +709,7 @@ class Coordinator(QObject):
     def _on_image_processing_done(self, result: str):
         """
         内部槽函数：处理图像处理任务完成的信号。
-        由 ImageVideoProcessor 发出。
+        由 ImageProcessor 发出。
         """
         self.logger.info(f"Coordinator: 图像处理任务完成：{result}")
         self.app_status_message.emit(f"图像处理完成！结果：{result}")
@@ -718,7 +718,7 @@ class Coordinator(QObject):
     def _on_image_processing_error(self, error_msg: str):
         """
         内部槽函数：处理图像处理任务出错的信号。
-        由 ImageVideoProcessor 发出。
+        由 ImageProcessor 发出。
         """
         self.logger.error(f"Coordinator: 图像处理任务出错：{error_msg}")
         self.app_status_message.emit(f"图像处理出错：{error_msg}")
@@ -943,7 +943,7 @@ from deepwin.data_management.log_manager import LogManager
 from typing import Dict, Any
 
 
-class ImageVideoProcessor(QObject):
+class ImageProcessor(QObject):
     """
     图像与视频处理业务逻辑类。
     负责本地文件扫描、元数据提取、AI信息提取等。
@@ -960,8 +960,8 @@ class ImageVideoProcessor(QObject):
     def __init__(self, log_manager: LogManager, parent=None):
         super().__init__(parent)
         self.logger = log_manager.get_logger(__name__)
-        self.logger.info("ImageVideoProcessor: 初始化中...")
-        self.logger.info("ImageVideoProcessor: 初始化完成。")
+        self.logger.info("ImageProcessor: 初始化中...")
+        self.logger.info("ImageProcessor: 初始化完成。")
 
     def process_image(self, image_path: str) -> str:
         """
@@ -977,7 +977,7 @@ class ImageVideoProcessor(QObject):
         Raises:
             Exception: 如果处理过程中发生错误。
         """
-        self.logger.info(f"ImageVideoProcessor: 开始处理图片: {image_path}")
+        self.logger.info(f"ImageProcessor: 开始处理图片: {image_path}")
         # self.processing_started.emit(image_path) # 可以在这里发出，但worker也会发出，根据需要调整
 
         try:
@@ -993,13 +993,13 @@ class ImageVideoProcessor(QObject):
             ai_result = self._perform_ai_recognition(image_path)
 
             result_summary = f"图像处理成功。文件: {os.path.basename(image_path)}, 大小: {os.path.getsize(image_path)/1024:.2f} KB, 元数据: {metadata}, AI结果: {ai_result}"
-            self.logger.info(f"ImageVideoProcessor: 图片处理完成: {image_path}")
+            self.logger.info(f"ImageProcessor: 图片处理完成: {image_path}")
             # self.processing_finished.emit(result_summary) # 通过 WorkerRunnable 的信号机制报告结果
             return result_summary
 
         except Exception as e:
             error_message = f"图像处理失败: {str(e)}"
-            self.logger.error(f"ImageVideoProcessor: {error_message}")
+            self.logger.error(f"ImageProcessor: {error_message}")
             # self.processing_error.emit(error_message) # 通过 WorkerRunnable 的信号机制报告错误
             raise # 重新抛出异常，让 WorkerRunnable 捕获并报告
 
@@ -1018,7 +1018,7 @@ class ImageVideoProcessor(QObject):
         """
         清理资源的方法。
         """
-        self.logger.info("ImageVideoProcessor: 执行清理工作。")
+        self.logger.info("ImageProcessor: 执行清理工作。")
         # 可以在这里关闭文件句柄、释放模型等
 
 ```python
@@ -1240,8 +1240,8 @@ package "DeepWin Application" {
         - _on_image_processing_error: Slot
     end note
 
-    component ImageVideoProcessor as "ImageVideoProcessor (I-Class)"
-    note right of ImageVideoProcessor
+    component ImageProcessor as "ImageProcessor (I-Class)"
+    note right of ImageProcessor
         Image/Video Processing Logic
         - process_image: Method (str)
         - processing_finished: Signal (str)
@@ -1317,14 +1317,14 @@ note on link: UI发出请求信号\n(非阻塞)
 Coordinator -left-> MainWindow : <<connect to process_image_request>>
 
 ' Coordinator 处理请求并分发到后台线程
-Coordinator -down-> ImageVideoProcessor : <<创建 WorkerRunnable 实例>> (委托 func)
+Coordinator -down-> ImageProcessor : <<创建 WorkerRunnable 实例>> (委托 func)
 Coordinator --> QThreadPool : <<start(WorkerRunnable)>> (提交耗时任务)
 note on link: 耗时任务转交线程池执行\n(不阻塞UI主线程)
 
 ' 后台任务执行与结果回调
 QThreadPool .[#green].> WorkerRunnable : <<run()>> (在后台线程执行)
-WorkerRunnable .right.> ImageVideoProcessor : <<call process_image()>>
-ImageVideoProcessor --> WorkerRunnable : 返回结果 / 抛出异常
+WorkerRunnable .right.> ImageProcessor : <<call process_image()>>
+ImageProcessor --> WorkerRunnable : 返回结果 / 抛出异常
 
 WorkerRunnable .[#red].> Coordinator : <<emit signals.finished(result)>>
 WorkerRunnable .[#red].> Coordinator : <<emit signals.error(error_msg)>>
@@ -1337,7 +1337,7 @@ note on link: Coordinator通知UI更新界面\n(线程安全)
 MainWindow -left-> Coordinator : <<connect to image_processing_finished/error>>
 
 ' 其他模块关系 (简化)
-Coordinator .up.|> ImageVideoProcessor : 实例化
+Coordinator .up.|> ImageProcessor : 实例化
 Coordinator .up.|> ResourceDemandManager : 实例化
 Coordinator .up.|> DeviceLogicManager : 实例化
 Coordinator .up.|> AICoordinator : 实例化

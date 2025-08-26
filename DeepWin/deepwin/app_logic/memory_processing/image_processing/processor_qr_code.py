@@ -6,15 +6,15 @@ import os
 import time
 
 class QrCodeProcessor(ImageProcessor):
-    def __init__(self):
-        super().__init__()
-        print('QrCodeProcessor init\r\n')
+    def __init__(self, config_manager=None, log_manager=None):
+        super().__init__(config_manager, log_manager)
+        self.logger.info('QrCodeProcessor 初始化开始')
         # 更新保存路径
         self.output_dir = os.path.join(self.output_dir, 'qr_code')
         os.makedirs(self.output_dir, exist_ok=True)
         
         # 从配置文件加载处理器特定配置
-        qr_config = self.config.get('processors', 'qr_code')
+        qr_config = self.config.get('image_processing.processors.qr_code', {}) if self.config else {}
         self.enable_draw = qr_config.get('draw', True)
         self.enable_save = qr_config.get('save', False)
         

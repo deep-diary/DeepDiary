@@ -4,18 +4,17 @@ import cv2
 import os
 from .decorators import display_fps
 import numpy as np
-from .config_manager import ConfigManager
+# 配置管理器现在从外部传入
 import datetime
 import time
 
 class FaceRecognitionProcessor(ImageProcessor):
-    def __init__(self):
-        super().__init__()
-        print('FaceRecognitionProcessor init\r\n')
+    def __init__(self, config_manager=None, log_manager=None):
+        super().__init__(config_manager, log_manager)
+        self.logger.info('FaceRecognitionProcessor 初始化开始')
         
-        # 获取配置
-        self.config = ConfigManager()
-        processor_config = self.config.get('processors', {}).get('face_recognition', {})
+        # 从配置中读取参数
+        processor_config = self.config.get('image_processing.processors.face_recognition', {}) if self.config else {}
         
         # 从配置中读取参数
         self.enable_draw = processor_config.get('draw', True)

@@ -5,9 +5,9 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 class EasyOcrProcessor(ImageProcessor):
-    def __init__(self):
-        super().__init__()
-        print('EasyOcrProcessor init\r\n')
+    def __init__(self, config_manager=None, log_manager=None):
+        super().__init__(config_manager, log_manager)
+        self.logger.info('EasyOcrProcessor 初始化开始')
         
         self.reader = easyocr.Reader(['en', 'ch_sim'])  # 支持中文和英文  由于初始化时间过长临时屏蔽
         self.results = None
@@ -35,7 +35,7 @@ class EasyOcrProcessor(ImageProcessor):
             font = ImageFont.truetype(font_path, 20)
 
             for (bbox, text, prob) in self.results:
-                print(f'easyocr: {bbox}, {text}, {prob}\r\n')
+                self.logger.debug(f'easyocr: {bbox}, {text}, {prob}')
                 # 提取边界框的坐标
                 (top_left, top_right, bottom_right, bottom_left) = bbox
                 top_left = tuple(map(int, top_left))

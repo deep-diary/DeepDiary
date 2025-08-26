@@ -1,12 +1,27 @@
 import cv2
 import argparse
 import os
-from .manager import ImageManager
+import sys
+
+# 将项目根目录添加到系统路径中，以便能够导入模块
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_dir))))
+sys.path.insert(0, project_root)
+
+# 现在使用绝对导入
+from deepwin.app_logic.memory_processing.image_processing.manager import ImageManager
+from deepwin.data_management.log_manager import LogManager
+from deepwin.config.config_manager import ConfigManager
+
+
+
 
 class ImageDemo:
     """图像处理演示类"""
     def __init__(self):
-        self.manager = ImageManager()
+        self.log_manager = LogManager()
+        self.config_manager = ConfigManager(self.log_manager)
+        self.manager = ImageManager(self.log_manager, self.config_manager)
         # 获取demo文件夹的路径（在image_processing包内）
         self.demo_folder = os.path.join(os.path.dirname(__file__), 'demo')
 
@@ -16,7 +31,7 @@ class ImageDemo:
         try:
             # 如果没有指定图像，使用默认的demo图像
             if image_path is None:
-                image_path = os.path.join(self.demo_folder, 'face_detection.jpg')
+                image_path = os.path.join(self.demo_folder, 'demo.jpg')
                 
             if not os.path.exists(image_path):
                 print(f"Error: Test image not found: {image_path}")
@@ -38,7 +53,7 @@ class ImageDemo:
         print("\nTesting Face Mesh...")
         try:
             if image_path is None:
-                image_path = os.path.join(self.demo_folder, 'mesh_left_eye_close.jpg')
+                image_path = os.path.join(self.demo_folder, 'demo.jpg')
 
             if not os.path.exists(image_path):
                 print(f"Error: Test image not found: {image_path}")
@@ -60,7 +75,7 @@ class ImageDemo:
         print("\nTesting Pose Detection...")
         try:
             if image_path is None:
-                image_path = os.path.join(self.demo_folder, 'pose1.jpg')
+                image_path = os.path.join(self.demo_folder, 'demo.jpg')
 
             if not os.path.exists(image_path):
                 print(f"Error: Test image not found: {image_path}")
@@ -82,7 +97,7 @@ class ImageDemo:
         print("\nTesting OCR...")
         try:
             if image_path is None:
-                image_path = os.path.join(self.demo_folder, 'ocr.png')
+                image_path = os.path.join(self.demo_folder, 'demo.png')
 
             if not os.path.exists(image_path):
                 print(f"Error: Test image not found: {image_path}")
@@ -104,7 +119,7 @@ class ImageDemo:
         print("\nTesting EasyOCR...")
         try:
             if image_path is None:
-                image_path = os.path.join(self.demo_folder, 'easy_ocr.png')
+                image_path = os.path.join(self.demo_folder, 'demo.png')
 
             if not os.path.exists(image_path):
                 print(f"Error: Test image not found: {image_path}")
@@ -126,7 +141,7 @@ class ImageDemo:
         print("\nTesting Face Recognition...")
         try:
             if image_path is None:
-                image_path = os.path.join(self.demo_folder, 'face_recognition.jpg')
+                image_path = os.path.join(self.demo_folder, 'demo.jpg')
 
             if not os.path.exists(image_path):
                 print(f"Error: Test image not found: {image_path}")
@@ -148,7 +163,7 @@ class ImageDemo:
         print("\nTesting Hand Gesture Recognition...")
         try:
             if image_path is None:
-                image_path = os.path.join(self.demo_folder, 'hand_gesture_right.jpg')
+                image_path = os.path.join(self.demo_folder, 'demo.jpg')
 
             if not os.path.exists(image_path):
                 print(f"Error: Test image not found: {image_path}")
@@ -176,7 +191,7 @@ class ImageDemo:
                 qr_image = qr_processor.generate_qr_code(test_data)
                 
                 # 保存生成的二维码作为测试图像
-                test_image_path = os.path.join(self.demo_folder, 'qr_test.jpg')
+                test_image_path = os.path.join(self.demo_folder, 'demo.jpg')
                 cv2.imwrite(test_image_path, qr_image)
                 image_path = test_image_path
 
@@ -201,7 +216,7 @@ class ImageDemo:
         print("\nTesting YOLO Detection...")
         try:
             if image_path is None:
-                image_path = os.path.join(self.demo_folder, 'yolo11_train.jpg')
+                image_path = os.path.join(self.demo_folder, 'demo.jpg')
 
             if not os.path.exists(image_path):
                 print(f"Error: Test image not found: {image_path}")

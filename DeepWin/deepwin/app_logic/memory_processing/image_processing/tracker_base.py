@@ -2,16 +2,16 @@ import numpy as np
 import cv2
 from collections import deque, defaultdict
 from filterpy.kalman import KalmanFilter
-from .config_manager import ConfigManager
+# 配置管理器现在从外部传入
 import time
 
 class ImageTracker:
     """图像追踪基类"""
-    def __init__(self):
-        self.config = ConfigManager()
+    def __init__(self, config_manager=None):
+        self.config = config_manager
         
         # 配置参数
-        tracking_config = self.config.get('tracking', {})
+        tracking_config = self.config.get('image_processing.tracking', {}) if self.config else {}
         self.history_length = tracking_config.get('history_length', 30)
         self.enable_kalman = tracking_config.get('enable_kalman', True)
         self.enable_mean_filter = tracking_config.get('enable_mean_filter', True)

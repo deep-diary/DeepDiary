@@ -4,22 +4,33 @@ import cv2
 import os
 
 class FaceDetectionProcessor(ImageProcessor):
-    def __init__(self):
-        super().__init__()
-        print('FaceDetectionProcessor init\r\n')
-        # 更新保存路径
-        self.output_dir = os.path.join(self.output_dir, 'face_detection')
-        os.makedirs(self.output_dir, exist_ok=True)
-        # 初始化 mediapipe 人脸检测器
-        self.face_detection = mp.solutions.face_detection.FaceDetection(
-            model_selection=1,  # 0 for close range, 1 for far range
-            min_detection_confidence=0.5
-        )
+    def __init__(self, config_manager=None, log_manager=None):
+        super().__init__(config_manager, log_manager)
+        self.logger.info('FaceDetectionProcessor 初始化开始')
+        # 更新保存路径 - 使用路径管理器
+        from deepwin.utils.path_manager import get_path_manager
+        path_manager = get_path_manager(self.config)
+        self.output_dir = str(path_manager.get_image_processing_output_path('face_detection'))
         
         # 从配置文件加载处理器特定配置
-        face_config = self.config.get('processors', 'face_detection')
-        self.enable_draw = face_config.get('draw', True)
-        self.enable_save = face_config.get('save', False)
+        if self.config:
+            face_config = self.config.get('image_processing.processors.face_detection', {})
+            model_selection = face_config.get('model_selection', 1)
+            min_detection_confidence = face_config.get('min_detection_confidence', 0.5)
+        else:
+            model_selection = 1
+            min_detection_confidence = 0.5
+            
+        # 初始化 mediapipe 人脸检测器
+        self.face_detection = mp.solutions.face_detection.FaceDetection(
+            model_selection=model_selection,  # 0 for close range, 1 for far range
+            min_detection_confidence=min_detection_confidence
+        )
+        
+        self.enable_draw = face_config.get('draw', True) if self.config else True
+        self.enable_save = face_config.get('save', False) if self.config else False
+        
+        self.logger.info('FaceDetectionProcessor 初始化完成')
 
     def process(self, input_source):
         """处理输入图像"""
@@ -87,11 +98,21 @@ class FaceDetectionProcessor(ImageProcessor):
 
     def get_result_info(self):
         """获取处理结果信息"""
+        # 确保追踪属性已正确设置
+        if hasattr(self, 'tracker') and self.tracker is not None:
+            tracking_status = self.tracker.get_status()
+            if tracking_status:
+                self.target_found = tracking_status.get('target_found', False)
+                self.target_center = tracking_status.get('target_center', None)
+                self.target_size = tracking_status.get('target_size', None)
+                self.error_x = tracking_status.get('pixel_error', [0.0, 0.0])[0] if tracking_status.get('pixel_error') else 0.0
+                self.error_y = tracking_status.get('pixel_error', [0.0, 0.0])[1] if tracking_status.get('pixel_error') else 0.0
+        
         return {
             "status": "Face detected" if self.target_found else "No face detected",
             "target_found": self.target_found,
-            "target_center": self.target_center.tolist() if self.target_found else None,
-            "target_size": self.target_size.tolist() if self.target_found else None,
+            "target_center": self.target_center.tolist() if self.target_found and self.target_center is not None and hasattr(self.target_center, 'tolist') else self.target_center,
+            "target_size": self.target_size.tolist() if self.target_found and self.target_size is not None and hasattr(self.target_size, 'tolist') else self.target_size,
             "error_x": self.error_x,
             "error_y": self.error_y,
             "confidence": self.confidence

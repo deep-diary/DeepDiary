@@ -4,9 +4,9 @@ from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from PIL import Image
 
 class OcrProcessor(ImageProcessor):
-    def __init__(self):
-        super().__init__()
-        print('OcrProcessor init\r\n')
+    def __init__(self, config_manager=None, log_manager=None):
+        super().__init__(config_manager, log_manager)
+        self.logger.info('OcrProcessor 初始化开始')
 
         # 禁用代理
         os.environ['HTTP_PROXY'] = ''
@@ -38,7 +38,7 @@ class OcrProcessor(ImageProcessor):
 
         generated_ids = self.ocr_model.generate(pixel_values)
         generated_text = self.ocr_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-        print(generated_text)
+        self.logger.info(f"OCR识别结果: {generated_text}")
 
     def draw(self, image):
         

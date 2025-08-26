@@ -9,7 +9,7 @@ from deepwin.data_management.log_manager import LogManager
 from typing import Dict, Any
 
 
-class ImageVideoProcessor(QObject):
+class ImageProcessor(QObject):
     """
     图像与视频处理业务逻辑类。
     负责本地文件扫描、元数据提取、AI信息提取等。
@@ -27,8 +27,8 @@ class ImageVideoProcessor(QObject):
     def __init__(self, log_manager: LogManager, parent=None):
         super().__init__(parent)
         self.logger = log_manager.get_logger(__name__)
-        self.logger.info("ImageVideoProcessor: 初始化中...")
-        self.logger.info("ImageVideoProcessor: 初始化完成。")
+        self.logger.info("ImageProcessor: 初始化中...")
+        self.logger.info("ImageProcessor: 初始化完成。")
 
     def process_image(self, image_path: str) -> str:
         """
@@ -44,7 +44,7 @@ class ImageVideoProcessor(QObject):
         Raises:
             Exception: 如果处理过程中发生错误。
         """
-        self.logger.info(f"ImageVideoProcessor: 开始处理图片: {image_path}")
+        self.logger.info(f"ImageProcessor: 开始处理图片: {image_path}")
         # self.processing_started.emit(image_path) # 可以在这里发出，但worker也会发出，根据需要调整
 
         try:
@@ -60,13 +60,13 @@ class ImageVideoProcessor(QObject):
             ai_result = self._perform_ai_recognition(image_path)
 
             result_summary = f"图像处理成功。文件: {os.path.basename(image_path)}, 大小: {os.path.getsize(image_path)/1024:.2f} KB, 元数据: {metadata}, AI结果: {ai_result}"
-            self.logger.info(f"ImageVideoProcessor: 图片处理完成: {image_path}")
+            self.logger.info(f"ImageProcessor: 图片处理完成: {image_path}")
             # self.processing_finished.emit(result_summary) # 通过 WorkerRunnable 的信号机制报告结果
             return result_summary
 
         except Exception as e:
             error_message = f"图像处理失败: {str(e)}"
-            self.logger.error(f"ImageVideoProcessor: {error_message}")
+            self.logger.error(f"ImageProcessor: {error_message}")
             # self.processing_error.emit(error_message) # 通过 WorkerRunnable 的信号机制报告错误
             raise # 重新抛出异常，让 WorkerRunnable 捕获并报告
 
@@ -85,5 +85,5 @@ class ImageVideoProcessor(QObject):
         """
         清理资源的方法。
         """
-        self.logger.info("ImageVideoProcessor: 执行清理工作。")
+        self.logger.info("ImageProcessor: 执行清理工作。")
         # 可以在这里关闭文件句柄、释放模型等

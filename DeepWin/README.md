@@ -92,7 +92,7 @@ DeepWin/
 │   ├── gps/                  # GPS轨迹
 │   ├── wechat/               # 微信数据
 │   └── rag/                  # RAG数据
-├── database/                  # 数据库文件
+├── data/                      # 数据库文件
 ├── docs/                      # 项目文档
 ├── requirements.txt           # 项目依赖
 ├── setup.py                   # 安装配置

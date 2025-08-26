@@ -1,8 +1,38 @@
-# Image Processing Package
+# DeepWin 图像处理包
 
 ## 简介
 
-这是一个功能丰富的图像处理包，集成了多种图像处理功能，包括人脸检测、人脸识别、姿态检测、手势识别、OCR 文字识别、QR 码处理等。
+这是 DeepWin 项目的图像处理包，集成了多种图像处理功能，包括人脸检测、人脸识别、姿态检测、手势识别、OCR 文字识别、QR 码处理等。该包已完全整合到 DeepWin 项目中，使用统一的日志管理和配置管理。
+
+## 包结构
+
+```
+image_processing/
+├── __init__.py                 # 包初始化文件，导出主要接口
+├── README.md                   # 本文档
+├── manager.py                  # 图像处理管理器，统一管理所有处理器
+├── base.py                     # 图像处理器基类
+├── decorators.py               # 装饰器，如FPS显示等
+├── decorators.py               # 装饰器，如FPS显示等
+├── filters.py                  # 图像滤波器
+├── input_handler.py            # 输入处理器
+├── tracker_base.py             # 追踪器基类
+├── tracker_cv.py               # OpenCV追踪器实现
+├── processor_*.py              # 各种图像处理器实现
+│   ├── processor_face_detection.py      # 人脸检测
+│   ├── processor_face_recognition.py    # 人脸识别
+│   ├── processor_face_mesh.py           # 人脸网格
+│   ├── processor_pose.py                # 姿态检测
+│   ├── processor_hand_gesture.py        # 手势识别
+│   ├── processor_ocr.py                 # OCR文字识别
+│   ├── processor_easy_ocr.py            # EasyOCR文字识别
+│   ├── processor_qr_code.py             # QR码处理
+│   └── processor_yolo.py                # YOLO目标检测
+├── configs/                    # 配置文件目录
+│   └── config.json             # 图像处理配置
+├── demo/                       # 演示图像和视频
+└── demo.py                     # 演示脚本
+```
 
 ## 主要功能
 
@@ -10,226 +40,93 @@
 
 使用 MediaPipe 实现的人脸检测功能。
 
-```python
-from image_processing.manager import ImageManager
-
-manager = ImageManager()
-result = manager.process_image("image.jpg", "face_detection")
-info = manager.get_processor("face_detection").get_result_info()
-```
-
-返回信息格式：
-
-```python
-{
-    "status": "Face detected",  # 或 "No face detected"
-    "target_found": True,       # 是否检测到目标
-    "target_center": [x, y],    # 目标中心坐标
-    "target_size": [w, h],      # 目标大小
-    "error_x": float,           # X轴误差
-    "error_y": float,           # Y轴误差
-    "confidence": float         # 置信度
-}
-```
-
 ### 2. 人脸网格 (Face Mesh)
 
 使用 MediaPipe 实现的人脸网格检测。
-
-```python
-result = manager.process_image("image.jpg", "face_mesh")
-info = manager.get_processor("face_mesh").get_result_info()
-```
-
-返回信息格式：
-
-```python
-{
-    "status": "Face mesh detected",
-    "landmarks_found": True,
-    "landmark_count": int,      # 检测到的特征点数量
-    "eye_state": {
-        "left_eye": "open",     # 或 "closed"
-        "right_eye": "open",    # 或 "closed"
-        "blink_detected": bool
-    }
-}
-```
 
 ### 3. 姿态检测 (Pose Detection)
 
 使用 MediaPipe 实现的人体姿态检测。
 
-```python
-result = manager.process_image("image.jpg", "pose")
-info = manager.get_processor("pose").get_result_info()
-```
-
-返回信息格式：
-
-```python
-{
-    "target_found": bool,
-    "target_center": [x, y],
-    "target_size": [w, h],
-    "pose_state": {
-        "is_jumping": bool,
-        "jump_height": float,
-        "left_arm_angle": float,
-        "right_arm_angle": float,
-        "body_rotation": float,
-        "standing_straight": bool
-    }
-}
-```
-
 ### 4. 手势识别 (Hand Gesture)
 
 使用 MediaPipe 实现的手势识别功能。
-
-```python
-result = manager.process_image("image.jpg", "hand_gesture")
-info = manager.get_processor("hand_gesture").get_result_info()
-```
-
-返回信息格式：
-
-```python
-{
-    "target_found": bool,
-    "gesture_info": {
-        "left_hand": {
-            "gesture": str,     # 手势类型
-            "confidence": float,
-            "is_drawing": bool
-        },
-        "right_hand": {
-            "gesture": str,
-            "confidence": float,
-            "is_drawing": bool
-        }
-    }
-}
-```
 
 ### 5. OCR 文字识别
 
 支持两种 OCR 引擎：TrOCR 和 EasyOCR。
 
-```python
-# EasyOCR
-result = manager.process_image("image.jpg", "easy_ocr")
-info = manager.get_processor("easy_ocr").get_result_info()
-```
-
-返回信息格式：
-
-```python
-{
-    "status": "OCR processed",
-    "text_found": bool,
-    "results": [
-        {
-            "text": str,
-            "confidence": float,
-            "position": [x1, y1, x2, y2]
-        }
-    ]
-}
-```
-
 ### 6. QR 码处理
 
 支持 QR 码的生成、检测和解码。
-
-```python
-result = manager.process_image("image.jpg", "qr_code")
-info = manager.get_processor("qr_code").get_result_info()
-```
-
-返回信息格式：
-
-```python
-{
-    "target_found": bool,
-    "qr_data": str,            # 解码数据
-    "detection_time": float,
-    "detection_history": [
-        {
-            "timestamp": float,
-            "data": str,
-            "position": (x, y),
-            "size": (w, h)
-        }
-    ]
-}
-```
 
 ### 7. YOLO 目标检测
 
 支持使用 YOLO 模型进行目标检测和追踪。
 
-```python
-result = manager.process_image("image.jpg", "yolo")
-info = manager.get_processor("yolo").get_result_info()
-```
-
-返回信息格式：
+## 使用示例
 
 ```python
-{
-    "target_found": bool,
-    "detections": [
-        {
-            "class": str,
-            "confidence": float,
-            "bbox": [x1, y1, x2, y2]
-        }
-    ],
-    "tracking_info": {         # 仅在追踪模式下
-        "track_id": int,
-        "track_bbox": [x1, y1, x2, y2]
-    }
-}
+from deepwin.app_logic.memory_processing.image_processing import ImageManager
+from deepwin.data_management.log_manager import LogManager
+from deepwin.config.config_manager import ConfigManager
+
+# 初始化日志和配置管理器
+log_manager = LogManager()
+config_manager = ConfigManager(log_manager)
+
+# 创建图像管理器
+manager = ImageManager(log_manager, config_manager)
+
+# 处理图像
+result = manager.process_image("input.jpg", "face_detection")
+
+# 获取结果信息
+info = manager.get_processor("face_detection").get_result_info()
+print(f"检测到人脸: {info['target_found']}")
 ```
 
 ## 配置管理
 
-所有处理器的配置都可以通过 config.json 文件进行管理：
-
 ```python
-from image_processing.config_manager import ConfigManager
+from deepwin.config.config_manager import ConfigManager
+from deepwin.data_management.log_manager import LogManager
 
-config = ConfigManager()
-processor_config = config.get('processors', 'face_detection')
+# 初始化配置管理器
+log_manager = LogManager()
+config_manager = ConfigManager(log_manager)
+
+# 获取图像处理配置
+image_config = config_manager.get('image_processing')
+
+# 获取处理器配置
+processor_config = config_manager.get('image_processing.processors.face_detection')
+
+# 获取追踪配置
+tracking_config = config_manager.get('image_processing.tracking')
 ```
 
-## 错误处理
-
-所有处理器都包含异常处理机制，当处理失败时会返回原始图像并在日志中记录错误信息。
-
-## 性能监控
-
-支持 FPS 显示和性能统计：
+## 日志管理
 
 ```python
-from image_processing.decorators import display_fps
+from deepwin.data_management.log_manager import LogManager
 
-@display_fps()
-def process_image():
-    # 处理图像
-    pass
+# 获取日志管理器
+log_manager = LogManager()
+logger = log_manager.get_logger(__name__)
+
+# 记录日志
+logger.info("处理完成")
+logger.error("处理失败")
 ```
 
 ## 依赖要求
 
-- OpenCV
-- MediaPipe
-- NumPy
-- EasyOCR
-- PyTorch
-- YOLO
-- qrcode
+- OpenCV >= 4.5.0
+- MediaPipe >= 0.8.0
+- NumPy >= 1.19.0
+- PyTorch >= 1.8.0
+- Python >= 3.8
 
 ## 注意事项
 
@@ -237,3 +134,4 @@ def process_image():
 2. 可以通过配置文件调整各处理器的参数
 3. 所有返回的图像都是 BGR 格式（OpenCV 默认格式）
 4. 处理结果会自动缓存以提高性能
+5. 使用统一的日志管理和配置管理

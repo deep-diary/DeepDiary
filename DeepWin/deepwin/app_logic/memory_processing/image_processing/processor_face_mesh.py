@@ -8,9 +8,9 @@ import os
 import numpy as np
 
 class FaceMeshProcessor(ImageProcessor):
-    def __init__(self):
-        super().__init__()
-        print('FaceMeshProcessor init\r\n')
+    def __init__(self, config_manager=None, log_manager=None):
+        super().__init__(config_manager, log_manager)
+        self.logger.info('FaceMeshProcessor 初始化开始')
         # 更新保存路径
         self.output_dir = os.path.join(self.output_dir, 'face_mesh')
         os.makedirs(self.output_dir, exist_ok=True)
@@ -25,7 +25,7 @@ class FaceMeshProcessor(ImageProcessor):
         )
         
         # 从配置文件加载处理器特定配置
-        mesh_config = self.config.get('processors', 'face_mesh')
+        mesh_config = self.config.get('image_processing.processors.face_mesh', {}) if self.config else {}
         self.enable_draw = mesh_config.get('draw', True)
         self.enable_save = mesh_config.get('save', False)
         
@@ -37,7 +37,7 @@ class FaceMeshProcessor(ImageProcessor):
         self.lips = None       # 嘴唇点
         
         # 从配置文件加载标定参数
-        calibration = self.config.get('face_mesh', 'calibration', {})
+        calibration = self.config.get('image_processing.processors.face_mesh.calibration', {}) if self.config else {}
         self.ref_face_width_px = calibration.get('ref_face_width_px', 300)  # 50cm处人脸宽度对应的像素值
         self.ref_face_width_cm = calibration.get('ref_face_width_cm', 15)   # 标准人脸宽度(cm)
         self.ref_distance_cm = calibration.get('ref_distance_cm', 50)        # 标定距离(cm)

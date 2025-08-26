@@ -13,6 +13,7 @@ This package contains utility modules and helper functions for the DeepWin syste
 # from .constants import *    # 暂时注释掉，因为constants.py是空的
 # from .exceptions import *   # 暂时注释掉，因为exceptions.py是空的
 from .test import TestBase, ConfigTestBase
+from .path_manager import PathManager, get_path_manager, get_output_path, get_models_path, get_data_path
 
 # Export main classes for easy access
 __all__ = [
@@ -20,7 +21,12 @@ __all__ = [
     # 'constants',  # 暂时注释掉
     # 'exceptions',  # 暂时注释掉
     'TestBase',
-    'ConfigTestBase'
+    'ConfigTestBase',
+    'PathManager',
+    'get_path_manager',
+    'get_output_path',
+    'get_models_path',
+    'get_data_path'
 ]
 
 # Version info

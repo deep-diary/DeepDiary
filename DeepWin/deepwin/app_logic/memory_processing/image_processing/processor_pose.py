@@ -6,15 +6,15 @@ import numpy as np
 import math
 
 class PoseProcessor(ImageProcessor):
-    def __init__(self):
-        super().__init__()
-        print('PoseProcessor init\r\n')
+    def __init__(self, config_manager=None, log_manager=None):
+        super().__init__(config_manager, log_manager)
+        self.logger.info('PoseProcessor 初始化开始')
         # 更新保存路径
         self.output_dir = os.path.join(self.output_dir, 'pose')
         os.makedirs(self.output_dir, exist_ok=True)
         
         # 从配置文件加载处理器特定配置
-        pose_config = self.config.get('processors', 'pose')
+        pose_config = self.config.get('image_processing.processors.pose', {}) if self.config else {}
         self.enable_draw = pose_config.get('draw', True)
         self.enable_save = pose_config.get('save', False)
         

@@ -15,7 +15,7 @@ class YoloProcessor(ImageProcessor):
         os.makedirs(self.output_dir, exist_ok=True)
         
         # 从配置文件加载处理器特定配置
-        yolo_config = self.config.get('processors', 'yolo')
+        yolo_config = self.config.get('image_processing.processors.yolo', {}) if self.config else {}
         self.enable_draw = yolo_config.get('draw', True)
         self.enable_save = yolo_config.get('save', False)
         
