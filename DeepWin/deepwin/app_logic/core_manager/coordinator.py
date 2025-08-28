@@ -40,6 +40,7 @@ from deepwin.services.cloud_communication.api_client import CloudApiClient
 from deepwin.services.voice_communication.voice_manager import VoiceManager
 from deepwin.app_logic.mcp_client_manager.mcp_client_manager import MCPClientManager
 from deepwin.app_logic.weather_manager import WeatherManager
+from deepwin.services.web_crawler.crawler_manager import CrawlerManager
 
 from deepwin.data_management.database.sqlite_manager import SQLiteManager
 from deepwin.data_management.database.qdrant_manager import QdrantManager
@@ -131,6 +132,14 @@ class Coordinator(QObject):
         self.mcp_client_manager = MCPClientManager(log_manager=self.log_manager, config_manager=self.config_manager) # NEW
         # 实例化 WeatherManager，并传入 mcp_client_manager
         self.weather_manager = WeatherManager(mcp_client_manager=self.mcp_client_manager, log_manager=self.log_manager) # NEW
+
+        # 实例化爬虫管理器
+        self.crawler_manager = CrawlerManager(log_manager=self.log_manager, config_manager=self.config_manager)
+
+        # 连接任务调度器信号（只连接一次，避免重复执行）
+        self.task_scheduler.task_completed.connect(self._on_crawler_task_completed)
+        self.task_scheduler.task_failed.connect(self._on_crawler_task_failed)
+        self.logger.info("Coordinator: 任务调度器信号连接完成")
 
         # 实例化数据库管理器
         # 注意：LocalDatabaseManager在创建时会自动初始化数据库
@@ -244,24 +253,94 @@ class Coordinator(QObject):
                     self.logger.error(f"Coordinator: 初始化处理器 {module_name} 失败: {e}")
                     continue
 
-    def start_application(self):
-        """启动应用程序"""
-        self.logger.info("Coordinator: 启动应用程序...")
-        # self.voice_manager.add_task_to_queue('text', text='将电机位置调大些')
-        # self.voice_manager.add_task_to_queue('transcript', text='转录测试任务1')
-        # self.voice_manager.start_voice_conversation()
+    def test_voice_communication(self):
+        self.voice_manager.add_task_to_queue('text', text='将电机位置调大些')
+        self.voice_manager.add_task_to_queue('transcript', text='转录测试任务1')
+        self.voice_manager.start_voice_conversation()
         # 发送数据库准备就绪信号, 让数据库handler 开始创建示例数据, 初始化的时候，由于handler 还没初始化，所以信号发不出来
-        # self.local_database_manager.database_ready.emit()
+        self.local_database_manager.database_ready.emit()
 
+    def test_image_processing(self):
         # 测试图像处理
         img_path = self.path_manager.get_path('userdata', 'img/demo.jpg')
         self.logger.info(f"Coordinator: 测试图像处理: {img_path}")
         self.image_manager.process_image(img_path, 'face_recognition')
         self.logger.info(f"Coordinator: 测试图像处理完成")
+
+    def test_crawler(self):
+        # 测试爬虫功能 - 爬取星空照片
+        self.logger.info("Coordinator: Unsplash爬虫测试...")
+        try:
+            # # 使用 Unsplash 爬虫爬取星空照片
+            # crawler_result = self.crawler_manager.download_images(
+            #     crawler_type='unsplash',
+            #     query='beautiful girl',
+            #     pages=1
+            # )
+            # self.logger.info(f"Coordinator: 爬虫测试结果: {crawler_result}")
+            
+
+            # 测试百度爬虫
+            crawler_result = self.crawler_manager.download_images(
+                crawler_type='baidu',
+                query='Smart 精灵1号',
+                pages=1
+            )
+            self.logger.info(f"Coordinator: 百度爬虫测试结果: {crawler_result}")
+
+            # # 测试多爬虫
+            # crawler_result = self.crawler_manager.download_with_multiple_crawlers(
+            #     queries=['moon', 'star'],
+            #     pages=1
+            # )
+            # self.logger.info(f"Coordinator: 多爬虫测试结果: {crawler_result}")
+
+            # 测试批量爬虫
+            # crawler_result = self.crawler_manager.batch_download_multiple_queries(
+            #     crawler_type='baidu',
+            #     queries=['赛里木湖', '安徽工程大学'],
+            #     pages=1
+            # )
+            # self.logger.info(f"Coordinator: 批量爬虫测试结果: {crawler_result}")
+            
+        except Exception as e:
+            self.logger.error(f"Coordinator: 爬虫测试失败: {e}")
+    def start_application(self):
+        """启动应用程序"""
+        self.logger.info("Coordinator: 启动应用程序...")
+        # 测试语音通信
+        # self.test_voice_communication()
+
+        # 测试图像处理
+        # self.test_image_processing()
+
+        # 使用任务调度器异步执行爬虫任务
+        try:
+            # 异步执行爬虫测试任务
+            crawler_task_id = self.task_scheduler.add_delayed_task(
+                task_func=self.test_crawler,
+                delay_ms=1000
+            )
+            self.logger.info(f"Coordinator: 爬虫任务已提交到任务调度器，任务ID: {crawler_task_id}")
+            
+        except Exception as e:
+            self.logger.error(f"Coordinator: 提交爬虫任务到调度器失败: {e}")
         
         
         self.agent_manager.start_agents()
         self.logger.info("Coordinator: 应用程序启动完成。")
+    
+    def _on_crawler_task_completed(self, task_id: str, result: Any):
+        """
+        爬虫任务完成回调
+        """
+        self.logger.info(f"Coordinator: 爬虫任务 {task_id} 完成，结果: {result}")
+        
+    def _on_crawler_task_failed(self, task_id: str, error_msg: str):
+        """
+        爬虫任务失败回调
+        """
+        self.logger.error(f"Coordinator: 爬虫任务 {task_id} 失败，错误: {error_msg}")
 
     # ----------------------------------------------------------------------
     # 示例业务逻辑 (可能由定时任务或智能体触发)
@@ -338,7 +417,8 @@ class Coordinator(QObject):
             'serial_communicator',
             'can_bus_communicator',
             'device_protocol_parser',
-            'voice_manager'
+            'voice_manager',
+            'crawler_manager'
         ]
 
         # 循环清理每个模块

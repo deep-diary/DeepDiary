@@ -57,7 +57,6 @@ def main():
     # 2. 初始化核心协调器 (T类)
     # 协调器是应用逻辑层的核心，负责业务逻辑的调度和模块间的通信
     coordinator = Coordinator(log_manager=log_manager)
-    coordinator.start_application() # 新增：自动启动应用相关服务
 
     # 4. 启动后台任务线程池（PySide6 自动管理）
     # QThreadPool 默认在 QApplication 启动时自动启动，这里只是明确指出其存在

@@ -29,6 +29,7 @@ from deepwin.app_logic.mcp_client_manager.mcp_client_manager import MCPClientMan
 from deepwin.app_logic.weather_manager import WeatherManager
 from deepwin.data_management.database.sqlite_manager import SQLiteManager
 from deepwin.data_management.database.qdrant_manager import QdrantManager
+from deepwin.services.web_crawler.crawler_manager import CrawlerManager
 
 from deepwin.app_logic.memory_processing.image_processing.manager import ImageManager
 from deepwin.utils.path_manager import PathManager
@@ -76,6 +77,7 @@ class BaseHandler(QObject):
         self.task_scheduler: Optional[TaskScheduler] = None
         self.mcp_client_manager: Optional[MCPClientManager] = None
         self.weather_manager: Optional[WeatherManager] = None
+        self.crawler_manager: Optional[CrawlerManager] = None
 
         # 路径管理器
         self.path_manager: Optional[PathManager] = None
@@ -117,6 +119,7 @@ class BaseHandler(QObject):
         self.task_scheduler = coordinator.task_scheduler
         self.mcp_client_manager = coordinator.mcp_client_manager
         self.weather_manager = coordinator.weather_manager
+        self.crawler_manager = coordinator.crawler_manager
 
         # 设置路径管理器
         self.path_manager = coordinator.path_manager
@@ -215,6 +218,7 @@ class BaseHandler(QObject):
         self.task_scheduler = None
         self.mcp_client_manager = None
         self.weather_manager = None
+        self.crawler_manager = None
         
         # 清理线程池
         self.thread_pool = None

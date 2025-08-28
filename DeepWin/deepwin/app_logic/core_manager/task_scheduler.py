@@ -145,6 +145,7 @@ class TaskScheduler(QObject):
         :return: 任务的唯一标识符 (task_id)。
         """
         task_id = str(uuid.uuid4())
+        self.logger.info(f"TaskScheduler: 添加延时任务 '{task_id}'，延迟 {delay_ms} ms。")
         self.task_functions[task_id] = (task_func, args, kwargs)
         
         timer = QTimer(self)

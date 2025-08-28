@@ -1,4 +1,46 @@
 {
+  "general": {
+    "theme": "light",
+    "language": "zh_CN",
+    "auto_sync_interval_minutes": 60,
+    "data_storage_path": "data/"
+  },
+  "device_settings": {
+    "deeparm_serial_port": "COM11",
+    "deeparm_baud_rate": 115200,
+    "deeparm_can_bustype": "virtual",
+    "deeparm_dbc_path": "deeparm.dbc",
+    "deepmotor_serial_port": "COM16",
+    "deepmotor_baud_rate": 115200,
+    "deepmotor_history_length": 100,
+    "deepmotor_teaching_interval": 0.1,
+    "deepmotor_trajectory_interp_freq": 50,
+    "deeparm_dbc_name": "deep_arm",
+    "deepmotor_can_bustype": "virtual",
+    "deepmotor_dbc_name": "deep_motor",
+    "deepmotor_default_pos_step": 0.1
+  },
+  "network": {
+    "server_address": "localhost:8000",
+    "mqtt_broker_host": "localhost",
+    "mqtt_broker_port": 1883
+  },
+  "ai_settings": {
+    "image_recognition_enabled": true,
+    "voice_recognition_enabled": true,
+    "llm_api_key": "your_llm_api_key_here"
+  },
+  "voice": {
+    "app_id": "",
+    "workspace_id": "",
+    "api_key": "",
+    "voice_name": "longxiaochun_v2",
+    "sample_rate": 48000,
+    "audio_chunk_size": 3200,
+    "websocket_url": "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
+    "model_name": "multimodal-dialog",
+    "conversation_mode": "duplex"
+  },
   "paths": {
     "root": ".",
     "output": "output",
@@ -9,12 +51,6 @@
     "userdata": "userdata",
     "configs": "configs",
     "resources": "resources"
-  },
-  "general": {
-    "theme": "light",
-    "language": "zh_CN",
-    "auto_sync_interval_minutes": 60,
-    "data_storage_path": "data/"
   },
   "image_processing": {
     "display": {
@@ -125,42 +161,6 @@
       }
     }
   },
-  "device_settings": {
-    "deeparm_serial_port": "COM11",
-    "deeparm_baud_rate": 115200,
-    "deeparm_can_bustype": "virtual",
-    "deeparm_dbc_path": "deeparm.dbc",
-    "deepmotor_serial_port": "COM16",
-    "deepmotor_baud_rate": 115200,
-    "deepmotor_history_length": 100,
-    "deepmotor_teaching_interval": 0.1,
-    "deepmotor_trajectory_interp_freq": 50,
-    "deeparm_dbc_name": "deep_arm",
-    "deepmotor_can_bustype": "virtual",
-    "deepmotor_dbc_name": "deep_motor",
-    "deepmotor_default_pos_step": 0.1
-  },
-  "network": {
-    "server_address": "localhost:8000",
-    "mqtt_broker_host": "localhost",
-    "mqtt_broker_port": 1883
-  },
-  "ai_settings": {
-    "image_recognition_enabled": true,
-    "voice_recognition_enabled": true,
-    "llm_api_key": "your_llm_api_key_here"
-  },
-  "voice": {
-    "app_id": "",
-    "workspace_id": "",
-    "api_key": "",
-    "voice_name": "longxiaochun_v2",
-    "sample_rate": 48000,
-    "audio_chunk_size": 3200,
-    "websocket_url": "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
-    "model_name": "multimodal-dialog",
-    "conversation_mode": "duplex"
-  },
   "database": {
     "sqlite": {
       "path": "data/sqlite/deepwin_demo.db",
@@ -206,6 +206,31 @@
       "type": "internal_memory_resource"
     }
   ],
+  "web_crawler": {
+    "output_dir": "output/crawler_images",
+    "unsplash": {
+      "access_key": "GTgPW-ey0ddMPulJeIx5mdvIE67mCOj6zPO5uJ_xtFc",
+      "max_workers": 5,
+      "per_page": 10,
+      "delay": 1.0,
+      "enabled": true,
+      "crawler_type": "unsplash"
+    },
+    "baidu": {
+      "time_sleep": 0.2,
+      "per_page": 10,
+      "timeout": 5,
+      "enabled": true,
+      "crawler_type": "baidu"
+    },
+    "global": {
+      "max_concurrent_downloads": 3,
+      "default_pages": 1,
+      "cleanup_empty_files": true,
+      "retry_failed_downloads": true,
+      "max_retries": 3
+    }
+  },
   "test": {
     "key": "test_value"
   }
