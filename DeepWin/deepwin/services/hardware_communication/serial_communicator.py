@@ -61,7 +61,10 @@ class SerialCommunicator(QObject):
         self._received_frames: deque = deque(maxlen=self._max_frame_list_size)  # 接收帧列表
 
         # 发送AT指令
-        self.send_bytes(self.active_port, self.create_AT_frame())
+        at_frame = self.create_AT_frame()
+        if isinstance(at_frame, list):
+            at_frame = bytes(at_frame)
+        self.send_bytes(self.active_port, at_frame)
         
         self.logger.info("SerialCommunicator: 初始化完成。")
 
@@ -158,37 +161,47 @@ class SerialCommunicator(QObject):
             self.logger.warning(f"SerialCommunicator: 尝试关闭不存在的串口 '{port_name}'。")
 
     @Slot(str, bytes)
-    def send_bytes(self, port_name: str, data: bytes):
+    def send_bytes(self, port_name: str, data: bytes, command_info: Optional[Dict] = None):
         """
         向指定串口发送原始字节数据。
         :param port_name: 串口名称。
         :param data: 要发送的字节数据。
+        :param command_info: 命令信息字典，包含命令名称等。
         """
+        # 记录发送的帧（无论串口是否连接）
+        frame_info = {
+            'timestamp': time.time(),
+            'port_name': port_name,
+            'data': data,
+            'data_hex': data.hex()
+        }
+        
+        # 添加命令信息
+        if command_info:
+            frame_info.update(command_info)
+            
+        self._sent_frames.append(frame_info)
+        
+        # 发送原始信号（用于UI显示）
+        self.raw_frame_send.emit(port_name, data)
+        # 发送帧列表更新信号
+        self.frame_lists_updated.emit()
+        
+        # 检查串口连接状态
         if port_name not in self._serial_ports or not self._serial_ports[port_name].is_open:
             self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 未打开或不存在，无法发送数据。")
-            return
+            return None
+            
         try:
             self.logger.debug(f"SerialCommunicator: 向串口 '{port_name}' 发送数据: {data.hex()}")
             self._serial_ports[port_name].write(data)
-            
-            # 记录发送的帧
-            frame_info = {
-                'timestamp': time.time(),
-                'port_name': port_name,
-                'data': data,
-                'data_hex': data.hex()
-            }
-            self._sent_frames.append(frame_info)
-            
-            # 发送原始信号
-            self.raw_frame_send.emit(port_name, data)
-            # 发送帧列表更新信号
-            self.frame_lists_updated.emit()
+            return True
             
         except Exception as e:
             error_msg = f"向串口 '{port_name}' 发送数据失败: {e}"
             self.logger.error(f"SerialCommunicator: {error_msg}")
             self.serial_error.emit(port_name, error_msg)
+            return False
 
     def start_reading(self, port_name: str):
         """
@@ -497,6 +510,20 @@ class SerialCommunicator(QObject):
         # 发送帧列表更新信号
         self.frame_lists_updated.emit()
 
+    def get_sent_frame_info(self, port_name: str, data: bytes) -> Optional[Dict]:
+        """
+        获取发送帧的详细信息
+        :param port_name: 端口名称
+        :param data: 发送的数据
+        :return: 帧信息字典，如果未找到则返回None
+        """
+        # 在发送帧列表中查找匹配的帧
+        for frame_info in reversed(self._sent_frames):  # 从最新的开始查找
+            if (frame_info.get('port_name') == port_name and 
+                frame_info.get('data') == data):
+                return frame_info
+        return None
+        
     def create_AT_frame(self):
         # Send 'AT+AT' command
         frame = [0x41, 0x54, 0x2B, 0x41, 0x54, 0x0D, 0x0A]

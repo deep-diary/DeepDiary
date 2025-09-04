@@ -43,7 +43,7 @@ class TeachingTrajectoryManager(QObject):
     _trajectory_execution_progress_detailed = Signal(str, dict) # (device_id, progress_data) 详细执行进度数据
     
     # 新增：命令发送信号
-    _send_command_request = Signal(str, str, list) # (device_id, command_name, args) 请求发送命令
+    _send_command_request = Signal(str, str, dict) # (device_id, command_name, args) 请求发送命令
     
     # 新增：示教轨迹实时更新信号
     _teaching_trajectory_updated = Signal(str, list, list) # (device_id, times, positions) 示教轨迹实时更新
@@ -313,7 +313,7 @@ class TeachingTrajectoryManager(QObject):
         try:
             while self._teaching_sessions.get(device_id, {}).get('is_teaching', False):
                 # 使用传入的motor_id
-                self._send_command_request.emit(device_id, "set_motor_position", [motor_id, 0])
+                self._send_command_request.emit(device_id, "motor_set_pos", {"motor_id": motor_id, "position": 0})
                 time.sleep(teaching_interval)  # 使用配置文件中的间隔时间
         except Exception as e:
             self.logger.error(f"TeachingTrajectoryManager: 示教线程出错 for device '{device_id}': {e}")
@@ -843,12 +843,16 @@ class TeachingTrajectoryManager(QObject):
                 # 2. 计算需要休眠的时间，以弥补循环开销
                 sleep_duration = target_execution_time - time.time()
                 
-                if sleep_duration > 0:
+                # 对于第一个点（时间为0），确保立即执行
+                if i == 0:
+                    # 第一个点立即执行，不等待
+                    pass
+                elif sleep_duration > 0:
                     time.sleep(sleep_duration)
                 
                 # 发送位置控制命令，使用传入的motor_id
-                command_name = "set_motor_position"
-                args = [motor_id, position]
+                command_name = "motor_set_pos"
+                args = {"motor_id": motor_id, "position": position}
                 
                 self.logger.debug(f"TeachingTrajectoryManager: 发送{trajectory_type}点 {i+1}/{len(times)}, motor_id: {motor_id}, 位置: {position:.2f}")
                 

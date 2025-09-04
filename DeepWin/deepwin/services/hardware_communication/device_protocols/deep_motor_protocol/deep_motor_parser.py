@@ -94,7 +94,7 @@ class DeepMotorProtocolParser(BaseProtocolParser):
             motor_id = params.get('motor_id', 1)
             
             if command_name == "motor_set_speed":
-                speed = params.get('speed', 0)
+                speed = params.get('spd', 0)  # 修正参数名：从'speed'改为'spd'
                 return self.protocol2can.create_motor_spd_frame(motor_id, speed)
             elif command_name == "motor_set_pos":
                 position = params.get('position', 0)

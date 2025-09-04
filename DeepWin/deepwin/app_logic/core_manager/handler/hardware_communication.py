@@ -50,7 +50,20 @@ class HardwareCommunicationHandler(BaseHandler):
             self._on_raw_serial_frame_received
         )
         
-        # 2. 连接设备协议解析器信号
+        # 连接串口数据发送信号到UI
+        self.serial_communicator.raw_frame_send.connect(
+            self._on_serial_data_sent
+        )
+        
+        # 2. 连接CAN通信器信号
+        self.can_bus_communicator.can_frame_received.connect(
+            self._on_can_data_received
+        )
+        self.can_bus_communicator.can_frame_sent.connect(
+            self._on_can_data_sent
+        )
+        
+        # 3. 连接设备协议解析器信号
         # 注意：device_semantic_data_ready 信号仍然需要，因为协议层会发送信号
         self.device_protocol_parser.device_semantic_data_ready.connect(
             self.device_logic_manager.handle_device_semantic_data
@@ -126,6 +139,17 @@ class HardwareCommunicationHandler(BaseHandler):
             if semantic_result:
                 self.logger.info(f"HardwareCommunicationHandler: 协议层解析成功 - 设备: {device_id}")
                 self.logger.debug(f"HardwareCommunicationHandler: 信号字典: {semantic_result}")
+                
+                # 转发串口接收数据到UI
+                if self.gui_manager and self.gui_manager.window:
+                    deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+                    if deep_motor_page:
+                        deep_motor_page.add_communication_data(
+                            direction="receive",
+                            protocol="serial",
+                            data=raw_frame_data,
+                            description=f"串口接收 - {port_name}"
+                        )
             else:
                 self.logger.warning(f"HardwareCommunicationHandler: 协议层解析失败")
                 
@@ -133,3 +157,116 @@ class HardwareCommunicationHandler(BaseHandler):
             self.logger.error(f"HardwareCommunicationHandler: 处理串口数据失败: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
+            
+    @Slot(str, bytes)
+    def _on_serial_data_sent(self, port_name: str, data: bytes):
+        """处理串口数据发送信号，转发到UI"""
+        self.logger.debug(f"HardwareCommunicationHandler: 串口数据发送 - 端口: {port_name}, 数据: {data.hex()}")
+        
+        # 转发到UI通信显示组件
+        if self.gui_manager and self.gui_manager.window:
+            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+            if deep_motor_page:
+                # 尝试从串口通信器获取更多信息
+                frame_info = self.serial_communicator.get_sent_frame_info(port_name, data)
+                if frame_info:
+                    command = frame_info.get('command', 'unknown')
+                    frame_index = frame_info.get('frame_index', 1)
+                    total_frames = frame_info.get('total_frames', 1)
+                    params = frame_info.get('params', {})
+                    
+                    # 构建参数字符串
+                    param_str = ""
+                    if params:
+                        param_parts = []
+                        for key, value in params.items():
+                            param_parts.append(f"{key}={value}")
+                        param_str = f"({', '.join(param_parts)})"
+                    
+                    if total_frames > 1:
+                        description = f"电机命令 - {command}{param_str} [帧 {frame_index}/{total_frames}]"
+                    else:
+                        description = f"电机命令 - {command}{param_str}"
+                else:
+                    description = f"串口发送 - {port_name}"
+                    
+                deep_motor_page.add_communication_data(
+                    direction="send",
+                    protocol="serial", 
+                    data=data,
+                    description=description
+                )
+                
+    @Slot(int, bytes)
+    def _on_can_data_received(self, can_id: int, data: bytes):
+        """处理CAN数据接收信号，转发到UI"""
+        self.logger.debug(f"HardwareCommunicationHandler: CAN数据接收 - ID: 0x{can_id:X}, 数据: {data.hex()}")
+        
+        # 转发到UI通信显示组件
+        if self.gui_manager and self.gui_manager.window:
+            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+            if deep_motor_page:
+                deep_motor_page.add_communication_data(
+                    direction="receive",
+                    protocol="can",
+                    data=data,
+                    description=f"CAN接收 - ID: 0x{can_id:X}",
+                    can_id=can_id
+                )
+                
+    @Slot(int, bytes, bool)
+    def _on_can_data_sent(self, can_id: int, data: bytes, is_extended_id: bool = True):
+        """处理CAN数据发送信号，转发到UI"""
+        self.logger.debug(f"HardwareCommunicationHandler: CAN数据发送 - ID: 0x{can_id:X}, 数据: {data.hex()}")
+        
+        # 转发到UI通信显示组件
+        if self.gui_manager and self.gui_manager.window:
+            deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+            if deep_motor_page:
+                # 尝试从设备逻辑管理器处理器获取命令信息
+                device_logic_handler = getattr(self, 'device_logic_manager_handler', None)
+                if device_logic_handler:
+                    command_info = device_logic_handler.get_last_command_info()
+                    self.logger.info(f"HardwareCommunicationHandler: 获取到命令信息: {command_info}")
+                else:
+                    # 如果直接访问失败，尝试通过coordinator_handler访问
+                    if hasattr(self, 'coordinator_handler') and self.coordinator_handler:
+                        device_logic_handler = getattr(self.coordinator_handler, 'device_logic_manager_handler', None)
+                        if device_logic_handler:
+                            command_info = device_logic_handler.get_last_command_info()
+                            self.logger.info(f"HardwareCommunicationHandler: 通过coordinator_handler获取到命令信息: {command_info}")
+                        else:
+                            command_info = None
+                            self.logger.info(f"HardwareCommunicationHandler: 无法通过coordinator_handler获取命令信息")
+                    else:
+                        command_info = None
+                        self.logger.info(f"HardwareCommunicationHandler: 无法获取device_logic_manager_handler")
+                
+                if command_info:
+                    command = command_info.get('command', 'unknown')
+                    frame_index = command_info.get('frame_index', 1)
+                    total_frames = command_info.get('total_frames', 1)
+                    params = command_info.get('params', {})
+                    
+                    # 构建参数字符串
+                    param_str = ""
+                    if params:
+                        param_parts = []
+                        for key, value in params.items():
+                            param_parts.append(f"{key}={value}")
+                        param_str = f"({', '.join(param_parts)})"
+                    
+                    if total_frames > 1:
+                        description = f"电机命令 - {command}{param_str} [帧 {frame_index}/{total_frames}]"
+                    else:
+                        description = f"电机命令 - {command}{param_str}"
+                else:
+                    description = f"CAN发送 - ID: 0x{can_id:X}"
+                    
+                deep_motor_page.add_communication_data(
+                    direction="send",
+                    protocol="can",
+                    data=data,
+                    description=description,
+                    can_id=can_id
+                )

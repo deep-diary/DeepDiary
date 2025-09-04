@@ -25,7 +25,7 @@ class DeepMotor(BaseDevice):
     示教相关功能通过TeachingCapability能力提供。
     """
     # 轨迹执行相关信号（转发自TeachingCapability）
-    send_command_request = Signal(str, str, list)  # (device_id, command_name, args)
+    send_command_request = Signal(str, str, dict)  # (device_id, command_name, args)
     trajectory_execution_progress_updated = Signal(str, dict)  # (device_id, progress_data)
     trajectory_execution_finished = Signal(str, str)  # (device_id, trajectory_name)
     trajectory_execution_error = Signal(str, str)  # (device_id, error_message)
@@ -47,8 +47,7 @@ class DeepMotor(BaseDevice):
         self.add_capability(self.teaching_capability)
         
         # 连接TeachingCapability的信号到DeepMotor的信号（用于转发）
-        # 暂时注释掉有问题的信号连接
-        # self.teaching_capability.send_command_request.connect(self.send_command_request.emit)
+        self.teaching_capability.send_command_request.connect(self.send_command_request.emit)
         self.teaching_capability.trajectory_execution_progress_updated.connect(self.trajectory_execution_progress_updated.emit)
         self.teaching_capability.trajectory_execution_finished.connect(self.trajectory_execution_finished.emit)
         self.teaching_capability.trajectory_execution_error.connect(self.trajectory_execution_error.emit)

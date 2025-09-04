@@ -225,12 +225,11 @@ class DeviceLogicManager(QObject):
                 device_instance.device_states_updated.connect(self.device_status_updated)
                 
                 # 绑定设备向协调器发送命令的信号
-                # 暂时注释掉有问题的信号连接
-                # if hasattr(device_instance, 'send_command_request'):
-                #     device_instance.send_command_request.connect(self.send_device_abstract_command_requested)
-                # elif hasattr(device_instance, 'command_to_coordinator'):
-                #     # 兼容旧版本，使用 command_to_coordinator 信号
-                #     device_instance.command_to_coordinator.connect(self.send_device_abstract_command_requested)
+                if hasattr(device_instance, 'send_command_request'):
+                    device_instance.send_command_request.connect(self.send_device_abstract_command_requested)
+                elif hasattr(device_instance, 'command_to_coordinator'):
+                    # 兼容旧版本，使用 command_to_coordinator 信号
+                    device_instance.command_to_coordinator.connect(self.send_device_abstract_command_requested)
                 
                 # 绑定轨迹执行相关信号（如果设备支持）
                 if hasattr(device_instance, 'trajectory_execution_progress_updated'):

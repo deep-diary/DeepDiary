@@ -87,7 +87,7 @@ class DeviceLogicManagerHandler(BaseHandler):
         if self.ai_coordinator:
             self.ai_coordinator.perceive_device_state(device_id, data)
 
-    @Slot(str, str, list)
+    @Slot(str, str, dict)
     def _on_device_abstract_command_requested(self, device_id: str, command_name: str, params: dict = None):
         """
         槽函数：处理 DeviceLogicManager 发出的抽象命令发送请求。
@@ -127,6 +127,16 @@ class DeviceLogicManagerHandler(BaseHandler):
         处理单帧命令
         """
         try:
+            # 先保存命令信息供CAN发送显示使用
+            command_info = {
+                'command': command_name,
+                'frame_index': 1,
+                'total_frames': 1,
+                'params': params
+            }
+            self._last_command_info = command_info
+            self.logger.debug(f"DeviceLogicManagerHandler: 设置单帧命令信息: {command_info}")
+            
             # ==================== 第2层：CAN层 - CAN帧 → 串口帧 ====================
             self.logger.debug(f"DeviceLogicManagerHandler: 第2层 - CAN层转换CAN帧为串口帧")
             serial_frame = self.can_bus_communicator.send_can_frame(
@@ -172,6 +182,17 @@ class DeviceLogicManagerHandler(BaseHandler):
             for i, can_frame in enumerate(can_frames):
                 self.logger.debug(f"DeviceLogicManagerHandler: 处理第 {i+1}/{len(can_frames)} 帧")
                 
+                # 先准备命令信息
+                command_info = {
+                    'command': command_name,
+                    'frame_index': i + 1,
+                    'total_frames': len(can_frames),
+                    'params': params
+                }
+                
+                # 保存命令信息供CAN发送显示使用
+                self._last_command_info = command_info
+                
                 # ==================== 第2层：CAN层 - CAN帧 → 串口帧 ====================
                 serial_frame = self.can_bus_communicator.send_can_frame(
                     can_frame['arbitration_id'], 
@@ -188,15 +209,18 @@ class DeviceLogicManagerHandler(BaseHandler):
                 self.logger.debug(f"DeviceLogicManagerHandler: 第 {i+1} 帧转换成功 - 串口帧: {serial_frame.hex()}")
                 
                 # ==================== 第3层：串口层 - 串口帧 → 实际发送 ====================
-                send_success = self.serial_communicator.send_bytes(target_port_name, serial_frame)
+                
+                send_success = self.serial_communicator.send_bytes(target_port_name, serial_frame, command_info)
                 
                 if send_success is None:
-                    # 串口不存在或发送失败，触发模拟数据反馈
-                    self.logger.warning(f"DeviceLogicManagerHandler: 多帧命令第 {i+1} 帧串口发送失败，触发模拟数据反馈")
-                    position = params.get('pos', 0.0) if params else 0.0
-                    self.serial_communicator.sim_read_serial_data(position=position)
-                    self.coordinator_handler.app_status_message.emit(f"串口不存在，多帧命令 '{command_name}' 已触发模拟数据反馈")
-                    return
+                    # 串口不存在或发送失败，但仍然记录到通信监控中
+                    self.logger.warning(f"DeviceLogicManagerHandler: 多帧命令第 {i+1} 帧串口发送失败，但已记录到通信监控")
+                    
+                    # 只在第一帧失败时触发模拟数据反馈
+                    if i == 0:
+                        position = params.get('pos', 0.0) if params else 0.0
+                        self.serial_communicator.sim_read_serial_data(position=position)
+                        self.coordinator_handler.app_status_message.emit(f"串口不存在，多帧命令 '{command_name}' 已触发模拟数据反馈")
                 
                 # 帧间延迟，避免连续发送过快
                 if i < len(can_frames) - 1:  # 不是最后一帧
@@ -226,7 +250,13 @@ class DeviceLogicManagerHandler(BaseHandler):
                 return
             
             # 发送串口数据
-            send_success = self.serial_communicator.send_bytes(target_port_name, serial_frame)
+            command_info = {
+                'command': command_name,
+                'frame_index': 1,
+                'total_frames': 1,
+                'params': params
+            }
+            send_success = self.serial_communicator.send_bytes(target_port_name, serial_frame, command_info)
             
             if send_success is not None:
                 self.logger.info(f"DeviceLogicManagerHandler: 串口层发送成功 - 端口: {target_port_name}")
@@ -346,3 +376,7 @@ class DeviceLogicManagerHandler(BaseHandler):
             if history_data is not None:
                 if hasattr(deep_motor_page, 'update_history_curve'):
                     deep_motor_page.update_history_curve(history_data)
+    
+    def get_last_command_info(self):
+        """获取最后的命令信息，用于UI显示"""
+        return getattr(self, '_last_command_info', None)

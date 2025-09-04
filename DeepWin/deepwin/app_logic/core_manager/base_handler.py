@@ -144,6 +144,21 @@ class BaseHandler(QObject):
             if self.logger:
                 self.logger.warning("BaseHandler: 无法获取CoordinatorHandler，这是可选的依赖项")
         
+        # 设置其他处理器引用（用于处理器间通信）
+        if hasattr(coordinator, 'handlers'):
+            # 设置设备逻辑管理器处理器
+            if 'devicelogicmanagerhandler' in coordinator.handlers:
+                self.device_logic_manager_handler = coordinator.handlers['devicelogicmanagerhandler']
+                if self.logger:
+                    self.logger.info("BaseHandler: 成功获取device_logic_manager_handler")
+            else:
+                self.device_logic_manager_handler = None
+                if self.logger:
+                    self.logger.warning("BaseHandler: 无法获取device_logic_manager_handler")
+                    # 调试信息：显示可用的处理器
+                    available_handlers = list(coordinator.handlers.keys())
+                    self.logger.debug(f"BaseHandler: 可用的处理器: {available_handlers}")
+        
     def set_dependency(self, name: str, dependency: Any):
         """
         设置依赖项，支持动态注入（保留原有接口以兼容）
