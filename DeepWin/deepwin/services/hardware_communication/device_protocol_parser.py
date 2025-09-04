@@ -16,14 +16,26 @@ from deepwin.services.hardware_communication.device_protocols.base_protocol_pars
 
 class DeviceProtocolParser(QObject):
     """
-    底层设备协议解析器管理器。
-    负责自动发现、管理和调度不同设备的具体协议解析器。
-    它接收来自 SerialCommunicator 或 CanBusCommunicator 的初步解析后的低层次结构化数据，
-    根据设备类型将其转发给对应的设备协议解析器，转换为业务语义数据。
-    它也负责将应用逻辑层生成的抽象控制命令转发给对应的设备协议解析器，转换为设备可识别的协议格式。
+    协议管理层 - 统一的协议转换和路由中心。
+    
+    核心职责：
+    1. 命令 → CAN帧：将抽象命令转换为CAN帧格式
+    2. 命令 → 串口帧：将抽象命令直接转换为串口帧（跳过CAN层）
+    3. CAN帧 → 信号字典：将CAN帧解析为信号字典
+    4. 串口帧 → 信号字典：将串口帧解析为信号字典
+    
+    设计原则：
+    - 协议管理层代码尽可能不动，新增设备只需在设备协议子层添加代码
+    - 支持CAN协议和串口协议的统一处理
+    - 提供灵活的协议路由和转换机制
     """
-    device_semantic_data_ready = Signal(str, dict)
-    protocol_conversion_error = Signal(str, str)  # 由具体的协议解析器发出，这里连接
+    # 输出信号
+    device_semantic_data_ready = Signal(str, dict)  # 设备语义数据就绪
+    can_frame_ready = Signal(int, bytes, bool)      # CAN帧就绪 (arbitration_id, data, is_extended_id)
+    serial_frame_ready = Signal(bytes)              # 串口帧就绪 (data)
+    
+    # 错误信号
+    protocol_conversion_error = Signal(str, str)    # 协议转换错误 (device_id, error_msg)
 
     def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         """
@@ -169,15 +181,253 @@ class DeviceProtocolParser(QObject):
         
         return None
 
+
+    def generate_low_level_command(self, device_id: str, abstract_command_name: str, params: Dict[str, Any]) -> Union[bytes, str]:
+        """
+        将应用逻辑层的高级抽象命令（带参数字典）转发给对应的具体协议解析器，转换为底层协议可发送的命令。
+        这是推荐的接口，避免了不必要的参数转换。
+        :param device_id: 目标设备的唯一标识符。
+        :param abstract_command_name: 抽象命令的名称 (如 "move_joint_angles", "set_motor_rpm")。
+        :param params: 抽象命令的参数字典，键为参数名，值为参数值。
+        :return: 转换后的底层命令 (bytes 或 str)。
+        :raises ValueError: 如果设备或命令不被支持。
+        """
+        self.logger.debug(f"生成设备 '{device_id}' 的底层命令: {abstract_command_name} 参数: {params}")
+        
+        # 根据 device_id 确定设备类型
+        device_type = self._get_device_type_from_id(device_id)
+        if not device_type:
+            raise ValueError(f"未找到设备ID '{device_id}' 对应的命令生成器")
+
+        device_parser = self._device_parsers.get(device_type)
+        if not device_parser:
+            raise ValueError(f"设备类型 '{device_type}' 的命令生成器未注册")
+
+        try:
+            # 调用具体设备解析器的方法生成命令（使用新的字典参数接口）
+            low_level_command = device_parser.generate_output_command(abstract_command_name, params)
+            
+            self.logger.debug(f"已生成设备 '{device_id}' 的底层命令")
+            return low_level_command
+        except Exception as e:
+            raise ValueError(f"生成设备 '{device_id}' 命令 '{abstract_command_name}' 失败: {e}")
+
+    # ==================== 协议管理层的4个核心任务 ====================
+    
+    @Slot(str, str, dict, result=object)
+    def convert_command_to_can_frame(self, device_id: str, command_name: str, params: Dict[str, Any]) -> Union[Optional[Dict[str, Any]], Optional[List[Dict[str, Any]]]]:
+        """
+        核心任务1：将抽象命令转换为CAN帧格式
+        支持单帧和多帧命令
+        :param device_id: 设备ID
+        :param command_name: 命令名称
+        :param params: 命令参数
+        """
+        try:
+            self.logger.debug(f"协议管理层: 将命令 '{command_name}' 转换为CAN帧 (设备: {device_id})")
+            
+            # 获取设备协议解析器
+            device_type = self._get_device_type_from_id(device_id)
+            if not device_type:
+                raise ValueError(f"未找到设备ID '{device_id}' 对应的协议解析器")
+            
+            device_parser = self._device_parsers.get(device_type)
+            if not device_parser:
+                raise ValueError(f"设备类型 '{device_type}' 的协议解析器未注册")
+            
+            # 调用设备特定的命令转换方法
+            can_frame_data = device_parser.convert_command_to_can_frame(command_name, params)
+            
+            if can_frame_data:
+                # 检查是否为多帧命令
+                if isinstance(can_frame_data, list):
+                    # 多帧命令：发送所有帧并返回第一帧
+                    self.logger.info(f"协议管理层: 命令 '{command_name}' 已转换为 {len(can_frame_data)} 个CAN帧")
+                    for i, frame in enumerate(can_frame_data):
+                        arbitration_id = frame.get('arbitration_id')
+                        data = frame.get('data')
+                        is_extended_id = frame.get('is_extended_id', True)
+                        self.logger.debug(f"协议管理层: 发送第 {i+1} 帧 CAN ID=0x{arbitration_id:X}")
+                        self.can_frame_ready.emit(arbitration_id, data, is_extended_id)
+                    return can_frame_data  # 返回完整的帧列表
+                else:
+                    # 单帧命令
+                    arbitration_id = can_frame_data.get('arbitration_id')
+                    data = can_frame_data.get('data')
+                    is_extended_id = can_frame_data.get('is_extended_id', True)
+                    
+                    self.logger.info(f"协议管理层: 命令 '{command_name}' 已转换为CAN帧 ID=0x{arbitration_id:X}")
+                    self.can_frame_ready.emit(arbitration_id, data, is_extended_id)
+                    
+                    # 返回CAN帧数据
+                    return can_frame_data
+            else:
+                raise ValueError(f"设备 '{device_id}' 不支持命令 '{command_name}' 的CAN帧转换")
+                
+        except Exception as e:
+            error_msg = f"转换命令 '{command_name}' 为CAN帧失败: {e}"
+            self.logger.error(f"协议管理层: {error_msg}")
+            self.protocol_conversion_error.emit(device_id, error_msg)
+            return None
+    
+    @Slot(str, str, dict)
+    def convert_command_to_serial_frame(self, device_id: str, command_name: str, params: Dict[str, Any]):
+        """
+        核心任务2：将抽象命令直接转换为串口帧（跳过CAN层）
+        :param device_id: 设备ID
+        :param command_name: 命令名称
+        :param params: 命令参数
+        """
+        try:
+            self.logger.debug(f"协议管理层: 将命令 '{command_name}' 转换为串口帧 (设备: {device_id})")
+            
+            # 获取设备协议解析器
+            device_type = self._get_device_type_from_id(device_id)
+            if not device_type:
+                raise ValueError(f"未找到设备ID '{device_id}' 对应的协议解析器")
+            
+            device_parser = self._device_parsers.get(device_type)
+            if not device_parser:
+                raise ValueError(f"设备类型 '{device_type}' 的协议解析器未注册")
+            
+            # 调用设备特定的串口帧转换方法
+            serial_frame_data = device_parser.convert_command_to_serial_frame(command_name, params)
+            
+            if serial_frame_data:
+                self.logger.info(f"协议管理层: 命令 '{command_name}' 已转换为串口帧")
+                self.serial_frame_ready.emit(serial_frame_data)
+            else:
+                raise ValueError(f"设备 '{device_id}' 不支持命令 '{command_name}' 的串口帧转换")
+                
+        except Exception as e:
+            error_msg = f"转换命令 '{command_name}' 为串口帧失败: {e}"
+            self.logger.error(f"协议管理层: {error_msg}")
+            self.protocol_conversion_error.emit(device_id, error_msg)
+    
+    @Slot(str, int, bytes, bool)
+    def parse_can_frame_to_signals(self, device_id: str, arbitration_id: int, data: bytes, is_extended_id: bool=True):
+        """
+        核心任务3：将CAN帧解析为信号字典
+        :param device_id: 设备ID
+        :param arbitration_id: CAN仲裁ID
+        :param data: CAN数据
+        :param is_extended_id: 是否为扩展ID
+        """
+        try:
+            self.logger.debug(f"协议管理层: 解析CAN帧 ID=0x{arbitration_id:X} (设备: {device_id})")
+            
+            # 获取设备协议解析器
+            device_type = self._get_device_type_from_id(device_id)
+            if not device_type:
+                raise ValueError(f"未找到设备ID '{device_id}' 对应的协议解析器")
+            
+            device_parser = self._device_parsers.get(device_type)
+            if not device_parser:
+                raise ValueError(f"设备类型 '{device_type}' 的协议解析器未注册")
+            
+            # 构建CAN帧数据字典
+            can_frame_data = {
+                'arbitration_id': arbitration_id,
+                'data': data,
+                'is_extended_id': is_extended_id,
+                'frame_type': 'can'
+            }
+            
+            # 调用设备特定的CAN帧解析方法
+            semantic_data = device_parser.parse_can_frame_to_signals(can_frame_data)
+            
+            if semantic_data:
+                semantic_data['device_id'] = device_id
+                semantic_data['device_type'] = device_type
+                self.logger.info(f"协议管理层: CAN帧 ID=0x{arbitration_id:X} 已解析为信号字典")
+                self.device_semantic_data_ready.emit(device_id, semantic_data)
+            else:
+                self.logger.warning(f"协议管理层: 设备 '{device_id}' 无法解析CAN帧 ID=0x{arbitration_id:X}")
+                
+        except Exception as e:
+            error_msg = f"解析CAN帧 ID=0x{arbitration_id:X} 失败: {e}"
+            self.logger.error(f"协议管理层: {error_msg}")
+            self.protocol_conversion_error.emit(device_id, error_msg)
+    
+    def parse_serial_frame_to_signals(self, device_id: str, data: bytes) -> Optional[Dict[str, Any]]:
+        """
+        核心任务4：将串口帧解析为信号字典
+        :param device_id: 设备ID
+        :param data: 串口数据
+        :return: 信号字典，失败时返回None
+        """
+        try:
+            self.logger.debug(f"协议管理层: 解析串口帧 (设备: {device_id}, 数据: {data.hex()})")
+            
+            # 获取设备协议解析器
+            device_type = self._get_device_type_from_id(device_id)
+            if not device_type:
+                raise ValueError(f"未找到设备ID '{device_id}' 对应的协议解析器")
+            
+            device_parser = self._device_parsers.get(device_type)
+            if not device_parser:
+                raise ValueError(f"设备类型 '{device_type}' 的协议解析器未注册")
+            
+            # 构建串口帧数据字典
+            serial_frame_data = {
+                'data': data,
+                'frame_type': 'serial'
+            }
+            
+            # 调用设备特定的串口帧解析方法
+            semantic_data = device_parser.parse_serial_frame_to_signals(serial_frame_data)
+            
+            if semantic_data:
+                semantic_data['device_id'] = device_id
+                semantic_data['device_type'] = device_type
+                self.logger.info(f"协议管理层: 串口帧已解析为信号字典")
+                # 发送信号（保持向后兼容）
+                self.device_semantic_data_ready.emit(device_id, semantic_data)
+                return semantic_data
+            else:
+                self.logger.warning(f"协议管理层: 设备 '{device_id}' 无法解析串口帧")
+                return None
+                
+        except Exception as e:
+            error_msg = f"解析串口帧失败: {e}"
+            self.logger.error(f"协议管理层: {error_msg}")
+            self.protocol_conversion_error.emit(device_id, error_msg)
+            return None
+    
+    # ==================== 兼容性方法（保持向后兼容） ====================
+    
     @Slot(str, dict)
     def parse_low_level_data(self, device_id: str, low_level_data: Dict[str, Any]):
         """
-        将低层次解析数据（如 CAN 信号字典或原始串口数据字典）转换为业务语义数据。
-        管理器根据 device_id 路由到对应的具体协议解析器。
-        :param device_id: 设备的唯一标识符。
-        :param low_level_data: 来自 SerialCommunicator 或 CanBusCommunicator 的解析数据。
-                                对于 DeepArm，通常是 CAN 信号字典。
-                                对于 DeepMotor，可能是原始串口数据解析后的字典。
+        将低层次解析数据转换为业务语义数据。
+        
+        支持两种数据格式：
+        1. 带 frame_type 的新格式：根据 frame_type 路由到对应的解析方法
+        2. 旧格式：直接调用设备解析器的 parse_input_data 方法（向后兼容）
+        
+        :param device_id: 设备的唯一标识符
+        :param low_level_data: 低层次数据字典，可能包含：
+            - frame_type: 'can' 或 'serial'（新格式）
+            - arbitration_id, data, is_extended_id（CAN帧数据）
+            - data（串口帧数据）
+            - 或其他旧格式数据
+        """
+        # 根据数据类型路由到对应的解析方法
+        if low_level_data.get('frame_type') == 'can':
+            arbitration_id = low_level_data.get('arbitration_id')
+            data = low_level_data.get('data')
+            is_extended_id = low_level_data.get('is_extended_id', True)
+            self.parse_can_frame_to_signals(device_id, arbitration_id, data, is_extended_id)
+        elif low_level_data.get('frame_type') == 'serial':
+            data = low_level_data.get('data')
+            self.parse_serial_frame_to_signals(device_id, data)
+        else:
+            # 兼容旧的调用方式
+            self._legacy_parse_low_level_data(device_id, low_level_data)
+    
+    def _legacy_parse_low_level_data(self, device_id: str, low_level_data: Dict[str, Any]):
+        """
+        旧的解析方法（保持向后兼容）
         """
         self.logger.debug(f"收到设备 '{device_id}' 的低层数据")
         
@@ -208,13 +458,7 @@ class DeviceProtocolParser(QObject):
 
     def generate_low_level_command(self, device_id: str, abstract_command_name: str, params: Dict[str, Any]) -> Union[bytes, str]:
         """
-        将应用逻辑层的高级抽象命令（带参数字典）转发给对应的具体协议解析器，转换为底层协议可发送的命令。
-        这是推荐的接口，避免了不必要的参数转换。
-        :param device_id: 目标设备的唯一标识符。
-        :param abstract_command_name: 抽象命令的名称 (如 "move_joint_angles", "set_motor_rpm")。
-        :param params: 抽象命令的参数字典，键为参数名，值为参数值。
-        :return: 转换后的底层命令 (bytes 或 str)。
-        :raises ValueError: 如果设备或命令不被支持。
+        兼容性方法：生成底层命令（保持向后兼容）
         """
         self.logger.debug(f"生成设备 '{device_id}' 的底层命令: {abstract_command_name} 参数: {params}")
         

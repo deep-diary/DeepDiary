@@ -22,6 +22,8 @@ class HardwareCommunicationHandler(BaseHandler):
             raise ValueError("缺少必需的依赖项: logger")
         if not self.serial_communicator:
             raise ValueError("缺少必需的依赖项: serial_communicator")
+        if not self.can_bus_communicator:
+            raise ValueError("缺少必需的依赖项: can_bus_communicator")
         if not self.device_protocol_parser:
             raise ValueError("缺少必需的依赖项: device_protocol_parser")
         if not self.device_logic_manager:
@@ -49,6 +51,7 @@ class HardwareCommunicationHandler(BaseHandler):
         )
         
         # 2. 连接设备协议解析器信号
+        # 注意：device_semantic_data_ready 信号仍然需要，因为协议层会发送信号
         self.device_protocol_parser.device_semantic_data_ready.connect(
             self.device_logic_manager.handle_device_semantic_data
         )
@@ -83,16 +86,50 @@ class HardwareCommunicationHandler(BaseHandler):
     @Slot(str, bytes)
     def _on_raw_serial_frame_received(self, port_name: str, raw_frame_data: bytes):
         """
-        处理从串口接收到的原始帧数据
+        处理从串口接收到的原始帧数据 - 逐层向上传递
+        串口层 → CAN层 → 协议层 → 信号字典 → 信号发出
         """
-        # 使用SerialCommunicator的映射功能获取设备ID
-        device_id = self.serial_communicator.get_device_id_from_port(port_name)
+        self.logger.debug(f"HardwareCommunicationHandler: 收到串口数据 - 端口: {port_name}, 数据: {raw_frame_data.hex()}")
         
-        if not device_id:
-            self.logger.warning(f"HardwareCommunicationHandler: 收到来自未知串口 '{port_name}' 的数据，无法映射到设备ID。数据: {raw_frame_data.hex()}")
-            device_id = "DeepMotor"  # 调试时使用默认值
-        
-        self.logger.debug(f"HardwareCommunicationHandler: 收到来自串口 '{port_name}' (设备 '{device_id}') 的原始帧数据: {raw_frame_data.hex()}")
-        
-        # 转发给设备协议解析器
-        self.device_protocol_parser.parse_low_level_data(device_id, raw_frame_data)
+        try:
+            # ==================== 第1层：串口层 - 处理串口数据 ====================
+            self.logger.debug(f"HardwareCommunicationHandler: 第1层 - 串口层处理数据")
+            serial_result = self.serial_communicator.process_received_data(port_name, raw_frame_data)
+            
+            if not serial_result:
+                self.logger.warning(f"HardwareCommunicationHandler: 串口层处理失败")
+                return
+            
+            self.logger.debug(f"HardwareCommunicationHandler: 串口层处理成功")
+            
+            # ==================== 第2层：CAN层 - 串口数据 → CAN帧 ====================
+            self.logger.debug(f"HardwareCommunicationHandler: 第2层 - CAN层转换串口数据为CAN帧")
+            can_result = self.can_bus_communicator.process_serial_data(raw_frame_data)
+            
+            if not can_result:
+                self.logger.warning(f"HardwareCommunicationHandler: CAN层转换失败")
+                return
+            
+            self.logger.debug(f"HardwareCommunicationHandler: CAN层转换成功 - CAN ID: 0x{can_result['arbitration_id']:X}")
+            
+            # ==================== 第3层：协议层 - CAN帧 → 信号字典 ====================
+            self.logger.debug(f"HardwareCommunicationHandler: 第3层 - 协议层解析CAN帧为信号字典")
+            
+            # 获取设备ID
+            device_id = self.serial_communicator.get_device_id_from_port(port_name)
+            if not device_id:
+                self.logger.warning(f"HardwareCommunicationHandler: 收到来自未知串口 '{port_name}' 的数据，无法映射到设备ID")
+                device_id = "DeepMotor"  # 调试时使用默认值
+            
+            semantic_result = self.device_protocol_parser.parse_serial_frame_to_signals(device_id, raw_frame_data)
+            
+            if semantic_result:
+                self.logger.info(f"HardwareCommunicationHandler: 协议层解析成功 - 设备: {device_id}")
+                self.logger.debug(f"HardwareCommunicationHandler: 信号字典: {semantic_result}")
+            else:
+                self.logger.warning(f"HardwareCommunicationHandler: 协议层解析失败")
+                
+        except Exception as e:
+            self.logger.error(f"HardwareCommunicationHandler: 处理串口数据失败: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())

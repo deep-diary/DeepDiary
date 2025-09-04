@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, Union, List, Tuple
 from deepwin.data_management.log_manager import LogManager
 from deepwin.config.config_manager import ConfigManager
 import random
+from collections import deque
 
 
 class SerialCommunicator(QObject):
@@ -17,13 +18,22 @@ class SerialCommunicator(QObject):
     建立、维护和管理与 DeepArm、DeepToy 等设备的串口连接。
     负责发送和接收原始串口数据。
     处理串口数据的编解码。
+    
+    新增功能：
+    - 发送和接收帧的列表管理，支持先进先出机制
+    - 可配置的最大列表长度（默认1000）
+    - 清空帧列表功能
+    - 帧列表更新信号，用于UI同步更新
+    - 获取帧列表信息的接口
     """
-    # 修改信号，使其直接发出解析后的 CAN 帧组件
+    # 串口通信信号
     raw_frame_received = Signal(str, bytes) # 收到原始帧: (port_name, data_bytes)
     raw_frame_send = Signal(str, bytes) # 发送原始帧: (port_name, data_bytes)
-    can_frame_components_received = Signal(str, int, bytes, bool) # 收到 CAN 帧组件: (port_name, arbitration_id, data_bytes, is_extended_id)
     connection_status_changed = Signal(str, bool) # 串口连接状态变更: (port_name, is_connected)
     serial_error = Signal(str, str) # 串口错误: (port_name, error_msg)
+    
+    # 新增信号：用于UI更新发送和接收帧列表
+    frame_lists_updated = Signal() # 发送和接收帧列表更新信号
 
     def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
         """
@@ -44,6 +54,14 @@ class SerialCommunicator(QObject):
         
         # 新增：端口到设备ID的映射管理
         self._port_to_device_id_map: Dict[str, str] = {} # {port_name: device_id}
+        
+        # 新增：发送和接收帧列表管理
+        self._max_frame_list_size = 1000  # 默认最大帧列表长度
+        self._sent_frames: deque = deque(maxlen=self._max_frame_list_size)  # 发送帧列表
+        self._received_frames: deque = deque(maxlen=self._max_frame_list_size)  # 接收帧列表
+
+        # 发送AT指令
+        self.send_bytes(self.active_port, self.create_AT_frame())
         
         self.logger.info("SerialCommunicator: 初始化完成。")
 
@@ -152,7 +170,21 @@ class SerialCommunicator(QObject):
         try:
             self.logger.debug(f"SerialCommunicator: 向串口 '{port_name}' 发送数据: {data.hex()}")
             self._serial_ports[port_name].write(data)
+            
+            # 记录发送的帧
+            frame_info = {
+                'timestamp': time.time(),
+                'port_name': port_name,
+                'data': data,
+                'data_hex': data.hex()
+            }
+            self._sent_frames.append(frame_info)
+            
+            # 发送原始信号
             self.raw_frame_send.emit(port_name, data)
+            # 发送帧列表更新信号
+            self.frame_lists_updated.emit()
+            
         except Exception as e:
             error_msg = f"向串口 '{port_name}' 发送数据失败: {e}"
             self.logger.error(f"SerialCommunicator: {error_msg}")
@@ -220,9 +252,20 @@ class SerialCommunicator(QObject):
             
             # 去掉头尾后发送
             processed_line = line[2:-2]
+            
+            # 记录接收的帧
+            frame_info = {
+                'timestamp': time.time(),
+                'port_name': port_name,
+                'data': processed_line,
+                'data_hex': processed_line.hex()
+            }
+            self._received_frames.append(frame_info)
+            
+            # 发送原始信号
             self.raw_frame_received.emit(port_name, processed_line)
-
-            # self.ser2can(port_name,processed_line) # 暂时不经过Can 层，临时屏蔽
+            # 发送帧列表更新信号
+            self.frame_lists_updated.emit()
 
         except serial.SerialException as e:
             error_msg = f"从串口 '{port_name}' 读取数据失败: {e}"
@@ -235,42 +278,6 @@ class SerialCommunicator(QObject):
             self.serial_error.emit(port_name, error_msg)
             self.stop_reading(port_name) # 发生错误时停止读取
 
-    def ser2can(self, port_name: str, line: bytes):
-        """
-        将串口数据解析为 CAN 帧组件。
-        :param line: 串口数据。
-        :param port_name: 串口名称。
-        """
-        # 解析CAN ID（4字节），先向右移3位, 具体根据协议决定
-            
-        arbitration_id = int.from_bytes(line[0:4], byteorder='big') >> 3
-        
-        # 解析数据长度（1字节）
-        data_length = line[4]
-        
-        # 检查数据长度是否合理
-        if data_length > 8:  # CAN 2.0 标准帧最大数据长度为8字节
-            self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据长度超出范围: {data_length}")
-            return
-
-        # 检查接收到的数据长度是否足够
-        expected_length = 5 + data_length  # 5 = 4(CANID) + 1(Len)
-        if len(line) < expected_length:
-            self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 数据不完整，期望 {expected_length} 字节，实际 {len(line)} 字节")
-            return
-
-        # 提取数据部分
-        data_bytes = line[5:5+data_length]
-
-
-        # 假设所有 CAN ID 都是标准 ID (非扩展 ID)，实际项目中需要根据 CANID 范围判断
-        is_extended_id = True
-
-        self.logger.info(f"SerialCommunicator: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}")
-        # 发射解析后的 CAN 帧组件，CanBusCommunicator 将会接收并进一步处理
-        self.can_frame_components_received.emit(
-            port_name, arbitration_id, data_bytes, is_extended_id
-        )
 
     def sim_read_serial_data(self, port_name: str = None, position: float = None):
         """
@@ -322,14 +329,63 @@ class SerialCommunicator(QObject):
         is_extended_id = True
 
         if port_name is None:
-            port_name = self.active_port
+            port_name = 'DeepMotor'  # 模拟数据使用DeepMotor作为端口名
 
-        self.raw_frame_received.emit('DeepMotor', frame)  # 去掉 AT 和 \r\n
+        # 确保端口映射存在（模拟数据场景）
+        if port_name not in self._port_to_device_id_map:
+            self._port_to_device_id_map[port_name] = 'DeepMotor'
+            self.logger.debug(f"SerialCommunicator: 为模拟数据建立端口映射 '{port_name}' -> 'DeepMotor'")
 
-        # 发送 CAN 帧组件
-        # self.can_frame_components_received.emit(
-        #     port_name, arbitration_id, data_bytes, is_extended_id
-        # )
+        # 记录接收的帧（模拟数据）
+        frame_info = {
+            'timestamp': time.time(),
+            'port_name': port_name,
+            'data': frame,
+            'data_hex': frame.hex()
+        }
+        self._received_frames.append(frame_info)
+        
+        self.raw_frame_received.emit(port_name, frame)  # 去掉 AT 和 \r\n
+        # 发送帧列表更新信号
+        self.frame_lists_updated.emit()
+    
+    def process_received_data(self, port_name: str, data: bytes) -> Optional[Dict[str, Any]]:
+        """
+        处理接收到的串口数据，返回处理结果
+        :param port_name: 端口名称
+        :param data: 接收到的数据
+        :return: 处理结果字典，包含端口信息和数据
+        """
+        try:
+            self.logger.debug(f"SerialCommunicator: 处理接收数据 - 端口: {port_name}, 数据: {data.hex()}")
+            
+            # 构建处理结果
+            result = {
+                'port_name': port_name,
+                'data': data,
+                'data_hex': data.hex(),
+                'timestamp': time.time(),
+                'frame_type': 'serial'
+            }
+            
+            # 添加到接收帧列表
+            frame_info = {
+                'timestamp': result['timestamp'],
+                'port_name': port_name,
+                'data': data,
+                'data_hex': data.hex()
+            }
+            self._received_frames.append(frame_info)
+            
+            # 发送帧列表更新信号
+            self.frame_lists_updated.emit()
+            
+            self.logger.debug(f"SerialCommunicator: 数据处理完成 - 端口: {port_name}")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"SerialCommunicator: 处理接收数据失败: {e}")
+            return None
 
     def cleanup(self):
         """
@@ -381,3 +437,67 @@ class SerialCommunicator(QObject):
         if port_name in self._port_to_device_id_map:
             device_id = self._port_to_device_id_map.pop(port_name)
             self.logger.info(f"SerialCommunicator: 移除端口映射 '{port_name}' -> '{device_id}'")
+    
+    # 新增：帧列表管理方法
+    def clear_frame_lists(self):
+        """
+        清空发送和接收帧列表
+        """
+        self._sent_frames.clear()
+        self._received_frames.clear()
+        self.logger.info("SerialCommunicator: 已清空发送和接收帧列表")
+        # 发送帧列表更新信号
+        self.frame_lists_updated.emit()
+    
+    def get_sent_frames(self) -> List[Dict[str, Any]]:
+        """
+        获取发送帧列表
+        :return: 发送帧列表的副本
+        """
+        return list(self._sent_frames)
+    
+    def get_received_frames(self) -> List[Dict[str, Any]]:
+        """
+        获取接收帧列表
+        :return: 接收帧列表的副本
+        """
+        return list(self._received_frames)
+    
+    def get_frame_lists_info(self) -> Dict[str, Any]:
+        """
+        获取帧列表信息
+        :return: 包含帧列表统计信息的字典
+        """
+        return {
+            'sent_frames_count': len(self._sent_frames),
+            'received_frames_count': len(self._received_frames),
+            'max_list_size': self._max_frame_list_size,
+            'sent_frames': list(self._sent_frames),
+            'received_frames': list(self._received_frames)
+        }
+    
+    def set_max_frame_list_size(self, size: int):
+        """
+        设置帧列表的最大长度
+        :param size: 新的最大长度
+        """
+        if size <= 0:
+            self.logger.warning(f"SerialCommunicator: 无效的帧列表大小: {size}")
+            return
+        
+        self._max_frame_list_size = size
+        # 重新创建deque以应用新的maxlen
+        old_sent = list(self._sent_frames)
+        old_received = list(self._received_frames)
+        
+        self._sent_frames = deque(old_sent, maxlen=size)
+        self._received_frames = deque(old_received, maxlen=size)
+        
+        self.logger.info(f"SerialCommunicator: 帧列表最大长度已设置为: {size}")
+        # 发送帧列表更新信号
+        self.frame_lists_updated.emit()
+
+    def create_AT_frame(self):
+        # Send 'AT+AT' command
+        frame = [0x41, 0x54, 0x2B, 0x41, 0x54, 0x0D, 0x0A]
+        return frame

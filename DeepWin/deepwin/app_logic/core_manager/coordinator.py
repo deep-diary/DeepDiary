@@ -315,16 +315,16 @@ class Coordinator(QObject):
         # self.test_image_processing()
 
         # 使用任务调度器异步执行爬虫任务
-        try:
-            # 异步执行爬虫测试任务
-            crawler_task_id = self.task_scheduler.add_delayed_task(
-                task_func=self.test_crawler,
-                delay_ms=1000
-            )
-            self.logger.info(f"Coordinator: 爬虫任务已提交到任务调度器，任务ID: {crawler_task_id}")
+        # try:
+        #     # 异步执行爬虫测试任务
+        #     crawler_task_id = self.task_scheduler.add_delayed_task(
+        #         task_func=self.test_crawler,
+        #         delay_ms=1000
+        #     )
+        #     self.logger.info(f"Coordinator: 爬虫任务已提交到任务调度器，任务ID: {crawler_task_id}")
             
-        except Exception as e:
-            self.logger.error(f"Coordinator: 提交爬虫任务到调度器失败: {e}")
+        # except Exception as e:
+        #     self.logger.error(f"Coordinator: 提交爬虫任务到调度器失败: {e}")
         
         
         self.agent_manager.start_agents()
