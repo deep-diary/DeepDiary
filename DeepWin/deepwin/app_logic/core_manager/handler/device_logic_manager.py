@@ -127,29 +127,17 @@ class DeviceLogicManagerHandler(BaseHandler):
         处理单帧命令
         """
         try:
-            # 先保存命令信息供CAN发送显示使用
-            command_info = {
-                'command': command_name,
-                'frame_index': 1,
-                'total_frames': 1,
-                'params': params
-            }
+            # 准备命令信息
+            command_info = self._prepare_command_info(command_name, params)
             self._last_command_info = command_info
             self.logger.debug(f"DeviceLogicManagerHandler: 设置单帧命令信息: {command_info}")
             
             # ==================== 第2层：CAN层 - CAN帧 → 串口帧 ====================
             self.logger.debug(f"DeviceLogicManagerHandler: 第2层 - CAN层转换CAN帧为串口帧")
-            serial_frame = self.can_bus_communicator.send_can_frame(
-                can_frame['arbitration_id'], 
-                can_frame['data'], 
-                can_frame.get('is_extended_id', True)
-            )
+            serial_frame = self._convert_can_to_serial(can_frame)
             
             if not serial_frame:
-                error_msg = f"CAN层转换失败：无法将CAN帧转换为串口帧"
-                self.logger.error(f"DeviceLogicManagerHandler: {error_msg}")
-                self.coordinator_handler.app_status_message.emit(error_msg)
-                return
+                return  # 错误已在_convert_can_to_serial中处理
             
             self.logger.info(f"DeviceLogicManagerHandler: CAN层转换成功 - 串口帧: {serial_frame.hex()}")
             
@@ -164,130 +152,142 @@ class DeviceLogicManagerHandler(BaseHandler):
     def _process_multiframe_command(self, can_frames: List[Dict[str, Any]], device_id: str, command_name: str, params: Dict[str, Any]):
         """
         处理多帧命令
+        第三层：串口层 - 串口帧 → 实际发送
         """
         try:
             self.logger.info(f"DeviceLogicManagerHandler: 开始处理多帧命令，共 {len(can_frames)} 帧")
             
-            # 获取目标端口
-            target_port_name = self._get_device_port(device_id)
-            if not target_port_name:
-                self.logger.warning(f"DeviceLogicManagerHandler: 无法确定设备 '{device_id}' 对应的串口")
-                self.coordinator_handler.app_status_message.emit(f"无法确定设备 '{device_id}' 对应的串口")
-                # 反馈模拟数据
-                position = params.get('pos', 0.0) if params else 0.0
-                self.serial_communicator.sim_read_serial_data(position=position)
-                return
-            
             # 逐帧处理
             for i, can_frame in enumerate(can_frames):
-                self.logger.debug(f"DeviceLogicManagerHandler: 处理第 {i+1}/{len(can_frames)} 帧")
+                frame_index = i + 1
+                self.logger.debug(f"DeviceLogicManagerHandler: 处理第 {frame_index}/{len(can_frames)} 帧")
                 
-                # 先准备命令信息
-                command_info = {
-                    'command': command_name,
-                    'frame_index': i + 1,
-                    'total_frames': len(can_frames),
-                    'params': params
-                }
-                
-                # 保存命令信息供CAN发送显示使用
+                # 准备命令信息
+                command_info = self._prepare_command_info(command_name, params, frame_index, len(can_frames))
                 self._last_command_info = command_info
                 
                 # ==================== 第2层：CAN层 - CAN帧 → 串口帧 ====================
-                serial_frame = self.can_bus_communicator.send_can_frame(
-                    can_frame['arbitration_id'], 
-                    can_frame['data'], 
-                    can_frame.get('is_extended_id', True)
-                )
+                serial_frame = self._convert_can_to_serial(can_frame, frame_index)
                 
                 if not serial_frame:
-                    error_msg = f"CAN层转换失败：第 {i+1} 帧无法转换为串口帧"
-                    self.logger.error(f"DeviceLogicManagerHandler: {error_msg}")
-                    self.coordinator_handler.app_status_message.emit(error_msg)
-                    return
-                
-                self.logger.debug(f"DeviceLogicManagerHandler: 第 {i+1} 帧转换成功 - 串口帧: {serial_frame.hex()}")
+                    return  # 错误已在_convert_can_to_serial中处理
                 
                 # ==================== 第3层：串口层 - 串口帧 → 实际发送 ====================
+                # 通过设备ID发送串口数据（SerialCommunicator会处理端口映射和模拟数据反馈）
+                send_result = self.serial_communicator.send_bytes_by_device_id(device_id, serial_frame, command_info)
                 
-                send_success = self.serial_communicator.send_bytes(target_port_name, serial_frame, command_info)
-                
-                if send_success is None:
-                    # 串口不存在或发送失败，但仍然记录到通信监控中
-                    self.logger.warning(f"DeviceLogicManagerHandler: 多帧命令第 {i+1} 帧串口发送失败，但已记录到通信监控")
-                    
-                    # 只在第一帧失败时触发模拟数据反馈
-                    if i == 0:
-                        position = params.get('pos', 0.0) if params else 0.0
-                        self.serial_communicator.sim_read_serial_data(position=position)
-                        self.coordinator_handler.app_status_message.emit(f"串口不存在，多帧命令 '{command_name}' 已触发模拟数据反馈")
+                # 处理发送结果（只在第一帧时显示详细信息）
+                if frame_index == 1:
+                    self._handle_send_result(send_result, device_id, command_name, is_multiframe=True, frame_index=frame_index)
                 
                 # 帧间延迟，避免连续发送过快
                 if i < len(can_frames) - 1:  # 不是最后一帧
                     time.sleep(0.01)
             
-            self.logger.info(f"DeviceLogicManagerHandler: 多帧命令发送成功 - 端口: {target_port_name}")
-            self.coordinator_handler.app_status_message.emit(f"多帧命令已成功发送到设备 {device_id} (端口: {target_port_name})")
+            self.logger.info(f"DeviceLogicManagerHandler: 多帧命令发送完成 - 设备: {device_id}")
+            self.coordinator_handler.app_status_message.emit(f"多帧命令已发送完成到设备 {device_id}")
             
         except Exception as e:
             error_msg = f"处理多帧命令失败: {e}"
             self.logger.error(f"DeviceLogicManagerHandler: {error_msg}")
             self.coordinator_handler.app_status_message.emit(error_msg)
     
+    def _prepare_command_info(self, command_name: str, params: Dict[str, Any], frame_index: int = 1, total_frames: int = 1) -> Dict[str, Any]:
+        """
+        准备命令信息的通用方法
+        :param command_name: 命令名称
+        :param params: 命令参数
+        :param frame_index: 帧索引
+        :param total_frames: 总帧数
+        :return: 命令信息字典
+        """
+        return {
+            'command': command_name,
+            'frame_index': frame_index,
+            'total_frames': total_frames,
+            'params': params
+        }
+
+    def _convert_can_to_serial(self, can_frame: Dict[str, Any], frame_index: int = 1) -> Optional[bytes]:
+        """
+        CAN帧转换为串口帧的通用方法
+        :param can_frame: CAN帧数据
+        :param frame_index: 帧索引（用于错误消息）
+        :return: 串口帧数据，转换失败返回None
+        """
+        try:
+            serial_frame = self.can_bus_communicator.send_can_frame(
+                can_frame['arbitration_id'], 
+                can_frame['data'], 
+                can_frame.get('is_extended_id', True)
+            )
+            
+            if not serial_frame:
+                error_msg = f"CAN层转换失败：第 {frame_index} 帧无法转换为串口帧"
+                self.logger.error(f"DeviceLogicManagerHandler: {error_msg}")
+                self.coordinator_handler.app_status_message.emit(error_msg)
+                return None
+            
+            self.logger.debug(f"DeviceLogicManagerHandler: 第 {frame_index} 帧转换成功 - 串口帧: {serial_frame.hex()}")
+            return serial_frame
+            
+        except Exception as e:
+            error_msg = f"CAN层转换异常：第 {frame_index} 帧转换失败: {e}"
+            self.logger.error(f"DeviceLogicManagerHandler: {error_msg}")
+            self.coordinator_handler.app_status_message.emit(error_msg)
+            return None
+
     def _send_serial_data(self, serial_frame: bytes, device_id: str, command_name: str, params: Dict[str, Any]):
         """
         发送串口数据的通用方法
+        第三层：串口层 - 串口帧 → 实际发送
         """
         try:
-            # 获取目标端口
-            target_port_name = self._get_device_port(device_id)
-            if not target_port_name:
-                self.logger.warning(f"DeviceLogicManagerHandler: 无法确定设备 '{device_id}' 对应的串口")
-                self.coordinator_handler.app_status_message.emit(f"无法确定设备 '{device_id}' 对应的串口")
-                # 反馈模拟数据
-                position = params.get('pos', 0.0) if params else 0.0
-                self.serial_communicator.sim_read_serial_data(position=position)
-                return
+            # 准备命令信息
+            command_info = self._prepare_command_info(command_name, params)
             
-            # 发送串口数据
-            command_info = {
-                'command': command_name,
-                'frame_index': 1,
-                'total_frames': 1,
-                'params': params
-            }
-            send_success = self.serial_communicator.send_bytes(target_port_name, serial_frame, command_info)
+            # 通过设备ID发送串口数据（SerialCommunicator会处理端口映射和模拟数据反馈）
+            send_result = self.serial_communicator.send_bytes_by_device_id(device_id, serial_frame, command_info)
             
-            if send_success is not None:
-                self.logger.info(f"DeviceLogicManagerHandler: 串口层发送成功 - 端口: {target_port_name}")
-                self.coordinator_handler.app_status_message.emit(f"命令已成功发送到设备 {device_id} (端口: {target_port_name})")
-            else:
-                # 串口不存在或发送失败，触发模拟数据反馈
-                self.logger.warning(f"DeviceLogicManagerHandler: 单帧命令串口 '{target_port_name}' 不存在或发送失败，触发模拟数据反馈")
-                position = params.get('pos', 0.0) if params else 0.0
-                self.serial_communicator.sim_read_serial_data(position=position)
-                self.coordinator_handler.app_status_message.emit(f"串口不存在，单帧命令 '{command_name}' 已触发模拟数据反馈")
+            # 处理发送结果
+            self._handle_send_result(send_result, device_id, command_name, is_multiframe=False)
                 
         except Exception as e:
             error_msg = f"发送串口数据失败: {e}"
             self.logger.error(f"DeviceLogicManagerHandler: {error_msg}")
             self.coordinator_handler.app_status_message.emit(error_msg)
-    
-    def _get_device_port(self, device_id: str) -> str:
+
+    def _handle_send_result(self, send_result: Optional[bool], device_id: str, command_name: str, is_multiframe: bool = False, frame_index: int = 1):
         """
-        获取设备对应的串口端口
+        处理串口发送结果的通用方法
+        :param send_result: 发送结果
         :param device_id: 设备ID
-        :return: 端口名称，如果未找到则返回None
+        :param command_name: 命令名称
+        :param is_multiframe: 是否为多帧命令
+        :param frame_index: 帧索引
         """
-        try:
-            port_mapping = self.serial_communicator.get_port_device_mapping()
-            for port, dev_id in port_mapping.items():
-                if dev_id == device_id:
-                    return port
-            return None
-        except Exception as e:
-            self.logger.error(f"DeviceLogicManagerHandler: 获取设备端口失败: {e}")
-            return None
+        if send_result is True:
+            if is_multiframe and frame_index == 1:
+                self.logger.info(f"DeviceLogicManagerHandler: 多帧命令开始发送 - 设备: {device_id}")
+                self.coordinator_handler.app_status_message.emit(f"多帧命令开始发送到设备 {device_id}")
+            elif not is_multiframe:
+                self.logger.info(f"DeviceLogicManagerHandler: 串口层发送成功 - 设备: {device_id}")
+                self.coordinator_handler.app_status_message.emit(f"命令已成功发送到设备 {device_id}")
+        elif send_result is None:
+            if is_multiframe and frame_index == 1:
+                self.logger.warning(f"DeviceLogicManagerHandler: 设备 '{device_id}' 串口不存在，已触发模拟数据反馈")
+                self.coordinator_handler.app_status_message.emit(f"设备 '{device_id}' 串口不存在，已触发模拟数据反馈")
+            elif not is_multiframe:
+                self.logger.warning(f"DeviceLogicManagerHandler: 设备 '{device_id}' 串口不存在，已触发模拟数据反馈")
+                self.coordinator_handler.app_status_message.emit(f"设备 '{device_id}' 串口不存在，已触发模拟数据反馈")
+        else:
+            if is_multiframe and frame_index == 1:
+                self.logger.error(f"DeviceLogicManagerHandler: 设备 '{device_id}' 串口发送失败")
+                self.coordinator_handler.app_status_message.emit(f"设备 '{device_id}' 串口发送失败")
+            elif not is_multiframe:
+                self.logger.error(f"DeviceLogicManagerHandler: 设备 '{device_id}' 串口发送失败")
+                self.coordinator_handler.app_status_message.emit(f"设备 '{device_id}' 串口发送失败")
+    
 
     @Slot(str, dict)
     def handle_trajectory_execution_progress(self, device_id: str, progress_data: dict):

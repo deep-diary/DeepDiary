@@ -28,7 +28,7 @@ class SerialCommunicator(QObject):
     """
     # 串口通信信号
     raw_frame_received = Signal(str, bytes) # 收到原始帧: (port_name, data_bytes)
-    raw_frame_send = Signal(str, bytes) # 发送原始帧: (port_name, data_bytes)
+    raw_frame_send = Signal(str, bytes, str) # 发送原始帧: (port_name, data_bytes, send_status)
     connection_status_changed = Signal(str, bool) # 串口连接状态变更: (port_name, is_connected)
     serial_error = Signal(str, str) # 串口错误: (port_name, error_msg)
     
@@ -164,16 +164,24 @@ class SerialCommunicator(QObject):
     def send_bytes(self, port_name: str, data: bytes, command_info: Optional[Dict] = None):
         """
         向指定串口发送原始字节数据。
+        无论串口是否存在，都会发送信号给UI进行显示更新。
+        如果串口不存在或发送失败，会自动触发模拟数据反馈。
         :param port_name: 串口名称。
         :param data: 要发送的字节数据。
         :param command_info: 命令信息字典，包含命令名称等。
+        :return: 发送结果，True表示成功，False表示失败，None表示串口不存在
         """
+        # 检查串口连接状态
+        is_port_available = port_name in self._serial_ports and self._serial_ports[port_name].is_open
+        send_status = "OK" if is_port_available else "X"
+        
         # 记录发送的帧（无论串口是否连接）
         frame_info = {
             'timestamp': time.time(),
             'port_name': port_name,
             'data': data,
-            'data_hex': data.hex()
+            'data_hex': data.hex(),
+            'send_status': send_status
         }
         
         # 添加命令信息
@@ -182,26 +190,85 @@ class SerialCommunicator(QObject):
             
         self._sent_frames.append(frame_info)
         
-        # 发送原始信号（用于UI显示）
-        self.raw_frame_send.emit(port_name, data)
+        # 先发送原始信号（用于UI显示），无论串口是否存在都要发送
+        self.raw_frame_send.emit(port_name, data, send_status)
         # 发送帧列表更新信号
         self.frame_lists_updated.emit()
         
-        # 检查串口连接状态
-        if port_name not in self._serial_ports or not self._serial_ports[port_name].is_open:
-            self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 未打开或不存在，无法发送数据。")
+        if not is_port_available:
+            self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 未打开或不存在，触发模拟数据反馈")
+            # 触发模拟数据反馈
+            self._trigger_simulation_feedback(port_name, command_info)
             return None
             
         try:
             self.logger.debug(f"SerialCommunicator: 向串口 '{port_name}' 发送数据: {data.hex()}")
             self._serial_ports[port_name].write(data)
+            self.logger.info(f"SerialCommunicator: 串口层发送成功 - 端口: {port_name}")
             return True
             
         except Exception as e:
             error_msg = f"向串口 '{port_name}' 发送数据失败: {e}"
             self.logger.error(f"SerialCommunicator: {error_msg}")
             self.serial_error.emit(port_name, error_msg)
+            # 发送失败时也触发模拟数据反馈
+            self._trigger_simulation_feedback(port_name, command_info)
             return False
+
+    def _trigger_simulation_feedback(self, port_name: str, command_info: Optional[Dict] = None):
+        """
+        触发模拟数据反馈
+        :param port_name: 端口名称
+        :param command_info: 命令信息，用于提取位置参数
+        """
+        try:
+            # 从命令信息中提取位置参数
+            position = 0.0
+            if command_info and 'params' in command_info:
+                position = command_info['params'].get('pos', 0.0)
+            
+            # 触发模拟数据反馈
+            self.sim_read_serial_data(port_name=port_name, position=position)
+            self.logger.info(f"SerialCommunicator: 已触发模拟数据反馈 - 端口: {port_name}, 位置: {position}")
+            
+        except Exception as e:
+            self.logger.error(f"SerialCommunicator: 触发模拟数据反馈失败: {e}")
+
+    def send_bytes_by_device_id(self, device_id: str, data: bytes, command_info: Optional[Dict] = None):
+        """
+        通过设备ID发送串口数据
+        :param device_id: 设备ID
+        :param data: 要发送的字节数据
+        :param command_info: 命令信息字典
+        :return: 发送结果，True表示成功，False表示失败，None表示设备端口不存在
+        """
+        try:
+            # 获取设备对应的端口，如果不存在则使用设备ID作为端口名
+            target_port = self._get_device_port_by_id(device_id)
+            if not target_port:
+                target_port = device_id  # 使用设备ID作为端口名，让send_bytes统一处理
+            
+            # 调用send_bytes方法，统一处理端口检查和模拟数据反馈
+            return self.send_bytes(target_port, data, command_info)
+            
+        except Exception as e:
+            self.logger.error(f"SerialCommunicator: 通过设备ID发送数据失败: {e}")
+            return False
+
+    def _get_device_port_by_id(self, device_id: str) -> Optional[str]:
+        """
+        根据设备ID获取对应的端口名称
+        :param device_id: 设备ID
+        :return: 端口名称，如果未找到则返回None
+        """
+        try:
+            for port, dev_id in self._port_to_device_id_map.items():
+                if dev_id == device_id:
+                    return port
+            return None
+        except Exception as e:
+            self.logger.error(f"SerialCommunicator: 获取设备端口失败: {e}")
+            return None
 
     def start_reading(self, port_name: str):
         """

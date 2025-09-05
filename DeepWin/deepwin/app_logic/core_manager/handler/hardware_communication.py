@@ -158,10 +158,10 @@ class HardwareCommunicationHandler(BaseHandler):
             import traceback
             self.logger.error(traceback.format_exc())
             
-    @Slot(str, bytes)
-    def _on_serial_data_sent(self, port_name: str, data: bytes):
+    @Slot(str, bytes, str)
+    def _on_serial_data_sent(self, port_name: str, data: bytes, send_status: str):
         """处理串口数据发送信号，转发到UI"""
-        self.logger.debug(f"HardwareCommunicationHandler: 串口数据发送 - 端口: {port_name}, 数据: {data.hex()}")
+        self.logger.debug(f"HardwareCommunicationHandler: 串口数据发送 - 端口: {port_name}, 数据: {data.hex()}, 状态: {send_status}")
         
         # 转发到UI通信显示组件
         if self.gui_manager and self.gui_manager.window:
@@ -183,12 +183,17 @@ class HardwareCommunicationHandler(BaseHandler):
                             param_parts.append(f"{key}={value}")
                         param_str = f"({', '.join(param_parts)})"
                     
+                    # 添加发送状态指示器
+                    status_indicator = "✓" if send_status == "OK" else "✗"
+                    
                     if total_frames > 1:
-                        description = f"电机命令 - {command}{param_str} [帧 {frame_index}/{total_frames}]"
+                        description = f"电机命令 - {command}{param_str} [帧 {frame_index}/{total_frames}] {status_indicator}"
                     else:
-                        description = f"电机命令 - {command}{param_str}"
+                        description = f"电机命令 - {command}{param_str} {status_indicator}"
                 else:
-                    description = f"串口发送 - {port_name}"
+                    # 添加发送状态指示器
+                    status_indicator = "✓" if send_status == "OK" else "✗"
+                    description = f"串口发送 - {port_name} {status_indicator}"
                     
                 deep_motor_page.add_communication_data(
                     direction="send",
