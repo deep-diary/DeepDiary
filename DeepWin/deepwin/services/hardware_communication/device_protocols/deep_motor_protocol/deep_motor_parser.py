@@ -116,8 +116,8 @@ class DeepMotorProtocolParser(BaseProtocolParser):
                 motor_ids = params.get('motor_ids', [motor_id])
                 return self.protocol2can.create_motor_init_frame_all(motor_ids)
             elif command_name == "motor_jog":
-                jog_speed = params.get('jog_speed', 0)
-                return self.protocol2can.create_motor_jog_frame(motor_id, jog_speed)
+                spd = params.get('spd', 0)
+                return self.protocol2can.create_motor_jog_frame(motor_id, spd)
             elif command_name == "motor_jog_stop":
                 return self.protocol2can.create_motor_jog_stop_frame(motor_id)
             else:

@@ -62,20 +62,20 @@ class MotorControlWidget(QWidget):
         # 位置设置
         pos_label = QLabel('位置:')
         self.pos_slider = QSlider(Qt.Horizontal)
-        self.pos_slider.setRange(-360, 360)
+        self.pos_slider.setRange(-12.56, 12.56)
         self.pos_slider.setValue(self.current_position)
         self.pos_slider.setTickPosition(QSlider.TicksBelow)
-        self.pos_slider.setTickInterval(60)
+        self.pos_slider.setTickInterval(1)
         self.pos_value_label = QLabel(str(self.current_position))
         self.pos_slider.valueChanged.connect(self._on_position_changed)
         
         # 速度设置
         speed_label = QLabel('速度:')
         self.speed_slider = QSlider(Qt.Horizontal)
-        self.speed_slider.setRange(-20, 20)
+        self.speed_slider.setRange(-30, 30)
         self.speed_slider.setValue(self.current_speed)
         self.speed_slider.setTickPosition(QSlider.TicksBelow)
-        self.speed_slider.setTickInterval(5)
+        self.speed_slider.setTickInterval(1)
         self.speed_value_label = QLabel(str(self.current_speed))
         self.speed_slider.valueChanged.connect(self._on_speed_changed)
         

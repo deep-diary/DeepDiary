@@ -149,7 +149,7 @@ class CommandParser:
                 model = models[func_name]
                 
                 # 根据参数位置创建参数字典
-                param_names = list(model.__fields__.keys())
+                param_names = list(model.model_fields.keys())
                 params = {}
                 
                 for i, arg in enumerate(args):
@@ -157,7 +157,7 @@ class CommandParser:
                         params[param_names[i]] = arg
                 
                 # 填充默认值
-                for field_name, field in model.__fields__.items():
+                for field_name, field in model.model_fields.items():
                     if field_name not in params and field.default is not None:
                         params[field_name] = field.default
                 

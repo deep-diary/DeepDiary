@@ -19,7 +19,7 @@ from deepwin.config.config_manager import ConfigManager
 from ..base_device_page import BaseDevicePage
 
 
-class DeepMotorPage(BaseDevicePage):
+class DeepMotorPageFinalOptimized(BaseDevicePage):
     """DeepMotor 控制页面 - 最终优化版本"""
     
     # 对外统一信号定义

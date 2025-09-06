@@ -60,14 +60,24 @@ class SerialCommunicator(QObject):
         self._sent_frames: deque = deque(maxlen=self._max_frame_list_size)  # 发送帧列表
         self._received_frames: deque = deque(maxlen=self._max_frame_list_size)  # 接收帧列表
 
-        # 发送AT指令
-        at_frame = self.create_AT_frame()
-        if isinstance(at_frame, list):
-            at_frame = bytes(at_frame)
-        self.send_bytes(self.active_port, at_frame)
+
+        
+        # 清理可能存在的空端口映射
+        self._cleanup_empty_port_mappings()
         
         self.logger.info("SerialCommunicator: 初始化完成。")
 
+    def _cleanup_empty_port_mappings(self):
+        """
+        清理空端口映射，确保端口和设备ID的一对一关系
+        """
+        empty_ports = [port for port in self._port_to_device_id_map.keys() if not port or not port.strip()]
+        for port in empty_ports:
+            device_id = self._port_to_device_id_map.pop(port)
+            self.logger.warning(f"SerialCommunicator: 清理空端口映射 '{port}' -> '{device_id}'")
+        
+        if empty_ports:
+            self.logger.info(f"SerialCommunicator: 已清理 {len(empty_ports)} 个空端口映射")
 
     def list_ports(self):
         """
@@ -121,6 +131,12 @@ class SerialCommunicator(QObject):
             if device_id:
                 self._port_to_device_id_map[port_name] = device_id
                 self.logger.info(f"SerialCommunicator: 建立端口映射 '{port_name}' -> '{device_id}'")
+                
+            # 发送AT指令，激活USB转CAN模块
+            at_frame = self.create_AT_frame()
+            if isinstance(at_frame, list):
+                at_frame = bytes(at_frame)
+            self.send_bytes(self.active_port, at_frame)
             
             self.start_reading(port_name)
         except serial.SerialException as e:
@@ -172,7 +188,10 @@ class SerialCommunicator(QObject):
         :return: 发送结果，True表示成功，False表示失败，None表示串口不存在
         """
         # 检查串口连接状态
-        is_port_available = port_name in self._serial_ports and self._serial_ports[port_name].is_open
+        is_port_available = port_name in self._serial_ports 
+        self.logger.info(f"SerialCommunicator: 串口 '{port_name}' 连接状态: {is_port_available}, _serial_ports: {self._serial_ports}")
+
+
         send_status = "OK" if is_port_available else "X"
         
         # 记录发送的帧（无论串口是否连接）
@@ -245,8 +264,9 @@ class SerialCommunicator(QObject):
         try:
             # 获取设备对应的端口，如果不存在则使用设备ID作为端口名
             target_port = self._get_device_port_by_id(device_id)
-            if not target_port:
-                target_port = device_id  # 使用设备ID作为端口名，让send_bytes统一处理
+            self.logger.info(f"SerialCommunicator: 通过设备ID发送数据 - 设备ID: {device_id}, 查找到的端口: {target_port}, 端口映射: {self._port_to_device_id_map}")
+            
+            target_port = self.active_port
             
             # 调用send_bytes方法，统一处理端口检查和模拟数据反馈
             return self.send_bytes(target_port, data, command_info)
@@ -262,9 +282,12 @@ class SerialCommunicator(QObject):
         :return: 端口名称，如果未找到则返回None
         """
         try:
+            self.logger.debug(f"SerialCommunicator: 查找设备 '{device_id}' 对应的端口，当前映射: {self._port_to_device_id_map}")
             for port, dev_id in self._port_to_device_id_map.items():
                 if dev_id == device_id:
+                    self.logger.debug(f"SerialCommunicator: 找到设备 '{device_id}' 对应的端口: '{port}'")
                     return port
+            self.logger.warning(f"SerialCommunicator: 未找到设备 '{device_id}' 对应的端口")
             return None
         except Exception as e:
             self.logger.error(f"SerialCommunicator: 获取设备端口失败: {e}")
@@ -408,12 +431,13 @@ class SerialCommunicator(QObject):
         data_bytes = frame[5:13]  # 从frame中提取8字节的数据部分
         is_extended_id = True
 
-        if port_name is None:
+        if port_name is None or not port_name.strip():
             port_name = 'DeepMotor'  # 模拟数据使用DeepMotor作为端口名
 
         # 确保端口映射存在（模拟数据场景）
         if port_name not in self._port_to_device_id_map:
-            self._port_to_device_id_map[port_name] = 'DeepMotor'
+            # 使用add_port_device_mapping方法确保一对一映射
+            self.add_port_device_mapping(port_name, 'DeepMotor')
             self.logger.debug(f"SerialCommunicator: 为模拟数据建立端口映射 '{port_name}' -> 'DeepMotor'")
 
         # 记录接收的帧（模拟数据）
@@ -506,6 +530,19 @@ class SerialCommunicator(QObject):
         :param port_name: 端口名称
         :param device_id: 设备ID
         """
+        # 确保端口名不为空
+        if not port_name or not port_name.strip():
+            self.logger.warning(f"SerialCommunicator: 端口名不能为空，跳过映射建立")
+            return
+            
+        # 确保一对一映射：先清除该设备ID的所有现有映射
+        existing_ports = [port for port, dev_id in self._port_to_device_id_map.items() if dev_id == device_id]
+        for port in existing_ports:
+            if port != port_name:
+                self.logger.info(f"SerialCommunicator: 清除旧映射 '{port}' -> '{device_id}'")
+                del self._port_to_device_id_map[port]
+        
+        # 建立新映射
         self._port_to_device_id_map[port_name] = device_id
         self.logger.info(f"SerialCommunicator: 添加端口映射 '{port_name}' -> '{device_id}'")
         

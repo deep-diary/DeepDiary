@@ -1,6 +1,6 @@
 """
-DeepMotor 控制页面 - 最终优化版本
-使用所有优化组件，最大化性能
+DeepMotor 控制页面 - 超优化版本
+进一步优化性能，减少所有可能的卡顿因素
 """
 
 from PySide6.QtCore import Qt, Signal, QTimer
@@ -9,9 +9,9 @@ from qfluentwidgets import CardWidget
 
 # 导入组件
 from .components import (
-    MotorControlWidget, TeachingControlWidget
+    CommunicationWidget, MotorControlWidget, 
+    TeachingControlWidget
 )
-from .components.optimized_communication_widget import OptimizedCommunicationWidget
 
 # 导入基础页面和日志管理
 from deepwin.data_management.log_manager import LogManager
@@ -19,8 +19,8 @@ from deepwin.config.config_manager import ConfigManager
 from ..base_device_page import BaseDevicePage
 
 
-class DeepMotorPage(BaseDevicePage):
-    """DeepMotor 控制页面 - 最终优化版本"""
+class DeepMotorPageUltraOptimized(BaseDevicePage):
+    """DeepMotor 控制页面 - 超优化版本"""
     
     # 对外统一信号定义
     ui_deepmotor_command = Signal(str, str)  # 设备命令信号
@@ -70,18 +70,18 @@ class DeepMotorPage(BaseDevicePage):
         # 创建各个功能组件
         self.motor_control_widget = MotorControlWidget("电机控制", self.logger, self)
         self.teaching_control_widget = TeachingControlWidget("示教控制", self.logger, self)
-        self.communication_widget = OptimizedCommunicationWidget("通信监控", self.logger, self.config_manager, self)
+        self.communication_widget = CommunicationWidget("通信监控", self.logger, self.config_manager, self)
         
         # 完全屏蔽历史曲线组件
         self.history_curve_widget = None
         
         if self.logger:
-            self.logger.info("DeepMotor页面组件初始化完成（最终优化版，使用优化通信组件）")
+            self.logger.info("DeepMotor页面组件初始化完成（超优化版，曲线组件已完全屏蔽）")
             
     def setup_ui(self):
         """设置UI布局"""
         if self.logger:
-            self.logger.info("开始设置DeepMotor页面UI布局（最终优化版）")
+            self.logger.info("开始设置DeepMotor页面UI布局（超优化版）")
             
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -123,12 +123,12 @@ class DeepMotorPage(BaseDevicePage):
         main_layout.addWidget(main_splitter)
         
         if self.logger:
-            self.logger.info("DeepMotor页面UI布局设置完成（最终优化版）")
+            self.logger.info("DeepMotor页面UI布局设置完成（超优化版）")
             
     def setup_signals(self):
         """设置信号连接"""
         if self.logger:
-            self.logger.info("开始设置DeepMotor页面信号连接（最终优化版）")
+            self.logger.info("开始设置DeepMotor页面信号连接（超优化版）")
             
         # 电机控制组件信号连接
         self.motor_control_widget.motor_id_changed.connect(self._on_motor_id_changed)
@@ -150,12 +150,12 @@ class DeepMotorPage(BaseDevicePage):
         self.communication_widget.clear_requested.connect(self._on_communication_clear_requested)
         
         if self.logger:
-            self.logger.info("DeepMotor页面信号连接设置完成（最终优化版）")
+            self.logger.info("DeepMotor页面信号连接设置完成（超优化版）")
             
     def init_device(self):
         """初始化设备"""
         if self.logger:
-            self.logger.info("初始化DeepMotor设备（最终优化版）")
+            self.logger.info("初始化DeepMotor设备（超优化版）")
             
         # 初始化轨迹列表
         self.init_trajectory_list()
@@ -163,7 +163,7 @@ class DeepMotorPage(BaseDevicePage):
     def init_trajectory_list(self):
         """初始化轨迹列表"""
         if self.logger:
-            self.logger.info("DeepMotor页面: 准备发射轨迹列表请求信号（最终优化版）")
+            self.logger.info("DeepMotor页面: 准备发射轨迹列表请求信号（超优化版）")
         QTimer.singleShot(100, lambda: self._emit_trajectory_list_request())
         
     def _emit_trajectory_list_request(self):
@@ -377,4 +377,4 @@ class DeepMotorPage(BaseDevicePage):
         self.communication_widget.clear_all_data()
         
         if self.logger:
-            self.logger.info("DeepMotor页面已重置为默认状态（最终优化版）")
+            self.logger.info("DeepMotor页面已重置为默认状态（超优化版）")

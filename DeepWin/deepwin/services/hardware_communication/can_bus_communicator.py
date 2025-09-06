@@ -144,10 +144,11 @@ class CanBusCommunicator(QObject):
             
             # 构建串口数据格式: CANID(4字节) + Len(1字节) + Data(N字节)
             # CAN ID需要左移3位（与解析时的右移3位对应）
-            can_id_bytes = (arbitration_id << 3).to_bytes(4, byteorder='big')
+            arbitration_id = (arbitration_id << 3) + 0x04  # 如果需要使用 USB 转 CAN 模块，需要进行转换
+            can_id_bytes = arbitration_id.to_bytes(4, byteorder='big')
             length_byte = len(data).to_bytes(1, byteorder='big')
             
-            serial_data = can_id_bytes + length_byte + data
+            serial_data = b'AT' + can_id_bytes + length_byte + data + b'\r\n'
             
             self.logger.info(f"CanBusCommunicator: 发送CAN帧: ID=0x{arbitration_id:X}, Data={data.hex()}, 串口数据={serial_data.hex()}")
             
