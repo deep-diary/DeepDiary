@@ -162,6 +162,9 @@ class VoiceManager(QObject):
         # 自动启动工作线程
         self.start_worker_thread()
         
+        # 自动启用语音功能
+        self.set_voice_enabled(True)
+        
         self.logger.info("VoiceManager: 初始化完成")
     
     def _load_config(self):
@@ -172,12 +175,12 @@ class VoiceManager(QObject):
             APP_ID = os.getenv("APP_ID")
             WORKSPACE_ID = os.getenv("WORKSPACE_ID")
             DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
-            self.logger.info(f"APP_ID: {APP_ID}, WORKSPACE_ID: {WORKSPACE_ID}, DASHSCOPE_API_KEY: {DASHSCOPE_API_KEY}")
+            self.logger.info(f"从环境变量获取 APP_ID: {APP_ID}, WORKSPACE_ID: {WORKSPACE_ID}, DASHSCOPE_API_KEY: {DASHSCOPE_API_KEY}")
             
-            # 设置默认值
-            self.app_id = voice_config.get('app_id') or APP_ID
-            self.workspace_id = voice_config.get('workspace_id') or WORKSPACE_ID
-            self.api_key = voice_config.get('api_key') or DASHSCOPE_API_KEY
+            # 仅从环境变量获取这些关键信息，不从配置文件读取
+            self.app_id = APP_ID
+            self.workspace_id = WORKSPACE_ID
+            self.api_key = DASHSCOPE_API_KEY
             
             # 语音参数
             self.voice_name = voice_config.get('voice_name', 'longxiaochun_v2')
@@ -197,7 +200,7 @@ class VoiceManager(QObject):
             
             # 验证必要的配置
             if not all([self.app_id, self.workspace_id, self.api_key]):
-                self.logger.warning("缺少必要的语音服务配置: APP_ID, WORKSPACE_ID, API_KEY")
+                self.logger.error("缺少必要的语音服务配置: APP_ID, WORKSPACE_ID, API_KEY")
                 # 设置默认值，避免后续使用时出错
                 self.app_id = "default_app_id"
                 self.workspace_id = "default_workspace_id"

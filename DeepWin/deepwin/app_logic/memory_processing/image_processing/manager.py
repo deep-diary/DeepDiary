@@ -18,6 +18,9 @@ class ImageManager(QObject):
     processing_progress = Signal(int) # 进度更新 (可选)
     
     def __init__(self,log_manager:LogManager,config_manager:ConfigManager):
+        # 初始化QObject
+        super().__init__()
+        
         # 初始化日志管理器
         self.log_manager = log_manager
         self.logger = self.log_manager.get_logger(__name__)

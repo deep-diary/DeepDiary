@@ -69,8 +69,14 @@ class CanBusCommunicator(QObject):
             return None
 
         try:
-            # 解析CAN ID（4字节），先向右移3位
-            arbitration_id = int.from_bytes(data[0:4], byteorder='big') >> 3
+            # 解析CAN ID（4字节）
+            can_id_raw = int.from_bytes(data[0:4], byteorder='big')
+            
+            # 检查是否为扩展 ID（通过扩展位判断）
+            is_extended_id = (can_id_raw & 0x04) != 0
+            
+            # 解析仲裁 ID（右移3位去掉控制位）
+            arbitration_id = can_id_raw >> 3
             
             # 解析数据长度（1字节）
             data_length = data[4]
@@ -89,10 +95,17 @@ class CanBusCommunicator(QObject):
             # 提取数据部分
             data_bytes = data[5:5+data_length]
             
-            # 假设所有 CAN ID 都是扩展 ID
-            is_extended_id = True
+            # 验证仲裁 ID 范围
+            if is_extended_id:
+                if arbitration_id > 0x1FFFFFFF:  # 29位最大值
+                    self.logger.warning(f"CanBusCommunicator: 扩展CAN ID超出范围: 0x{arbitration_id:X}")
+                    return None
+            else:
+                if arbitration_id > 0x7FF:  # 11位最大值
+                    self.logger.warning(f"CanBusCommunicator: 标准CAN ID超出范围: 0x{arbitration_id:X}")
+                    return None
 
-            self.logger.info(f"CanBusCommunicator: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}")
+            self.logger.info(f"CanBusCommunicator: 解析到 CAN 帧: ID=0x{arbitration_id:X}, Len={data_length}, Data={data_bytes.hex()}, 扩展ID={is_extended_id}")
             
             # 构建CAN帧数据
             can_frame_data = {
@@ -143,9 +156,28 @@ class CanBusCommunicator(QObject):
                 return None
             
             # 构建串口数据格式: CANID(4字节) + Len(1字节) + Data(N字节)
-            # CAN ID需要左移3位（与解析时的右移3位对应）
-            arbitration_id = (arbitration_id << 3) + 0x04  # 如果需要使用 USB 转 CAN 模块，需要进行转换
-            can_id_bytes = arbitration_id.to_bytes(4, byteorder='big')
+            # 处理扩展 CAN ID（29位）
+            if is_extended_id:
+                # 扩展 ID：29位，需要检查范围
+                if arbitration_id > 0x1FFFFFFF:  # 29位最大值
+                    self.logger.error(f"CanBusCommunicator: 扩展CAN ID超出范围: 0x{arbitration_id:X}")
+                    return None
+                # 扩展 ID 左移3位，并设置扩展位
+                can_id = (arbitration_id << 3) | 0x04  # 设置扩展位
+            else:
+                # 标准 ID：11位
+                if arbitration_id > 0x7FF:  # 11位最大值
+                    self.logger.error(f"CanBusCommunicator: 标准CAN ID超出范围: 0x{arbitration_id:X}")
+                    return None
+                # 标准 ID 左移3位
+                can_id = arbitration_id << 3
+            
+            # 确保 CAN ID 在4字节范围内
+            if can_id > 0xFFFFFFFF:
+                self.logger.error(f"CanBusCommunicator: CAN ID转换后超出4字节范围: 0x{can_id:X}")
+                return None
+                
+            can_id_bytes = can_id.to_bytes(4, byteorder='big')
             length_byte = len(data).to_bytes(1, byteorder='big')
             
             serial_data = b'AT' + can_id_bytes + length_byte + data + b'\r\n'

@@ -15,6 +15,7 @@ import json
 from typing import Dict, List, Any, Optional
 from deepwin.data_management.log_manager import LogManager
 from deepwin.config.config_manager import ConfigManager
+import logging
 
 
 class OptimizedCommunicationWidget(QWidget):
@@ -41,7 +42,7 @@ class OptimizedCommunicationWidget(QWidget):
         
         # 性能优化：使用定时器批量更新显示
         self.update_timer = QTimer(self)
-        self.update_timer.setInterval(1000)  # 1秒更新一次显示
+        self.update_timer.setInterval(2000)  # 2秒更新一次显示，进一步降低频率
         self.update_timer.timeout.connect(self._batch_update_display)
         self._needs_update = False
         
@@ -129,8 +130,8 @@ class OptimizedCommunicationWidget(QWidget):
         # 创建滚动区域
         scroll_area = ScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setMinimumHeight(200)  # 减小最小高度
-        scroll_area.setMaximumHeight(300)  # 减小最大高度
+        scroll_area.setMinimumHeight(400)  # 减小最小高度
+        scroll_area.setMaximumHeight(600)  # 减小最大高度
         
         # 文本显示区域
         text_edit = TextEdit()
@@ -232,7 +233,8 @@ class OptimizedCommunicationWidget(QWidget):
         if not self.update_timer.isActive():
             self.update_timer.start()
             
-        if self.logger:
+        # 减少通信数据日志，避免频繁输出
+        if self.logger and self.logger.isEnabledFor(10):  # 10 = DEBUG level
             self.logger.debug(f"添加串口数据: {direction} - {description}")
             
     def add_can_data(self, direction: str, can_id: int, data: bytes, description: str = ""):

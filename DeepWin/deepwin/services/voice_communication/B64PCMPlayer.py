@@ -151,7 +151,8 @@ class B64PCMPlayer:
             if len(chunk) < self.chunk_size_bytes:
                 # 用零填充最后一个不完整的块
                 # chunk = chunk + b'\x00' * (self.chunk_size_bytes - len(chunk))
-                print(f"add_byte_data chunk: {len(chunk)}")
+                # print(f"add_byte_data chunk: {len(chunk)}")
+                pass
             
             self.raw_audio_buffer.put(chunk)
             

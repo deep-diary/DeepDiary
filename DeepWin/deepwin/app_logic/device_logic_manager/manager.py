@@ -67,6 +67,9 @@ class DeviceLogicManager(QObject):
         # 维护当前连接的设备实例 (示例：使用字典存储设备ID -> 设备逻辑实例)
         self.managed_devices: Dict[str, BaseDevice] = {}
         
+        # 存储最后的命令信息，用于UI显示
+        self._last_command_info: Optional[Dict[str, Any]] = None
+        
         # 存储设备类型到设备类的映射
         self._device_classes: Dict[str, type] = {}
         
@@ -79,7 +82,27 @@ class DeviceLogicManager(QObject):
         self._dynamic_devices = {}  # 动态创建的设备
         
         # 自动发现和注册设备逻辑类
-        self._auto_discover_and_register_devices()
+        try:
+            self._auto_discover_and_register_devices()
+        except Exception as e:
+            self.logger.error(f"设备注册过程中发生异常: {e}")
+            import traceback
+            self.logger.error(f"设备注册异常详情: {traceback.format_exc()}")
+    
+    def set_last_command_info(self, command_info: Dict[str, Any]):
+        """
+        设置最后的命令信息
+        :param command_info: 命令信息字典
+        """
+        self._last_command_info = command_info
+        self.logger.debug(f"DeviceLogicManager: 设置命令信息: {command_info}")
+    
+    def get_last_command_info(self) -> Optional[Dict[str, Any]]:
+        """
+        获取最后的命令信息
+        :return: 命令信息字典，如果没有则返回None
+        """
+        return self._last_command_info
 
     def _auto_discover_and_register_devices(self):
         """
@@ -92,27 +115,43 @@ class DeviceLogicManager(QObject):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         devices_dir = os.path.join(current_dir, "devices")
         
+        self.logger.info(f"设备目录路径: {devices_dir}")
+        
         if not os.path.exists(devices_dir):
             self.logger.error(f"设备目录不存在: {devices_dir}")
             return
         
+        # 获取目录内容
+        try:
+            items = os.listdir(devices_dir)
+            self.logger.info(f"设备目录内容: {items}")
+        except Exception as e:
+            self.logger.error(f"无法读取设备目录: {e}")
+            return
+        
         # 遍历 devices 目录下的子文件夹
-        for item in os.listdir(devices_dir):
+        for item in items:
             item_path = os.path.join(devices_dir, item)
             
             # 只处理目录，跳过文件
             if not os.path.isdir(item_path):
+                self.logger.debug(f"跳过文件: {item}")
                 continue
                 
             # 跳过 __pycache__ 等特殊目录
             if item.startswith('__') or item.startswith('.'):
+                self.logger.debug(f"跳过特殊目录: {item}")
                 continue
+            
+            self.logger.info(f"处理设备目录: {item}")
             
             # 根据文件夹名称提取设备类型
             device_type = self._extract_device_type_from_folder_name(item)
             if not device_type:
                 self.logger.warning(f"无法从文件夹名称 '{item}' 提取设备类型，跳过")
                 continue
+            
+            self.logger.info(f"提取的设备类型: {device_type}")
             
             # 尝试导入对应的设备逻辑类
             device_class = self._import_device_class(item, device_type)
@@ -126,6 +165,9 @@ class DeviceLogicManager(QObject):
         
         registered_devices = list(self._device_classes.keys())
         self.logger.info(f"设备逻辑类注册完成，共注册 {len(registered_devices)} 个设备类型: {registered_devices}")
+        
+        if not registered_devices:
+            self.logger.error("没有成功注册任何设备类型！")
 
     def _extract_device_type_from_folder_name(self, folder_name: str) -> Optional[str]:
         """
@@ -149,46 +191,65 @@ class DeviceLogicManager(QObject):
         try:
             # 构建模块路径
             module_path = f"deepwin.app_logic.device_logic_manager.devices.{folder_name}.{folder_name}"
+            self.logger.debug(f"尝试导入模块: {module_path}")
             
             # 导入模块
             module = importlib.import_module(module_path)
+            self.logger.debug(f"成功导入模块: {module_path}")
             
             # 构建类名
             class_name = device_type
+            self.logger.debug(f"查找类: {class_name}")
             
             # 获取类
             device_class = getattr(module, class_name, None)
             
             if device_class is None:
                 self.logger.warning(f"模块 {module_path} 中未找到类 {class_name}")
+                # 列出模块中可用的类
+                available_classes = [name for name in dir(module) if not name.startswith('_')]
+                self.logger.debug(f"模块中可用的类: {available_classes}")
                 return None
+            
+            self.logger.debug(f"找到类: {device_class}")
             
             # 验证类是否继承自 BaseDevice
             if not issubclass(device_class, BaseDevice):
                 self.logger.warning(f"类 {class_name} 未继承自 BaseDevice")
                 return None
             
+            self.logger.debug(f"类 {class_name} 验证通过")
             return device_class
             
         except ImportError as e:
             self.logger.warning(f"导入模块失败 {folder_name}: {e}")
+            import traceback
+            self.logger.debug(f"导入错误详情: {traceback.format_exc()}")
             return None
         except AttributeError as e:
             self.logger.warning(f"获取类失败 {folder_name}: {e}")
             return None
         except Exception as e:
             self.logger.warning(f"导入设备 {device_type} 的逻辑类时发生未知错误: {e}")
+            import traceback
+            self.logger.debug(f"未知错误详情: {traceback.format_exc()}")
             return None
 
     def _get_device_type_from_id(self, device_id: str) -> Optional[str]:
         """
         根据设备ID确定设备类型。
         """
+        # 调试信息：显示已注册的设备类型
+        self.logger.debug(f"尝试识别设备ID: {device_id}")
+        self.logger.debug(f"已注册的设备类型: {list(self._device_classes.keys())}")
+        
         # 遍历已注册的设备类型，查找匹配的前缀
         for device_type in self._device_classes.keys():
             if device_id.startswith(device_type):
+                self.logger.debug(f"找到匹配的设备类型: {device_type}")
                 return device_type
         
+        self.logger.error(f"无法找到匹配的设备类型，设备ID: {device_id}, 已注册类型: {list(self._device_classes.keys())}")
         return None
 
     def _get_or_create_device_instance(self, device_id: str) -> Optional[BaseDevice]:

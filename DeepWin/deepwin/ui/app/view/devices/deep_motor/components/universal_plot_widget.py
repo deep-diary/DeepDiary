@@ -41,7 +41,7 @@ class UniversalPlotWidget(QWidget):
         
         # 性能优化相关
         self.update_timer = QTimer(self)
-        self.update_timer.setInterval(100)  # 100ms更新间隔
+        self.update_timer.setInterval(1000)  # 1000ms更新间隔，大幅降低频率以提升性能
         self.update_timer.timeout.connect(self._throttled_update)
         
         # 坐标轴范围缓存
@@ -591,7 +591,7 @@ class UniversalPlotWidget(QWidget):
             self.canvas.draw()
             
             # 启动高频更新定时器
-            self.update_timer.setInterval(50)  # 50ms = 20 FPS
+            self.update_timer.setInterval(200)  # 200ms = 5 FPS，降低频率以提升性能
             self.update_timer.start()
         else:
             # 停止执行模式

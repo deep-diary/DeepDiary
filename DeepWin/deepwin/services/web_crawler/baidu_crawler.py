@@ -38,10 +38,10 @@ class BaiduCrawler:
         if self.log_manager:
             self.logger = self.log_manager.get_logger(__name__)
         else:
-            # 如果没有日志管理器，使用简单的print
-            import logging
-            logging.basicConfig(level=logging.INFO)
-            self.logger = logging.getLogger(__name__)
+            # 使用统一的日志管理器，避免重复配置
+            from deepwin.data_management.log_manager import LogManager
+            log_manager = LogManager()
+            self.logger = log_manager.get_logger(__name__)
 
     # 获取后缀名
     @staticmethod

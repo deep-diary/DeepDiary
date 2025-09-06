@@ -594,7 +594,7 @@ class TeachingTrajectoryManager(QObject):
         self._trajectory_playback_started.emit(device_id, trajectory_name)
         
         # 开始定时器播放
-        self._playback_timer.start(50)  # 50ms间隔，约20Hz
+        self._playback_timer.start(200)  # 200ms间隔，约5Hz，降低频率以提升性能
         
         self.logger.info(f"TeachingTrajectoryManager: 开始播放轨迹 '{trajectory_name}'，共 {len(planned_times)} 个点")
 

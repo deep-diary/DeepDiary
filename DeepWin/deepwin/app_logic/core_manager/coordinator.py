@@ -233,7 +233,7 @@ class Coordinator(QObject):
                         if (inspect.isclass(obj) and 
                             issubclass(obj, BaseHandler) and 
                             obj != BaseHandler):
-                            self.logger.info(f"Coordinator: 开始初始化处理器--------------------------------: {name}")
+                            self.logger.debug(f"Coordinator: 开始初始化处理器: {name}")
                             # 创建处理器实例
                             handler_instance = obj(parent=self)
                             
@@ -247,7 +247,7 @@ class Coordinator(QObject):
                             handler_name = name.lower()
                             self.handlers[handler_name] = handler_instance
                             
-                            self.logger.info(f"Coordinator: 成功初始化处理器--------------------------------: {name}")
+                            self.logger.debug(f"Coordinator: 成功初始化处理器: {name}")
                             
                 except Exception as e:
                     self.logger.error(f"Coordinator: 初始化处理器 {module_name} 失败: {e}")
@@ -325,6 +325,12 @@ class Coordinator(QObject):
             
         # except Exception as e:
         #     self.logger.error(f"Coordinator: 提交爬虫任务到调度器失败: {e}")
+
+        # 启动语音交互（如果尚未启动）
+        # if not self.voice_manager.is_conversation_active:
+        #     self.voice_manager.start_voice_conversation()
+        # else:
+        #     self.logger.info("Coordinator: 语音对话已在运行中，跳过重复启动")
         
         
         self.agent_manager.start_agents()
@@ -406,7 +412,7 @@ class Coordinator(QObject):
         # 关闭所有子模块可能打开的资源
         # 定义需要清理的模块列表
         modules_to_cleanup = [
-            'image_video_processor',
+            'image_processor',
             'resource_demand_manager', 
             'device_logic_manager',
             'ai_coordinator',

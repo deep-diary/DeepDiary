@@ -28,10 +28,10 @@ class BaseDevicePage(QWidget):
         self.is_connected = False
         self.is_running = False
         if self.logger:
-            self.logger.info(f"{self.device_name}页面初始化开始")
+            self.logger.debug(f"{self.device_name}页面初始化开始")
         # 不自动调用setup_ui、setup_signals、init_device，由子类手动调用
         if self.logger:
-            self.logger.info(f"{self.device_name}页面初始化完成")
+            self.logger.debug(f"{self.device_name}页面初始化完成")
     
     def _check_required_methods(self):
         """检查子类是否实现了必要的方法"""

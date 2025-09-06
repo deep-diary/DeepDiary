@@ -62,6 +62,12 @@ class DeviceLogicManagerHandler(BaseHandler):
         self.device_logic_manager.teaching_trajectory_updated.connect(self.handle_teaching_trajectory_updated)
         
         self.logger.debug("DeviceLogicManagerHandler: 设备逻辑管理器信号连接完成。")
+    
+    def initialize(self):
+        """初始化处理器"""
+        super().initialize()
+        if self.logger:
+            self.logger.info("DeviceLogicManagerHandler: 初始化设备逻辑管理器处理器")
         
     @Slot(str, dict)
     def handle_device_states_updated(self, device_id: str, data: dict):
@@ -69,19 +75,21 @@ class DeviceLogicManagerHandler(BaseHandler):
         处理来自 DeviceLogicManager 的设备状态更新。
         将数据转发到 UI 和 AI 协调器。
         """
-        # 转发到 UI
+        # 转发到 UI - 优化版本，减少频繁更新
         if self.gui_manager and self.gui_manager.window:
             if device_id == "DeepMotor":
                 deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
                 if deep_motor_page and hasattr(deep_motor_page, 'update_motor_data'):
-                    deep_motor_page.update_motor_data(data)
+                    # 只在数据有实际变化时才更新UI
+                    if data and len(data) > 0:
+                        deep_motor_page.update_motor_data(data)
                 
-                # 如果当前显示的是历史曲线参数，自动触发历史数据请求以刷新曲线
-                if deep_motor_page and hasattr(deep_motor_page, 'current_selected_param'):
-                    current_param = deep_motor_page.current_selected_param
-                    if not current_param.startswith('trajectory_'):
-                        # 非轨迹参数，自动请求历史数据刷新曲线
-                        self.handle_request_history_data(device_id, current_param)
+                # 屏蔽历史曲线相关处理，因为已经屏蔽了曲线组件
+                # if deep_motor_page and hasattr(deep_motor_page, 'current_selected_param'):
+                #     current_param = deep_motor_page.current_selected_param
+                #     if not current_param.startswith('trajectory_'):
+                #         # 非轨迹参数，自动请求历史数据刷新曲线
+                #         self.handle_request_history_data(device_id, current_param)
 
         # 转发到 AI 协调器
         if self.ai_coordinator:
@@ -129,7 +137,9 @@ class DeviceLogicManagerHandler(BaseHandler):
         try:
             # 准备命令信息
             command_info = self._prepare_command_info(command_name, params)
-            self._last_command_info = command_info
+            # 将命令信息存储到设备逻辑管理器中
+            if self.device_logic_manager:
+                self.device_logic_manager.set_last_command_info(command_info)
             self.logger.debug(f"DeviceLogicManagerHandler: 设置单帧命令信息: {command_info}")
             
             # ==================== 第2层：CAN层 - CAN帧 → 串口帧 ====================
@@ -164,7 +174,9 @@ class DeviceLogicManagerHandler(BaseHandler):
                 
                 # 准备命令信息
                 command_info = self._prepare_command_info(command_name, params, frame_index, len(can_frames))
-                self._last_command_info = command_info
+                # 将命令信息存储到设备逻辑管理器中
+                if self.device_logic_manager:
+                    self.device_logic_manager.set_last_command_info(command_info)
                 
                 # ==================== 第2层：CAN层 - CAN帧 → 串口帧 ====================
                 serial_frame = self._convert_can_to_serial(can_frame, frame_index)
@@ -377,6 +389,3 @@ class DeviceLogicManagerHandler(BaseHandler):
                 if hasattr(deep_motor_page, 'update_history_curve'):
                     deep_motor_page.update_history_curve(history_data)
     
-    def get_last_command_info(self):
-        """获取最后的命令信息，用于UI显示"""
-        return getattr(self, '_last_command_info', None)

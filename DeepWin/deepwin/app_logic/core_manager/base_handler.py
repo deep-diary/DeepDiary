@@ -4,6 +4,7 @@
 from PySide6.QtCore import QObject, Signal, QThreadPool
 from typing import Optional, Dict, Any, TYPE_CHECKING
 from abc import ABC, abstractmethod
+import logging
 
 # 导入应用逻辑层的各个管理器/处理器
 from deepwin.app_logic.memory_processing.image_processing.manager import ImageManager
@@ -92,6 +93,8 @@ class BaseHandler(QObject):
         # 协调器信号处理器（新增）
         self.coordinator_handler: Optional['CoordinatorHandler'] = None
         
+        # 注意：处理器间通信应该通过协调器进行，避免直接引用
+        
     def set_coordinator_dependencies(self, coordinator):
         """
         从协调器设置所有通用依赖项
@@ -99,7 +102,7 @@ class BaseHandler(QObject):
         :param coordinator: 协调器实例
         """
         # 设置基础管理器
-        self.logger = coordinator.logger
+        self.logger = coordinator.log_manager.get_logger(self.__class__.__module__)
         self.config_manager = coordinator.config_manager
         self.gui_manager = coordinator.gui_manager
         
@@ -127,6 +130,9 @@ class BaseHandler(QObject):
         # 设置语音管理器（新增）
         self.voice_manager = coordinator.voice_manager
 
+        # 设置图像处理器
+        self.image_processor = coordinator.image_manager
+
         # 设置数据库管理器
         self.sqlite_db = coordinator.sqlite_db
         self.qdrant_db = coordinator.qdrant_db
@@ -137,27 +143,12 @@ class BaseHandler(QObject):
         # 设置协调器信号处理器（可选依赖）
         if hasattr(coordinator, 'handlers') and 'coordinatorhandler' in coordinator.handlers:
             self.coordinator_handler = coordinator.handlers['coordinatorhandler']
-            if self.logger:
-                self.logger.info("BaseHandler: 成功从CoordinatorHandler获取coordinator_handler")
+            self.logger.debug(f"{self.__class__.__name__}: 成功从CoordinatorHandler获取coordinator_handler")
         else:
             self.coordinator_handler = None
-            if self.logger:
-                self.logger.warning("BaseHandler: 无法获取CoordinatorHandler，这是可选的依赖项")
+            self.logger.warning(f"{self.__class__.__name__}: 无法获取CoordinatorHandler，这是可选的依赖项")
         
-        # 设置其他处理器引用（用于处理器间通信）
-        if hasattr(coordinator, 'handlers'):
-            # 设置设备逻辑管理器处理器
-            if 'devicelogicmanagerhandler' in coordinator.handlers:
-                self.device_logic_manager_handler = coordinator.handlers['devicelogicmanagerhandler']
-                if self.logger:
-                    self.logger.info("BaseHandler: 成功获取device_logic_manager_handler")
-            else:
-                self.device_logic_manager_handler = None
-                if self.logger:
-                    self.logger.warning("BaseHandler: 无法获取device_logic_manager_handler")
-                    # 调试信息：显示可用的处理器
-                    available_handlers = list(coordinator.handlers.keys())
-                    self.logger.debug(f"BaseHandler: 可用的处理器: {available_handlers}")
+        # 注意：处理器间通信应该通过协调器进行，避免直接引用
         
     def set_dependency(self, name: str, dependency: Any):
         """
@@ -190,10 +181,12 @@ class BaseHandler(QObject):
         if self._is_initialized:
             return
             
+        # 注意：处理器间通信应该通过协调器进行，避免直接引用
+        
         self._validate_dependencies()
         self._connect_signals()
         self._is_initialized = True
-        
+    
     def _validate_dependencies(self):
         """
         验证必需的依赖项是否已设置
@@ -215,11 +208,7 @@ class BaseHandler(QObject):
         self._is_initialized = False
         self._dependencies.clear()
         
-        # 清理通用管理器引用
-        self.logger = None
-        self.config_manager = None
-        self.gui_manager = None
-        self.app_status_message_signal = None
+        # 先清理可能触发信号的管理器（保持logger最后清理）
         self.serial_communicator = None
         self.can_bus_communicator = None
         self.device_protocol_parser = None
@@ -228,18 +217,26 @@ class BaseHandler(QObject):
         self.device_logic_manager = None
         self.ai_coordinator = None
         self.agent_manager = None
-        self.image_video_processor = None
+        self.image_processor = None
         self.resource_demand_manager = None
         self.task_scheduler = None
         self.mcp_client_manager = None
         self.weather_manager = None
         self.crawler_manager = None
+        self.gui_manager = None
+        self.app_status_message_signal = None
         
         # 清理线程池
         self.thread_pool = None
         
         # 清理协调器信号处理器
         self.coordinator_handler = None
+        
+        # 最后清理logger，避免清理过程中触发信号时logger为None
+        self.logger = None
+        self.config_manager = None
+        
+        # 注意：处理器间通信应该通过协调器进行，避免直接引用
         
     @property
     def is_initialized(self) -> bool:

@@ -60,7 +60,7 @@ class DeviceProtocolParser(QObject):
         自动发现并注册设备协议解析器。
         根据 device_protocols 目录下的子文件夹名称自动提取设备类型和解析器类。
         """
-        self.logger.info("开始自动发现设备协议解析器...")
+        self.logger.debug("开始自动发现设备协议解析器...")
         
         # 获取 device_protocols 目录的绝对路径
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -105,7 +105,7 @@ class DeviceProtocolParser(QObject):
                 # 建立设备ID前缀到设备类型的映射
                 self._device_type_mapping[device_type] = device_type
                 
-                self.logger.info(f"成功注册设备协议解析器: {device_type} -> {parser_class.__name__}")
+                self.logger.debug(f"成功注册设备协议解析器: {device_type} -> {parser_class.__name__}")
                 
             except Exception as e:
                 self.logger.error(f"实例化设备 '{device_type}' 的协议解析器失败: {e}")

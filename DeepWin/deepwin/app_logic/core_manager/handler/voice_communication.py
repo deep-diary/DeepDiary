@@ -70,15 +70,8 @@ class VoiceCommunicationHandler(BaseHandler):
             # 设置依赖项并初始化
             for handler_name, handler in self.voice_handlers.items():
                 try:
-                    # 如果有coordinator_handler，使用它；否则使用self
-                    if self.coordinator_handler:
-                        handler.set_coordinator_dependencies(self.coordinator_handler)
-                    else:
-                        # 如果没有coordinator_handler，直接设置基本依赖
-                        handler.logger = self.logger
-                        handler.config_manager = self.config_manager
-                        handler.device_logic_manager = self.device_logic_manager
-                        handler.voice_manager = self.voice_manager
+                    # 使用父级Coordinator对象设置依赖项
+                    handler.set_coordinator_dependencies(self.parent())
                     
                     handler.initialize()
                     self.logger.info(f"VoiceCommunicationHandler: 已初始化 {handler_name} 处理器")
