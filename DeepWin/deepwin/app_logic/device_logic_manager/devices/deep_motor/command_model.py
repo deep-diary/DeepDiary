@@ -127,7 +127,7 @@ class MotorSetPosSpeedCommand(BaseModel):
         description="电机ID",
         example=1
     )
-    position: float = Field(
+    pos: float = Field(
         default=1.0, 
         description="目标位置，单位：弧度",
         example=1.0
@@ -148,7 +148,7 @@ class MotorSetPosCommand(BaseModel):
         description="电机ID",
         example=1
     )
-    position: float = Field(
+    pos: float = Field(
         default=1.0, 
         description="目标位置，单位：弧度",
         example=1.0

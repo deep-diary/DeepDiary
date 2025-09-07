@@ -58,6 +58,10 @@ class DeepMotor(BaseDevice):
     def get_current_state(self) -> DeepMotorState:
         """重写以返回 DeepMotorState。"""
         return self._state
+    
+    def get_command_parser(self) -> CommandParser:
+        """获取命令解析器"""
+        return self.command_parser
 
     def update_state_from_semantic_data(self, semantic_data: Dict[str, Any]):
         """

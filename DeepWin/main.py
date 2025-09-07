@@ -51,7 +51,7 @@ def main():
 
     # 1. 初始化日志管理器
     # 这是最先初始化的组件之一，确保所有后续日志都能被记录
-    log_manager = LogManager(file_level=logging.DEBUG)
+    log_manager = LogManager(file_level=logging.INFO)
     logger = log_manager.get_logger(__name__)
     logger.info("DeepWin 应用程序启动中...")
 

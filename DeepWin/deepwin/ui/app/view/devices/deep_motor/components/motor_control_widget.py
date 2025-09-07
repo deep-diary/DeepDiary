@@ -26,7 +26,7 @@ class MotorControlWidget(QWidget):
         self.title = title
         
         # 电机参数
-        self.current_motor_id = 6
+        self.current_motor_id = 1
         self.current_position = 0
         self.current_speed = 5
         self._is_jogging = False

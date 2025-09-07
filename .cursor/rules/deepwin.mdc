@@ -132,7 +132,7 @@ alwaysApply: true
 ## 8. 终端说明
 
 - 目前终端版本不支持 && 指令
-- 如果要运行代码，第一次打开终端，需要激活项目环境, 命令：conda activate DiaryWin
+- 如果要运行代码，第一次打开终端，需要激活项目环境, 命令：conda activate deepwin
 
 ---
 

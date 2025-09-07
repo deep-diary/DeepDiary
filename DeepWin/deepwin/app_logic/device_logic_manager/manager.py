@@ -88,6 +88,7 @@ class DeviceLogicManager(QObject):
             self.logger.error(f"设备注册过程中发生异常: {e}")
             import traceback
             self.logger.error(f"设备注册异常详情: {traceback.format_exc()}")
+        self.logger.info("设备逻辑管理器初始化完成")
     
     def set_last_command_info(self, command_info: Dict[str, Any]):
         """

@@ -1,9 +1,16 @@
 from typing import List
 from .command_description import *
+from deepwin.data_management.log_manager import LogManager
+
+logger = LogManager().get_logger(__name__)
 
 class CommandParser:
     """DeepMotor 命令描述和注册中心"""
+    # def __init__(self, log_manager: LogManager=None):
+    #     self.logger = log_manager.get_logger(__name__) if log_manager is not None else LogManager().get_logger(__name__)
+
     _commands = CommandDescription.commands
+    
 
     # 构建命令模型映射表（从_commands中提取）
     @classmethod
@@ -178,14 +185,15 @@ class CommandParser:
             params = command_dict.get('params', [])
             params_dict = {}
             # 将params转换为字典
-            if not params:
+            # 原始逻辑是反的：如果params不为空，应该将其转换为字典；如果为空，则params_dict保持为空。
+            if params:  # 如果params列表不为空
                 params_dict = {param['name']: param['value'] for param in params}
-            else:
-                params_dict = {}
-            print(f"params_dict: {params_dict}")
+            # 如果params为空，params_dict将保持其初始化的空字典状态，这是正确的行为。
+            logger.info(f"cmd name: {command_name}, voice_raw_params: {params_dict}")
             
             # 验证参数
             validated_params = cls.validate_command(command_name, params_dict)
+            logger.info(f"cmd name: {command_name}, validated_params: {validated_params.model_dump()}")
             
             # 返回与 parse_command_string 一致的格式
             return command_name, validated_params.model_dump()
