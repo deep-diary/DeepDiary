@@ -244,9 +244,12 @@ class SerialCommunicator(QObject):
         """
         try:
             # 获取设备对应的端口，如果不存在则使用设备ID作为端口名
-            target_port = self._get_device_port_by_id(device_id)
-            if not target_port:
-                target_port = device_id  # 使用设备ID作为端口名，让send_bytes统一处理
+            # target_port = self._get_device_port_by_id(device_id)
+            # if not target_port:
+            #     target_port = device_id  # 使用设备ID作为端口名，让send_bytes统一处理
+
+            target_port = self.active_port
+            self.logger.info(f"SerialCommunicator: 通过设备ID发送数据 - 端口: {target_port}, 设备ID: {device_id}")
             
             # 调用send_bytes方法，统一处理端口检查和模拟数据反馈
             return self.send_bytes(target_port, data, command_info)
