@@ -1,5 +1,6 @@
 ---
-alwaysApply: true
+description: 当处理的代码位于DeepWin文件夹下的时候应用
+alwaysApply: false
 ---
 
 # DeepWin 开发规则与项目指南
