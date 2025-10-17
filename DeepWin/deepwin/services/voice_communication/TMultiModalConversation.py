@@ -37,6 +37,9 @@ from deepwin.config.config_manager import ConfigManager
 # 导入B64PCMPlayer用于音频播放
 import pyaudio
 
+# 导入通信序列枚举
+from .dashscope_com_state import CommunicationSequence, COMMUNICATION_SEQUENCE_LOGS
+
 # 移除未使用的全局变量
 # begin_time: int = 0
 
@@ -117,7 +120,7 @@ class TMultiModalConversation:
     def start_conversation(self):
         """Start conversation session"""
         self.conversation.start("")
-        logger.info("Conversation started")
+        self.log_communication_sequence(CommunicationSequence.SEQ_01_SYSTEM_START)
 
     def get_conversation_mode(self) -> str:
         """Get current conversation mode"""
@@ -149,7 +152,8 @@ class TMultiModalConversation:
         while self.conversation.get_dialog_state() != DialogState.LISTENING:
             time.sleep(0.1)
         
-        logger.info(f"starting speech")
+        self.log_communication_sequence(CommunicationSequence.SEQ_05_USER_SPEAK)
+        # logger.info(f"starting speech")
         # self.conversation.send_heart_beat()
         self.conversation.start_speech()
 
@@ -164,15 +168,18 @@ class TMultiModalConversation:
 
     def send_local_responding_started(self):
         """Notify local response started"""
+        self.log_communication_sequence(CommunicationSequence.SEQ_15_LOCAL_RESPONDING_STARTED)
         self.conversation.local_responding_started()
 
     def send_local_responding_ended(self):
         """Notify local response ended"""
+        self.log_communication_sequence(CommunicationSequence.SEQ_18_LOCAL_RESPONDING_ENDED)
         self.conversation.local_responding_ended()
 
     def _send_audio_data_callback(self, audio_data: bytes):
         """音频录制器的回调函数，用于发送录制的音频数据到服务器"""
         if self.conversation and self.conversation.get_dialog_state() == DialogState.LISTENING:
+            self.log_communication_sequence(CommunicationSequence.SEQ_06_AUDIO_SPEECH)
             self.conversation.send_audio_data(audio_data)
             logger.debug(f"_send_audio_data_callback sent audio data: {len(audio_data)} bytes")
     
@@ -229,3 +236,16 @@ class TMultiModalConversation:
                 while self.conversation.get_dialog_state() == DialogState.LISTENING:
                     time.sleep(0.1)
                     self.conversation.send_audio_data(bytearray(AUDIO_CHUNK_SIZE))
+
+    def log_communication_sequence(self, sequence: CommunicationSequence):
+        """
+        记录通信序列。
+        将通信方向、枚举值（包含序号）和消息内容输出到日志。
+
+        Args:
+            sequence (CommunicationSequence): 要记录的通信序列枚举值。
+        """
+        # 获取某个状态的日志信息
+        seq_log = COMMUNICATION_SEQUENCE_LOGS[sequence]
+        # 同步输出枚举值，因为它包含序号信息
+        self.logger.warning(f"{seq_log['direction']}: {sequence.value} - {seq_log['message']}")

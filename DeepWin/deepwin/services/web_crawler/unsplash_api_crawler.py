@@ -50,11 +50,10 @@ class UnsplashApiCrawler:
     
     def _setup_logging(self):
         """设置日志（如果没有传入日志管理器）"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        return logging.getLogger(__name__)
+        # 使用统一的日志管理器，避免重复配置
+        from deepwin.data_management.log_manager import LogManager
+        log_manager = LogManager()
+        return log_manager.get_logger(__name__)
     
     def _get_access_key(self) -> str:
         """获取API访问密钥"""
@@ -68,8 +67,8 @@ class UnsplashApiCrawler:
         # 从配置管理器获取
         if self.config_manager:
             try:
-                access_key = self.config_manager.get("unsplash", "access_key")
-                if access_key:
+                access_key = self.config_manager.get("crawlers.unsplash.access_key", "access_key")
+                if access_key and access_key != "access_key":
                     self.logger.info("从配置管理器获取到 Unsplash API 密钥")
                     return access_key
             except Exception as e:

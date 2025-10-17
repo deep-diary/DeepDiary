@@ -1,6 +1,6 @@
 """
-DeepMotor 控制页面 - 重构版本
-整合所有功能组件，统一信号管理
+DeepMotor 控制页面 - 最终优化版本
+使用所有优化组件，最大化性能
 """
 
 from PySide6.QtCore import Qt, Signal, QTimer
@@ -9,9 +9,9 @@ from qfluentwidgets import CardWidget
 
 # 导入组件
 from .components import (
-    UniversalPlotWidget, CommunicationWidget, MotorControlWidget, 
-    TeachingControlWidget, HistoryCurveWidget
+    MotorControlWidget, TeachingControlWidget
 )
+from .components.optimized_communication_widget import OptimizedCommunicationWidget
 
 # 导入基础页面和日志管理
 from deepwin.data_management.log_manager import LogManager
@@ -20,7 +20,7 @@ from ..base_device_page import BaseDevicePage
 
 
 class DeepMotorPage(BaseDevicePage):
-    """DeepMotor 控制页面 - 重构版本"""
+    """DeepMotor 控制页面 - 最终优化版本"""
     
     # 对外统一信号定义
     ui_deepmotor_command = Signal(str, str)  # 设备命令信号
@@ -70,16 +70,18 @@ class DeepMotorPage(BaseDevicePage):
         # 创建各个功能组件
         self.motor_control_widget = MotorControlWidget("电机控制", self.logger, self)
         self.teaching_control_widget = TeachingControlWidget("示教控制", self.logger, self)
-        self.communication_widget = CommunicationWidget("通信监控", self.logger, self.config_manager, self)
-        self.history_curve_widget = HistoryCurveWidget("历史曲线", self.logger, self)
+        self.communication_widget = OptimizedCommunicationWidget("通信监控", self.logger, self.config_manager, self)
+        
+        # 完全屏蔽历史曲线组件
+        self.history_curve_widget = None
         
         if self.logger:
-            self.logger.info("DeepMotor页面组件初始化完成")
+            self.logger.info("DeepMotor页面组件初始化完成（最终优化版，使用优化通信组件）")
             
     def setup_ui(self):
         """设置UI布局"""
         if self.logger:
-            self.logger.info("开始设置DeepMotor页面UI布局")
+            self.logger.info("开始设置DeepMotor页面UI布局（最终优化版）")
             
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -112,21 +114,21 @@ class DeepMotorPage(BaseDevicePage):
         middle_layout.setStretch(0, 1)  # 电机控制占1份
         middle_layout.setStretch(1, 1)  # 示教控制占1份
         
-        # 下部：历史曲线
+        # 只保留上部和中部，完全移除历史曲线
         main_splitter.addWidget(top_widget)
         main_splitter.addWidget(middle_widget)
-        main_splitter.addWidget(self.history_curve_widget)
-        main_splitter.setSizes([400, 400, 400])  # 设置初始大小比例：上部400，中部400，下部400
+        
+        main_splitter.setSizes([400, 400])  # 设置初始大小比例：上部400，中部400
         
         main_layout.addWidget(main_splitter)
         
         if self.logger:
-            self.logger.info("DeepMotor页面UI布局设置完成")
+            self.logger.info("DeepMotor页面UI布局设置完成（最终优化版）")
             
     def setup_signals(self):
         """设置信号连接"""
         if self.logger:
-            self.logger.info("开始设置DeepMotor页面信号连接")
+            self.logger.info("开始设置DeepMotor页面信号连接（最终优化版）")
             
         # 电机控制组件信号连接
         self.motor_control_widget.motor_id_changed.connect(self._on_motor_id_changed)
@@ -147,17 +149,13 @@ class DeepMotorPage(BaseDevicePage):
         self.communication_widget.protocol_changed.connect(self._on_protocol_changed)
         self.communication_widget.clear_requested.connect(self._on_communication_clear_requested)
         
-        # 历史曲线组件信号连接
-        self.history_curve_widget.param_changed.connect(self._on_history_param_changed)
-        self.history_curve_widget.refresh_requested.connect(self._on_history_refresh_requested)
-        
         if self.logger:
-            self.logger.info("DeepMotor页面信号连接设置完成")
+            self.logger.info("DeepMotor页面信号连接设置完成（最终优化版）")
             
     def init_device(self):
         """初始化设备"""
         if self.logger:
-            self.logger.info("初始化DeepMotor设备")
+            self.logger.info("初始化DeepMotor设备（最终优化版）")
             
         # 初始化轨迹列表
         self.init_trajectory_list()
@@ -165,7 +163,7 @@ class DeepMotorPage(BaseDevicePage):
     def init_trajectory_list(self):
         """初始化轨迹列表"""
         if self.logger:
-            self.logger.info("DeepMotor页面: 准备发射轨迹列表请求信号")
+            self.logger.info("DeepMotor页面: 准备发射轨迹列表请求信号（最终优化版）")
         QTimer.singleShot(100, lambda: self._emit_trajectory_list_request())
         
     def _emit_trajectory_list_request(self):
@@ -222,8 +220,6 @@ class DeepMotorPage(BaseDevicePage):
         """轨迹选择处理"""
         if self.logger:
             self.logger.info(f"轨迹选择: {trajectory_name}")
-        # 自动切换到轨迹视图
-        self.history_curve_widget.set_current_param('trajectory_both')
         # 请求轨迹数据
         self.request_trajectory_data.emit(self.device_name, trajectory_name)
         
@@ -231,56 +227,44 @@ class DeepMotorPage(BaseDevicePage):
         """执行时长改变处理"""
         if self.logger:
             self.logger.info(f"执行时长改变: {duration}秒")
-        # 启用刷新按钮
-        self.history_curve_widget.enable_refresh_button(True)
         
     def _on_switch_to_execution_view(self):
         """切换到执行轨迹视图处理"""
         if self.logger:
             self.logger.info("切换到执行轨迹视图")
-        # 切换到执行轨迹视图
-        self.history_curve_widget.set_current_param('trajectory_executed')
         # 设置执行状态
         self._is_executing_trajectory = True
-        # 清空画布并设置执行监控界面
-        self.history_curve_widget.clear_plot()
-        self.history_curve_widget.set_execution_mode(True)
         
     def _on_switch_to_teaching_view(self):
         """切换到示教轨迹视图处理"""
         if self.logger:
             self.logger.info("切换到示教轨迹视图")
-        # 切换到示教轨迹视图
-        self.history_curve_widget.set_current_param('trajectory_teaching')
-        # 清空画布，确保没有残留的图形
-        self.history_curve_widget.clear_plot()
         
     def update_teaching_trajectory(self, times: list, positions: list):
         """
-        更新示教轨迹实时显示
+        更新示教轨迹实时显示（已屏蔽）
         :param times: 时间列表
         :param positions: 位置列表
         """
         if self.logger:
             self.logger.debug(f"DeepMotor页面: 收到示教轨迹更新，点数: {len(times) if times else 0}")
-        self.history_curve_widget.update_teaching_trajectory(times, positions)
+        # 完全屏蔽曲线更新
         
     def update_trajectory_execution_progress(self, device_id: str, progress_data: dict):
         """
-        更新轨迹执行进度显示
+        更新轨迹执行进度显示（已屏蔽）
         :param device_id: 设备ID
         :param progress_data: 包含执行进度信息的字典
         """
         if self.logger:
             self.logger.debug(f"DeepMotor页面: 收到轨迹执行进度数据，设备: {device_id}")
-        self.history_curve_widget.update_execution_trajectory(progress_data)
+        # 完全屏蔽曲线更新
         
     def on_trajectory_execution_finished(self):
         """轨迹执行完成处理"""
         if self.logger:
             self.logger.info("DeepMotor页面: 收到轨迹执行完成信号")
         self._is_executing_trajectory = False
-        self.history_curve_widget.set_execution_mode(False)
         
     def _on_protocol_changed(self, protocol: str):
         """通信协议改变处理"""
@@ -293,34 +277,16 @@ class DeepMotorPage(BaseDevicePage):
             self.logger.info("通信显示清空请求")
             
     def _on_history_param_changed(self, param_name: str):
-        """历史参数改变处理"""
+        """历史参数改变处理（已屏蔽）"""
         if self.logger:
             self.logger.info(f"历史参数改变: {param_name}")
-            
-        if param_name.startswith('trajectory_'):
-            # 轨迹数据不需要定时请求
-            self.history_curve_widget.stop_history_requests()
-        else:
-            # 普通历史数据需要定时请求
-            self.history_curve_widget.start_history_requests()
-            # 立即请求一次数据
-            self.request_history_data.emit(self.device_name, param_name)
+        # 完全屏蔽历史曲线相关处理
             
     def _on_history_refresh_requested(self):
-        """历史刷新请求处理"""
-        current_param = self.history_curve_widget.get_current_param()
+        """历史刷新请求处理（已屏蔽）"""
         if self.logger:
-            self.logger.info(f"历史刷新请求，参数: {current_param}")
-            
-        if current_param.startswith('trajectory_'):
-            # 轨迹数据重规划
-            current_trajectory = self.teaching_control_widget.get_current_trajectory()
-            if current_trajectory:
-                duration = self.teaching_control_widget.get_duration()
-                self.replan_requested.emit(self.device_name, current_trajectory, duration)
-        else:
-            # 普通历史数据刷新
-            self.request_history_data.emit(self.device_name, current_param)
+            self.logger.info(f"历史刷新请求（已屏蔽）")
+        # 完全屏蔽历史曲线相关处理
             
     # ==================== 对外接口方法 ====================
     
@@ -337,33 +303,30 @@ class DeepMotorPage(BaseDevicePage):
         self.update_motor_status(data)
         
     def update_history_curve(self, history_data_dict: dict):
-        """更新历史曲线"""
-        self.history_curve_widget.update_history_data(history_data_dict)
+        """更新历史曲线（已屏蔽）"""
+        # 完全屏蔽历史曲线更新
+        pass
         
     def update_trajectory_curve(self, trajectory_data):
-        """更新轨迹曲线"""
-        self.history_curve_widget.update_trajectory_data(trajectory_data)
+        """更新轨迹曲线（已屏蔽）"""
+        # 完全屏蔽轨迹曲线更新
+        pass
         
     def update_trajectory_execution_progress(self, device_id: str, progress_data: dict):
-        """更新轨迹执行进度"""
-        self.history_curve_widget.update_execution_progress(progress_data)
-        
-        # 更新示教控制组件的进度显示
-        current_point = progress_data.get('current_point', 0)
-        total_points = progress_data.get('total_points', 1)
-        progress_percent = int((current_point / total_points) * 100) if total_points > 0 else 0
-        self.teaching_control_widget.update_execution_progress(progress_percent)
+        """更新轨迹执行进度（已屏蔽）"""
+        # 完全屏蔽轨迹执行进度更新
+        pass
         
     def update_teaching_trajectory(self, times: list, positions: list):
-        """更新示教轨迹"""
-        self.history_curve_widget.update_teaching_trajectory(times, positions)
+        """更新示教轨迹（已屏蔽）"""
+        # 完全屏蔽示教轨迹更新
+        pass
         
     def on_trajectory_execution_finished(self):
         """轨迹执行完成处理"""
         if self.logger:
             self.logger.info("DeepMotor页面: 收到轨迹执行完成信号")
         self._is_executing_trajectory = False
-        self.history_curve_widget.set_execution_mode(False)
         self.teaching_control_widget.on_trajectory_execution_finished()
         
     def on_trajectory_execution_error(self, error_message: str):
@@ -404,16 +367,14 @@ class DeepMotorPage(BaseDevicePage):
         
     @property
     def current_selected_param(self) -> str:
-        """获取当前选中的参数（兼容旧接口）"""
-        return self.history_curve_widget.get_current_param()
+        """获取当前选中的参数（兼容旧接口，已屏蔽）"""
+        return 'position'  # 返回默认值
         
     def reset_to_defaults(self):
         """重置为默认状态"""
         self.motor_control_widget.reset_to_defaults()
         self.teaching_control_widget.reset_to_defaults()
         self.communication_widget.clear_all_data()
-        self.history_curve_widget.reset_to_defaults()
         
         if self.logger:
-            self.logger.info("DeepMotor页面已重置为默认状态")
-            
+            self.logger.info("DeepMotor页面已重置为默认状态（最终优化版）")

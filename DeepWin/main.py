@@ -14,6 +14,7 @@ configure_matplotlib_globally()
 # 导入 DeepWin 核心组件
 from deepwin.app_logic.core_manager.coordinator import Coordinator
 from deepwin.data_management.log_manager import LogManager # 导入日志管理器
+import logging
 
 def cleanup_threads():
     """清理所有非主线程"""
@@ -31,7 +32,7 @@ def cleanup_threads():
             logger.info(f"等待线程完成: {thread.name} (ID: {thread.ident})")
             thread.join(timeout=3)
             if thread.is_alive():
-                logger.warning(f"线程 {thread.name} 未能在3秒内完成")
+                logger.info(f"线程 {thread.name} 未能在3秒内完成")
     
     # 再次检查线程状态
     remaining_threads = [t for t in threading.enumerate() if t != main_thread and t.is_alive()]
@@ -50,7 +51,7 @@ def main():
 
     # 1. 初始化日志管理器
     # 这是最先初始化的组件之一，确保所有后续日志都能被记录
-    log_manager = LogManager()
+    log_manager = LogManager(file_level=logging.INFO)
     logger = log_manager.get_logger(__name__)
     logger.info("DeepWin 应用程序启动中...")
 

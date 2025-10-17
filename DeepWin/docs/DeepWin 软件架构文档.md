@@ -626,7 +626,7 @@ class Coordinator(QObject):
 
         # 初始化应用逻辑层的各个管理器/处理器
         # 这些是我们的 'I类'，它们不直接与 UI 交互
-        self.image_video_processor = ImageProcessor(log_manager=log_manager)
+        self.image_processor = ImageProcessor(log_manager=log_manager)
         self.resource_demand_manager = ResourceDemandManager(log_manager=log_manager)
         self.device_logic_manager = DeviceLogicManager(log_manager=log_manager)
         self.ai_coordinator = AICoordinator(log_manager=log_manager)
@@ -646,8 +646,8 @@ class Coordinator(QObject):
         或将协调器的方法连接到其他模块。
         """
         # 示例：连接图像处理器完成信号到协调器的方法
-        self.image_video_processor.processing_finished.connect(self._on_image_processing_done)
-        self.image_video_processor.processing_error.connect(self._on_image_processing_error)
+        self.image_processor.processing_finished.connect(self._on_image_processing_done)
+        self.image_processor.processing_error.connect(self._on_image_processing_error)
         # 可以有更多内部信号连接，例如设备状态变化由 device_logic_manager 发出，由协调器接收并转发
         # self.device_logic_manager.status_changed.connect(self.device_status_updated.emit)
 
@@ -668,7 +668,7 @@ class Coordinator(QObject):
         self.image_processing_started.emit(image_path)
 
         # 创建一个 QRunnable 实例来执行实际的图像处理逻辑
-        worker = WorkerRunnable(self.image_video_processor.process_image, image_path)
+        worker = WorkerRunnable(self.image_processor.process_image, image_path)
         # 连接 worker 信号到协调器的方法
         worker.signals.finished.connect(lambda result: self.image_processing_finished.emit(image_path, result))
         worker.signals.error.connect(lambda error_msg: self.image_processing_error.emit(image_path, error_msg))
@@ -731,7 +731,7 @@ class Coordinator(QObject):
         """
         self.logger.info("Coordinator: 执行清理工作。")
         # 关闭所有子模块可能打开的资源
-        self.image_video_processor.cleanup()
+        self.image_processor.cleanup()
         self.resource_demand_manager.cleanup()
         self.device_logic_manager.cleanup()
         self.ai_coordinator.cleanup()

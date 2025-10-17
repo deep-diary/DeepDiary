@@ -58,6 +58,10 @@ class DeepMotor(BaseDevice):
     def get_current_state(self) -> DeepMotorState:
         """重写以返回 DeepMotorState。"""
         return self._state
+    
+    def get_command_parser(self) -> CommandParser:
+        """获取命令解析器"""
+        return self.command_parser
 
     def update_state_from_semantic_data(self, semantic_data: Dict[str, Any]):
         """
@@ -73,17 +77,17 @@ class DeepMotor(BaseDevice):
         
         current_state_dict = self._state.to_dict()
 
-        # 使用数据缓冲区管理器处理数据
+        # 使用数据缓冲区管理器处理数据 - 优化版本，减少日志记录
         stored_count = 0
         for param_name, value in semantic_data.items():
             if value is not None:
                 success = self.data_buffer_manager.add_data_point(param_name, value)
                 if success:
                     stored_count += 1
-                else:
-                    self.logger.debug(f"DeepMotor '{self.device_id}': 参数 {param_name} 的值 {value} 不是支持的格式，跳过存储")
         
-        self.logger.info(f"DeepMotor '{self.device_id}': 成功存储 {stored_count} 个参数到数据缓冲区")
+        # 减少日志记录频率，只在存储多个参数时记录
+        if stored_count > 0 and stored_count % 10 == 0:
+            self.logger.debug(f"DeepMotor '{self.device_id}': 成功存储 {stored_count} 个参数到数据缓冲区")
 
         # 如果正在示教，则记录状态
         if self.teaching_capability.is_teaching(self.device_id):

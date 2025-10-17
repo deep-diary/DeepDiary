@@ -227,4 +227,50 @@ class DeviceInterface(GalleryInterface):
         device_page = self.get_device_page(device_id)
         if device_page and hasattr(device_page, 'on_trajectory_execution_error'):
             device_page.on_trajectory_execution_error(error_message)
+    
+    def _handle_device_status_updated(self, device_id: str, status: dict):
+        """处理设备状态更新信号"""
+        self.logger.debug(f"设备界面: 收到设备状态更新，设备: {device_id}, 状态: {status}")
+        device_page = self.get_device_page(device_id)
+        if device_page and hasattr(device_page, 'on_device_status_updated'):
+            device_page.on_device_status_updated(status)
+    
+    def _handle_device_control_response(self, device_id: str, response: dict):
+        """处理设备控制响应信号"""
+        self.logger.debug(f"设备界面: 收到设备控制响应，设备: {device_id}, 响应: {response}")
+        device_page = self.get_device_page(device_id)
+        if device_page and hasattr(device_page, 'on_device_control_response'):
+            device_page.on_device_control_response(response)
+    
+    def _handle_device_control_error(self, device_id: str, error: str):
+        """处理设备控制错误信号"""
+        self.logger.error(f"设备界面: 收到设备控制错误，设备: {device_id}, 错误: {error}")
+        device_page = self.get_device_page(device_id)
+        if device_page and hasattr(device_page, 'on_device_control_error'):
+            device_page.on_device_control_error(error)
+    
+    def _handle_image_processing_started(self, task_id: str, image_path: str):
+        """处理图像处理开始信号"""
+        self.logger.debug(f"设备界面: 收到图像处理开始，任务: {task_id}, 图像: {image_path}")
+        # 可以在这里添加图像处理开始的UI更新逻辑
+    
+    def _handle_image_processing_finished(self, task_id: str, result: str):
+        """处理图像处理完成信号"""
+        self.logger.debug(f"设备界面: 收到图像处理完成，任务: {task_id}, 结果: {result}")
+        # 可以在这里添加图像处理完成的UI更新逻辑
+    
+    def _handle_image_processing_error(self, task_id: str, error: str):
+        """处理图像处理错误信号"""
+        self.logger.error(f"设备界面: 收到图像处理错误，任务: {task_id}, 错误: {error}")
+        # 可以在这里添加图像处理错误的UI更新逻辑
+    
+    def _handle_resource_matched(self, resource_id: str, match_result: dict):
+        """处理资源匹配信号"""
+        self.logger.debug(f"设备界面: 收到资源匹配，资源: {resource_id}, 结果: {match_result}")
+        # 可以在这里添加资源匹配的UI更新逻辑
+    
+    def _handle_resource_match_error(self, resource_id: str, error: str):
+        """处理资源匹配错误信号"""
+        self.logger.error(f"设备界面: 收到资源匹配错误，资源: {resource_id}, 错误: {error}")
+        # 可以在这里添加资源匹配错误的UI更新逻辑
         

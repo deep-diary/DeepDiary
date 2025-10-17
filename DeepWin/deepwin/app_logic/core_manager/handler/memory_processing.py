@@ -17,8 +17,8 @@ class MemoryProcessingHandler(BaseHandler):
         """
         if not self.logger:
             raise ValueError("缺少必需的依赖项: logger")
-        if not self.image_video_processor:
-            raise ValueError("缺少必需的依赖项: image_video_processor")
+        if not self.image_processor:
+            raise ValueError("缺少必需的依赖项: image_processor")
         if not self.thread_pool:
             raise ValueError("缺少必需的依赖项: thread_pool")
         if not self.coordinator_handler:
@@ -28,13 +28,28 @@ class MemoryProcessingHandler(BaseHandler):
         """
         连接记忆处理层相关的信号
         """
+        if not self.logger:
+            return
+            
         self.logger.debug("MemoryProcessingHandler: 连接记忆处理层信号...")
 
-        # 图像视频处理器
-        self.image_video_processor.processing_finished.connect(self._on_image_processing_done)
-        self.image_video_processor.processing_error.connect(self._on_image_processing_error)
-        self.image_video_processor.processing_progress.connect(self._on_image_processing_progress) # 连接进度信号
-
+        # 图像视频处理器 - 添加信号存在性检查
+        if self.image_processor:
+            try:
+                if hasattr(self.image_processor, 'processing_finished'):
+                    self.image_processor.processing_finished.connect(self._on_image_processing_done)
+                if hasattr(self.image_processor, 'processing_error'):
+                    self.image_processor.processing_error.connect(self._on_image_processing_error)
+                if hasattr(self.image_processor, 'processing_progress'):
+                    self.image_processor.processing_progress.connect(self._on_image_processing_progress)
+                self.logger.debug("MemoryProcessingHandler: 图像处理器信号连接成功")
+            except Exception as e:
+                self.logger.error(f"MemoryProcessingHandler: 连接图像处理器信号失败: {e}")
+                import traceback
+                self.logger.error(f"MemoryProcessingHandler: 信号连接异常详情: {traceback.format_exc()}")
+        else:
+            self.logger.warning("MemoryProcessingHandler: image_processor 为 None，跳过信号连接")
+        
         self.logger.debug("MemoryProcessingHandler: 记忆处理层信号连接完成")
         
     @Slot(str)
@@ -84,7 +99,7 @@ class MemoryProcessingHandler(BaseHandler):
         self.coordinator_handler.app_status_message.emit(f"正在处理图片：{image_path}...")
         if hasattr(self.parent(), 'image_processing_started'):
             self.parent().image_processing_started.emit(image_path)
-        worker = WorkerRunnable(self.image_video_processor.process_image, image_path)
+        worker = WorkerRunnable(self.image_processor.process_image, image_path)
         worker.signals.finished.connect(self._on_image_processing_done)
         worker.signals.error.connect(self._on_image_processing_error)
         worker.signals.progress.connect(self._on_image_processing_progress)

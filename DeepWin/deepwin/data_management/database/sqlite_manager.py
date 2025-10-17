@@ -53,21 +53,29 @@ class SQLiteManager(BaseDatabase):
                 echo=self.config_manager.get('database.sqlite.echo', False)
             )
             
-            # 创建异步引擎
-            self.async_engine = create_async_engine(
-                self.async_db_url,
-                poolclass=StaticPool,
-                echo=self.config_manager.get('database.sqlite.echo', False)
-            )
+            # 创建异步引擎 - 添加错误处理
+            try:
+                self.async_engine = create_async_engine(
+                    self.async_db_url,
+                    poolclass=StaticPool,
+                    echo=self.config_manager.get('database.sqlite.echo', False)
+                )
+            except Exception as e:
+                self.logger.warning(f"异步引擎创建失败，将使用同步引擎: {e}")
+                # 如果异步引擎创建失败，使用同步引擎
+                self.async_engine = None
             
             # 创建会话工厂
             self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-            self.AsyncSessionLocal = sessionmaker(
-                class_=AsyncSession,
-                autocommit=False,
-                autoflush=False,
-                bind=self.async_engine
-            )
+            if self.async_engine:
+                self.AsyncSessionLocal = sessionmaker(
+                    class_=AsyncSession,
+                    autocommit=False,
+                    autoflush=False,
+                    bind=self.async_engine
+                )
+            else:
+                self.AsyncSessionLocal = None
             
             # 初始化表结构
             await self._init_tables()

@@ -83,18 +83,35 @@ class HardwareCommunicationHandler(BaseHandler):
         
         if is_connected:
             self.logger.info(f"HardwareCommunicationHandler: 串口 {port} 连接成功")
-            self.coordinator_handler.app_status_message.emit(f"串口 {port} 连接成功")
+            if self.coordinator_handler:
+                self.coordinator_handler.app_status_message.emit(f"串口 {port} 连接成功")
             # 使用SerialCommunicator的映射功能
-            self.serial_communicator.add_port_device_mapping(port, device_instance_id)
+            if self.serial_communicator:
+                self.serial_communicator.add_port_device_mapping(port, device_instance_id)
         else:
             self.logger.info(f"HardwareCommunicationHandler: 串口 {port} 已断开")
-            self.coordinator_handler.app_status_message.emit(f"串口 {port} 已断开")
+            if self.coordinator_handler:
+                self.coordinator_handler.app_status_message.emit(f"串口 {port} 已断开")
             # 使用SerialCommunicator的映射功能
-            self.serial_communicator.remove_port_device_mapping(port)
+            if self.serial_communicator:
+                self.serial_communicator.remove_port_device_mapping(port)
             
         # 更新GUI连接状态
         if self.gui_manager and self.gui_manager.window:
             self.gui_manager.window.deviceInterface.serial_config.update_connection_status(is_connected)
+    
+    def cleanup(self):
+        """
+        清理资源，断开信号连接
+        """
+        # 断开信号连接，避免清理过程中触发信号
+        if self.serial_communicator:
+            self.serial_communicator.connection_status_changed.disconnect()
+            self.serial_communicator.raw_frame_received.disconnect()
+            self.serial_communicator.raw_frame_send.disconnect()
+        
+        # 调用父类清理方法
+        super().cleanup()
             
     @Slot(str, bytes)
     def _on_raw_serial_frame_received(self, port_name: str, raw_frame_data: bytes):
@@ -140,10 +157,12 @@ class HardwareCommunicationHandler(BaseHandler):
                 self.logger.info(f"HardwareCommunicationHandler: 协议层解析成功 - 设备: {device_id}")
                 self.logger.debug(f"HardwareCommunicationHandler: 信号字典: {semantic_result}")
                 
-                # 转发串口接收数据到UI
-                if self.gui_manager and self.gui_manager.window:
-                    deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
-                    if deep_motor_page:
+            # 转发串口接收数据到UI - 进一步优化，减少UI更新频率
+            if self.gui_manager and self.gui_manager.window:
+                deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
+                if deep_motor_page:
+                    # 只在有实际数据且数据长度足够时才更新UI
+                    if raw_frame_data and len(raw_frame_data) > 5:
                         deep_motor_page.add_communication_data(
                             direction="receive",
                             protocol="serial",
@@ -228,24 +247,13 @@ class HardwareCommunicationHandler(BaseHandler):
         if self.gui_manager and self.gui_manager.window:
             deep_motor_page = self.gui_manager.window.deviceInterface.get_deep_motor_page()
             if deep_motor_page:
-                # 尝试从设备逻辑管理器处理器获取命令信息
-                device_logic_handler = getattr(self, 'device_logic_manager_handler', None)
-                if device_logic_handler:
-                    command_info = device_logic_handler.get_last_command_info()
+                # 从设备逻辑管理器获取命令信息（更合理的架构）
+                if self.device_logic_manager:
+                    command_info = self.device_logic_manager.get_last_command_info()
                     self.logger.info(f"HardwareCommunicationHandler: 获取到命令信息: {command_info}")
                 else:
-                    # 如果直接访问失败，尝试通过coordinator_handler访问
-                    if hasattr(self, 'coordinator_handler') and self.coordinator_handler:
-                        device_logic_handler = getattr(self.coordinator_handler, 'device_logic_manager_handler', None)
-                        if device_logic_handler:
-                            command_info = device_logic_handler.get_last_command_info()
-                            self.logger.info(f"HardwareCommunicationHandler: 通过coordinator_handler获取到命令信息: {command_info}")
-                        else:
-                            command_info = None
-                            self.logger.info(f"HardwareCommunicationHandler: 无法通过coordinator_handler获取命令信息")
-                    else:
-                        command_info = None
-                        self.logger.info(f"HardwareCommunicationHandler: 无法获取device_logic_manager_handler")
+                    command_info = None
+                    self.logger.info(f"HardwareCommunicationHandler: 无法获取device_logic_manager")
                 
                 if command_info:
                     command = command_info.get('command', 'unknown')

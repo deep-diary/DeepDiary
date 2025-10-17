@@ -9,6 +9,7 @@ This module handles callback events for multi-modal conversations with DashScope
 """
 
 import json
+import time
 from typing import Dict, Any
 
 from dashscope.common.logging import logger
@@ -25,6 +26,9 @@ import pyaudio
 from .B64PCMPlayer import B64PCMPlayer
 
 from PySide6.QtCore import QObject, Signal
+
+# 导入通信序列枚举
+from .dashscope_com_state import CommunicationSequence, COMMUNICATION_SEQUENCE_LOGS
 
 
 # Configuration constants
@@ -72,6 +76,10 @@ class ChatCallback(MultiModalCallback, QObject):
         
         self.logger.info("音频播放器初始化完成")
 
+    def set_conversation_instance(self, conversation_instance: 'TMultiModalConversation'):
+        """设置对话实例"""
+        self.conversation_instance = conversation_instance
+
     def set_voice_mode(self, is_voice: bool):
         """设置对话模式
         
@@ -83,15 +91,15 @@ class ChatCallback(MultiModalCallback, QObject):
         logger.info(f"ChatCallback: 设置为{mode_str}对话模式")
     
     def on_connected(self):
-        logger.debug("Connected to server")
+        self.logger.warning("---------------> 00: Connected to server")
 
     def on_started(self, dialog_id: str):
         # 保存对话ID到实例变量，而不是使用全局变量
         self.dialog_id = dialog_id
-        logger.info(f"Dialog started: {dialog_id}")
+        self.log_communication_sequence(CommunicationSequence.SEQ_02_SYSTEM_STARTED)
 
     def on_stopped(self):
-        logger.info("Dialog stopped")
+        self.log_communication_sequence(CommunicationSequence.SEQ_34_SYSTEM_STOPPED)
         # 关闭音频录制器
         if hasattr(self, 'audio_recorder') and self.audio_recorder:
             try:
@@ -123,6 +131,7 @@ class ChatCallback(MultiModalCallback, QObject):
         
         # 监控Listening状态
         if state == DialogState.LISTENING:
+            self.log_communication_sequence(CommunicationSequence.SEQ_03_DIALOG_LISTENING)
             self.listening_monitor.on_listening_state()
             
             # 只在语音模式下启动音频录制
@@ -136,12 +145,19 @@ class ChatCallback(MultiModalCallback, QObject):
             else:
                 logger.info("LISTENING state detected (文本模式), 跳过音频录制")
 
+        if state == DialogState.THINKING:
+            self.log_communication_sequence(CommunicationSequence.SEQ_11_DIALOG_THINKING)
+
+        if state == DialogState.RESPONDING:
+            self.log_communication_sequence(CommunicationSequence.SEQ_13_DIALOG_RESPONDING)
+
+
     def on_speech_audio_data(self, data: bytes):
         """
         接收并播放音频数据
         服务器返回的音频数据会在这里被接收并播放
         """
-        logger.debug(f"Received audio data: {len(data)} bytes")
+        self.log_communication_sequence(CommunicationSequence.SEQ_16_PLAY_AUDIO)
         
         # 将接收到的音频数据直接添加到播放器
         # 注意：这里假设服务器返回的是原始PCM数据，如果是Base64编码的数据，需要使用add_data方法
@@ -152,7 +168,7 @@ class ChatCallback(MultiModalCallback, QObject):
             logger.error(f"播放音频数据时出错: {e}")
 
     def on_error(self, error: Exception):
-        logger.error(f"Error: {error}")
+        self.logger.error(f"-------> Error: {error}")
         # 确保在出错时也关闭音频录制器和播放器
         try:
             if hasattr(self, 'audio_recorder') and self.audio_recorder:
@@ -184,14 +200,20 @@ class ChatCallback(MultiModalCallback, QObject):
                 logger.warning(f"调用错误处理方法时出错: {e}")
 
     def on_responding_started(self):
-        logger.debug("Response started")
+        self.log_communication_sequence(CommunicationSequence.SEQ_14_RESPONDING_STARTED)
         if self.conversation_instance:
             self.conversation_instance.send_local_responding_started()
 
     def on_responding_ended(self, payload: Dict[str, Any]):
-        logger.debug("Response ended")
+        self.log_communication_sequence(CommunicationSequence.SEQ_17_RESPONDING_ENDED)
+        
+        self.audio_player.wait_for_complete() # 等待播放完成
+        self.logger.warning("本地播放完成，继续等待2秒")
+        time.sleep(2)
+
         if self.conversation_instance:
             self.conversation_instance.send_local_responding_ended()
+        self.log_communication_sequence(CommunicationSequence.SEQ_19_DIALOG_LISTENING_AGAIN)
         
         # 响应结束后停止录制（仅在语音模式下）
         if self.is_voice_mode and hasattr(self, 'audio_recorder'):
@@ -207,7 +229,7 @@ class ChatCallback(MultiModalCallback, QObject):
 
     def on_speech_started(self):
         """处理语音开始事件"""
-        logger.info("Speech started detected")
+        self.log_communication_sequence(CommunicationSequence.SEQ_08_SPEECH_STARTED)
         if self.is_voice_mode and hasattr(self, 'audio_recorder'):
             if self.audio_recorder.start_recording():
                 logger.info("语音开始，音频录制启动成功")
@@ -218,7 +240,7 @@ class ChatCallback(MultiModalCallback, QObject):
 
     def on_speech_ended(self):
         """处理语音结束事件"""
-        logger.info("Speech ended detected")
+        self.log_communication_sequence(CommunicationSequence.SEQ_10_SPEECH_ENDED)
         if self.is_voice_mode and hasattr(self, 'audio_recorder'):
             if self.audio_recorder.stop_recording():
                 logger.info("语音结束，音频录制停止成功")
@@ -228,8 +250,9 @@ class ChatCallback(MultiModalCallback, QObject):
             logger.info("语音结束事件 (文本模式), 跳过音频录制")
 
     def on_speech_content(self, payload: Dict[str, Any]):
+        self.log_communication_sequence(CommunicationSequence.SEQ_09_SPEECH_CONTENT)
         if payload:
-            logger.debug(f"Speech content: {payload}")
+            self.logger.info(f"-------> Speech content: {payload}")
             # 检查是否是语音结束事件
             if payload.get('output', {}).get('finished', False):
                 if self.is_voice_mode:
@@ -243,6 +266,7 @@ class ChatCallback(MultiModalCallback, QObject):
                     logger.info("Speech content finished (文本模式), 跳过音频录制")
 
     def on_responding_content(self, payload: Dict[str, Any]):
+        self.log_communication_sequence(CommunicationSequence.SEQ_12_RESPONDING_CONTENT)
         # Response content: {
         #     "output": {
         #         "event": "RespondingContent",
@@ -272,26 +296,23 @@ class ChatCallback(MultiModalCallback, QObject):
         # }
 
         if payload:
-            logger.debug(f"Response content: {payload}")
+            self.logger.info(f"-------> Response content: {json.dumps(payload, indent=4)}")
         #  格式化打印payload
-        logger.info(f"Response content: {json.dumps(payload, indent=4)}")
 
         try:
             # 发出语音响应处理信号，让VoiceManager接收
             self.voice_response_processed.emit(payload)
-            
-            # 保留原有的直接处理逻辑作为备用
-            self._process_commands_directly(payload)
             
         except Exception as e:
             logger.error(f"处理语音响应时发生错误: {str(e)}")
             return
 
     def on_request_accepted(self):
-        logger.debug("Request accepted")
+        self.log_communication_sequence(CommunicationSequence.SEQ_21_REQUEST_ACCEPTED)
 
     def on_close(self, close_status_code: int, close_msg: str):
-        logger.info(f"Connection closed - Status: {close_status_code}, Message: {close_msg}")
+        self.log_communication_sequence(CommunicationSequence.SEQ_32_USER_LEAVE)
+        self.logger.info(f"-------> Connection closed - Status: {close_status_code}, Message: {close_msg}")
         # 确保在连接关闭时也关闭音频录制器和播放器
         if hasattr(self, 'audio_recorder'):
             self.audio_recorder.shutdown()
@@ -301,34 +322,17 @@ class ChatCallback(MultiModalCallback, QObject):
             self.pya.terminate()
 
 
-            
-    def _process_commands_directly(self, payload: Dict[str, Any]):
+    def log_communication_sequence(self, sequence: CommunicationSequence):
         """
-        直接处理commands（原有逻辑）
+        记录通信序列。
+        将通信方向、枚举值（包含序号）和消息内容输出到日志。
+
+        Args:
+            sequence (CommunicationSequence): 要记录的通信序列枚举值。
         """
-        try:
-            # "commands": "[{\"name\":\"increase_volume_default\",\"params\":[{\"name\":\"for\",\"value\":\"\u7cfb\u7edf\",\"normValue\":\"\u7cfb\u7edf\"}]}]",
-            commands_str = payload["output"]["extra_info"]["commands"]
-            commands_list = json.loads(commands_str)
-            for command in commands_list:
-                logger.info(f"command: {command}")
-                command_name = command["name"]
-                match command_name:
-                    case "increase_volume_default":
-                        logger.info(f"handle increase_volume_default command>>>>")
-                        # 获取command的params
-                        params = command["params"]
-                        for param in params:
-                            logger.info(f"param name: {param['name']}, param value: {param['value']}, param normValue: {param['normValue']}\n")
-                    case "motor_increase_pos":
-                        logger.info(f"handle motor_increase_pos command>>>>")
-                        # 获取command的params
-                        params = command["params"]
-                        logger.info(f"params: {params}")
-                    case _:
-                        pass
-                        
-        except Exception as e:
-            logger.error(f"直接处理commands时发生错误: {str(e)}")
+        # 获取某个状态的日志信息
+        seq_log = COMMUNICATION_SEQUENCE_LOGS[sequence]
+        # 同步输出枚举值，因为它包含序号信息
+        self.logger.warning(f"{seq_log['direction']}: {sequence.value} - {seq_log['message']}")
 
 

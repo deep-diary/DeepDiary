@@ -7,6 +7,7 @@
 from PySide6.QtCore import Signal
 from deepwin.app_logic.core_manager.base_handler import BaseHandler
 from typing import Dict, List, Optional
+import logging
 
 
 class WebCrawlerHandler(BaseHandler):
@@ -23,7 +24,7 @@ class WebCrawlerHandler(BaseHandler):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.logger.info("WebCrawlerHandler: 初始化爬虫处理器")
+        # 注意：此时logger还没有被设置，所以不能在这里使用logger
     
     def _validate_dependencies(self):
         """验证必需的依赖项"""
@@ -38,6 +39,18 @@ class WebCrawlerHandler(BaseHandler):
         """连接信号和槽"""
         # 这里可以连接爬虫管理器的信号
         pass
+    
+    def initialize(self):
+        """初始化处理器"""
+        super().initialize()
+        if self.logger:
+            self.logger.info("WebCrawlerHandler: 初始化爬虫处理器")
+    
+    def cleanup(self):
+        """清理处理器"""
+        if self.logger:
+            self.logger.info("WebCrawlerHandler: 清理爬虫处理器")
+        super().cleanup()
     
     def get_available_crawlers(self) -> List[str]:
         """获取可用的爬虫类型"""
@@ -222,6 +235,7 @@ class WebCrawlerHandler(BaseHandler):
     
     def cleanup(self):
         """清理资源"""
+        if self.logger:
+            self.logger.info("WebCrawlerHandler: 清理完成")
         super().cleanup()
-        self.logger.info("WebCrawlerHandler: 清理完成")
 

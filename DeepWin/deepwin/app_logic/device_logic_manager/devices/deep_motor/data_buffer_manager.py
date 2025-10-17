@@ -63,7 +63,7 @@ class DeepMotorDataBufferManager:
     
     def add_data_point(self, parameter: str, value: Any) -> bool:
         """
-        添加数据点
+        添加数据点 - 优化版本，减少频繁操作
         :param parameter: 参数名称
         :param value: 参数值
         :return: 是否成功添加
@@ -81,16 +81,29 @@ class DeepMotorDataBufferManager:
         # 计算相对时间
         relative_time = time.time() - self._start_time
         
-        # 添加数据点
-        new_data = pd.DataFrame([{'time': relative_time, 'value': value}])
-        self.data_buffers[parameter] = pd.concat([self.data_buffers[parameter], new_data], ignore_index=True)
+        # 优化：使用更高效的方式添加数据点
+        buffer = self.data_buffers[parameter]
         
-        # 限制缓冲区大小
-        if len(self.data_buffers[parameter]) > self.buffer_size:
-            self.data_buffers[parameter] = self.data_buffers[parameter].iloc[-self.buffer_size:]
+        # 如果缓冲区已满，先删除最老的数据
+        if len(buffer) >= self.buffer_size:
+            buffer.drop(buffer.index[0], inplace=True)
         
-        # 记录成功存储的数据点
-        self.logger.debug(f"成功存储参数 '{parameter}' 的数据点: {value}, 当前缓冲区大小: {len(self.data_buffers[parameter])}")
+        # 添加新数据点 - 使用优化的方法避免FutureWarning
+        new_data = {'time': relative_time, 'value': value}
+        
+        if buffer.empty:
+            # 如果缓冲区为空，直接创建新的DataFrame
+            self.data_buffers[parameter] = pd.DataFrame([new_data])
+        else:
+            # 使用pd.concat但添加sort=False参数避免FutureWarning
+            new_row = pd.DataFrame([new_data])
+            # 确保新行与现有DataFrame有相同的列顺序和数据类型
+            new_row = new_row.reindex(columns=buffer.columns, fill_value=0)
+            self.data_buffers[parameter] = pd.concat([buffer, new_row], ignore_index=True, sort=False)
+        
+        # 减少日志记录频率，只在缓冲区满时记录
+        if len(self.data_buffers[parameter]) % 100 == 0:
+            self.logger.debug(f"参数 '{parameter}' 缓冲区大小: {len(self.data_buffers[parameter])}")
             
         return True
     

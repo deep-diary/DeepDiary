@@ -206,13 +206,13 @@ class DeepMotorPage(QWidget):
         
         # 新增：用于节流更新的定时器和数据
         self.plot_update_timer = QTimer(self)
-        self.plot_update_timer.setInterval(50)  # 每50ms更新一次图表（20 FPS）
+        self.plot_update_timer.setInterval(500)  # 每500ms更新一次图表（2 FPS），大幅降低频率
         self.plot_update_timer.timeout.connect(self._throttled_plot_update)
         self.latest_progress_data = None
         
         # 新增：历史曲线定时更新相关变量
         self.history_update_timer = QTimer(self)
-        self.history_update_timer.setInterval(100)  # 每100ms更新一次历史曲线（10 FPS）
+        self.history_update_timer.setInterval(1000)  # 每1000ms更新一次历史曲线（1 FPS），大幅降低频率
         self.history_update_timer.timeout.connect(self._throttled_history_update)
         self.latest_history_data = None  # 缓存最新的历史数据
         self._is_history_updating = False  # 历史曲线更新状态标志
@@ -220,7 +220,7 @@ class DeepMotorPage(QWidget):
         
         # 新增：历史数据请求定时器
         self.history_request_timer = QTimer(self)
-        self.history_request_timer.setInterval(200)  # 每200ms请求一次历史数据（5 FPS）
+        self.history_request_timer.setInterval(2000)  # 每2000ms请求一次历史数据（0.5 FPS），大幅降低频率
         self.history_request_timer.timeout.connect(self._request_history_data)
         self._should_request_history = False  # 是否需要请求历史数据的标志
         
@@ -631,7 +631,7 @@ class DeepMotorPage(QWidget):
         self.background = self.canvas.copy_from_bbox(self.ax.bbox)
         self.latest_progress_data = None # 清空旧数据
         # --- 启动高频定时器（如50ms/20Hz）---
-        self.plot_update_timer.setInterval(50)
+        self.plot_update_timer.setInterval(500)  # 降低频率
         self.plot_update_timer.start()
         self.execute_teaching_requested.emit(self.DeviceName, trajectory_name, self.planning_switch.isChecked(), self.current_motor_id)
 
@@ -1362,8 +1362,8 @@ class DeepMotorPage(QWidget):
         """轨迹执行完成时的处理函数"""
         if self.logger:
             self.logger.info("轨迹执行完成")
-        # 恢复定时器为默认频率（如50ms/20Hz）
-        self.plot_update_timer.setInterval(50)
+        # 恢复定时器为默认频率（如500ms/2Hz）
+        self.plot_update_timer.setInterval(500)
         self.plot_update_timer.stop()
         
         # 停止历史曲线定时更新

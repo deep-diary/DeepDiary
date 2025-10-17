@@ -13,6 +13,8 @@ class HardwareVoiceHandler(BaseVoiceHandler):
         super().__init__(parent)
         self._default_pos_step = 0.1
         self.motor_cmd_parser = CommandParser()
+        #TODO: 修改为从设备逻辑管理器中获取, 目前的问题是这些都还没初始化
+        # self.motor_cmd_parser = self.device_logic_manager.deep_motor().get_command_parser()
         
         
     def _validate_dependencies(self):
@@ -62,6 +64,7 @@ class HardwareVoiceHandler(BaseVoiceHandler):
         
         
     def _handle_motor_set_pos(self, params: List[Dict[str, Any]]) -> bool:
+        self.logger.info(f"HardwareVoiceHandler: 处理电机设置位置命令: {params}")
         command_name, params_valid = self.motor_cmd_parser.parse_command_dashscope(params)
         if params_valid['motor_id'] == DEFAULT_MOTOR_ID:
             params_valid['motor_id'] = self._get_current_motor_id()
@@ -129,7 +132,7 @@ class HardwareVoiceHandler(BaseVoiceHandler):
         
     def _get_current_position(self, motor_id: int) -> float:
         try:
-            motor_device = self.device_logic_manager.get_device_by_id('DeepMotor')
+            motor_device = self.device_logic_manager.deep_motor()
             return motor_device.get_parameter_statistics('position')['latest']
         except Exception as e:
             self.logger.warning(f"获取电机 {motor_id} 当前位置失败，使用默认值0: {e}")
@@ -137,7 +140,7 @@ class HardwareVoiceHandler(BaseVoiceHandler):
         
     def _get_current_motor_id(self) -> int:
         try:
-            motor_device = self.device_logic_manager.get_device_by_id('DeepMotor')
+            motor_device = self.device_logic_manager.deep_motor()
             return motor_device.get_parameter_statistics('motor_id')['latest']
         except Exception as e:
             self.logger.warning(f"获取电机ID失败，使用默认值1: {e}")

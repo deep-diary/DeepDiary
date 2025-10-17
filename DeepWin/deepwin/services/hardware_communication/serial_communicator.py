@@ -1,15 +1,79 @@
 import time
+import threading
 import serial # 需要安装 pyserial 库: pip install pyserial
 import serial.tools.list_ports as list_ports
 import can    # 需要安装 python-can 库: pip install python-can
 import json # 用于模拟 DBC 解析后的 JSON 格式输出
 import re # 用于模拟简单的串口数据解析
-from PySide6.QtCore import QObject, Signal, Slot, QTimer
+from PySide6.QtCore import QObject, Signal, Slot, QTimer, QThread
 from typing import Dict, Any, Optional, Union, List, Tuple
 from deepwin.data_management.log_manager import LogManager
 from deepwin.config.config_manager import ConfigManager
 import random
 from collections import deque
+import logging
+
+
+class SerialReadThread(QThread):
+    """
+    串口读取专用线程，避免阻塞UI线程
+    
+    为什么使用QThread而不是Python threading：
+    1. 与Qt信号系统完美集成，可以直接emit信号到主线程
+    2. 自动处理线程间通信，避免手动同步
+    3. 与QObject生命周期管理一致
+    4. 支持Qt的事件循环和槽机制
+    """
+    
+    # 信号定义
+    data_received = Signal(str, bytes)  # 端口名, 数据
+    error_occurred = Signal(str, str)   # 端口名, 错误信息
+    
+    def __init__(self, port_name: str, serial_port: serial.Serial, read_interval: int = 500):
+        super().__init__()
+        self.port_name = port_name
+        self.serial_port = serial_port
+        self.read_interval = read_interval
+        self._running = False
+        self._lock = threading.Lock()
+        
+        # QThread 不需要设置守护线程，会自动管理生命周期
+        
+    def run(self):
+        """线程主循环"""
+        self._running = True
+        while self._running:
+            try:
+                if self.serial_port and self.serial_port.is_open:
+                    # 使用readline()按行读取，保持与原逻辑一致
+                    line = self.serial_port.readline()
+                    if line:
+                        self.data_received.emit(self.port_name, line)
+                else:
+                    break
+                    
+                # 休眠指定间隔
+                self.msleep(self.read_interval)
+                
+            except serial.SerialException as e:
+                self.error_occurred.emit(self.port_name, f"串口读取错误: {e}")
+                break
+            except Exception as e:
+                self.error_occurred.emit(self.port_name, f"未知错误: {e}")
+                break
+                
+    def stop(self):
+        """停止线程"""
+        with self._lock:
+            self._running = False
+        
+        # 等待线程结束，设置超时避免无限等待
+        if self.isRunning():
+            self.wait(3000)  # 最多等待3秒
+            if self.isRunning():
+                print(f"SerialReadThread: 线程 '{self.port_name}' 未能正常结束，强制终止")
+                self.terminate()  # 强制终止
+                self.wait(1000)   # 等待终止完成
 
 
 class SerialCommunicator(QObject):
@@ -50,7 +114,7 @@ class SerialCommunicator(QObject):
         # 查看可用设备列表
         # self.available_ports = self.list_ports()
         self.active_port = ''
-        self._read_timers: Dict[str, QTimer] = {} # {port_name: QTimer_instance}
+        self._read_threads: Dict[str, SerialReadThread] = {} # {port_name: SerialReadThread_instance}
         
         # 新增：端口到设备ID的映射管理
         self._port_to_device_id_map: Dict[str, str] = {} # {port_name: device_id}
@@ -60,14 +124,24 @@ class SerialCommunicator(QObject):
         self._sent_frames: deque = deque(maxlen=self._max_frame_list_size)  # 发送帧列表
         self._received_frames: deque = deque(maxlen=self._max_frame_list_size)  # 接收帧列表
 
-        # 发送AT指令
-        at_frame = self.create_AT_frame()
-        if isinstance(at_frame, list):
-            at_frame = bytes(at_frame)
-        self.send_bytes(self.active_port, at_frame)
+
+        
+        # 清理可能存在的空端口映射
+        self._cleanup_empty_port_mappings()
         
         self.logger.info("SerialCommunicator: 初始化完成。")
 
+    def _cleanup_empty_port_mappings(self):
+        """
+        清理空端口映射，确保端口和设备ID的一对一关系
+        """
+        empty_ports = [port for port in self._port_to_device_id_map.keys() if not port or not port.strip()]
+        for port in empty_ports:
+            device_id = self._port_to_device_id_map.pop(port)
+            self.logger.warning(f"SerialCommunicator: 清理空端口映射 '{port}' -> '{device_id}'")
+        
+        if empty_ports:
+            self.logger.info(f"SerialCommunicator: 已清理 {len(empty_ports)} 个空端口映射")
 
     def list_ports(self):
         """
@@ -80,7 +154,9 @@ class SerialCommunicator(QObject):
         other_ports = []
         for port in ports:
             all_ports.append(port.device)
-            self.logger.debug(f"SerialCommunicator: 发现串口: {port.device} - {port.description}")
+            # 减少串口发现日志，只在DEBUG级别记录
+            if self.logger.isEnabledFor(logging.DEBUG):
+                self.logger.debug(f"SerialCommunicator: 发现串口: {port.device} - {port.description}")
 
             if "bluetooth" in port.description or "bth" in port.hwid or "蓝牙" in port.description:
                 bt_ports.append(port.device)
@@ -121,6 +197,12 @@ class SerialCommunicator(QObject):
             if device_id:
                 self._port_to_device_id_map[port_name] = device_id
                 self.logger.info(f"SerialCommunicator: 建立端口映射 '{port_name}' -> '{device_id}'")
+                
+            # 发送AT指令，激活USB转CAN模块
+            at_frame = self.create_AT_frame()
+            if isinstance(at_frame, list):
+                at_frame = bytes(at_frame)
+            self.send_bytes(self.active_port, at_frame)
             
             self.start_reading(port_name)
         except serial.SerialException as e:
@@ -172,7 +254,10 @@ class SerialCommunicator(QObject):
         :return: 发送结果，True表示成功，False表示失败，None表示串口不存在
         """
         # 检查串口连接状态
-        is_port_available = port_name in self._serial_ports and self._serial_ports[port_name].is_open
+        is_port_available = port_name in self._serial_ports 
+        self.logger.info(f"SerialCommunicator: 串口 '{port_name}' 连接状态: {is_port_available}, _serial_ports: {self._serial_ports}")
+
+
         send_status = "OK" if is_port_available else "X"
         
         # 记录发送的帧（无论串口是否连接）
@@ -245,8 +330,9 @@ class SerialCommunicator(QObject):
         try:
             # 获取设备对应的端口，如果不存在则使用设备ID作为端口名
             # target_port = self._get_device_port_by_id(device_id)
-            # if not target_port:
-            #     target_port = device_id  # 使用设备ID作为端口名，让send_bytes统一处理
+            # self.logger.info(f"SerialCommunicator: 通过设备ID发送数据 - 设备ID: {device_id}, 查找到的端口: {target_port}, 端口映射: {self._port_to_device_id_map}")
+            
+        #     target_port = self.active_port
 
             target_port = self.active_port
             self.logger.info(f"SerialCommunicator: 通过设备ID发送数据 - 端口: {target_port}, 设备ID: {device_id}")
@@ -265,9 +351,12 @@ class SerialCommunicator(QObject):
         :return: 端口名称，如果未找到则返回None
         """
         try:
+            self.logger.debug(f"SerialCommunicator: 查找设备 '{device_id}' 对应的端口，当前映射: {self._port_to_device_id_map}")
             for port, dev_id in self._port_to_device_id_map.items():
                 if dev_id == device_id:
+                    self.logger.debug(f"SerialCommunicator: 找到设备 '{device_id}' 对应的端口: '{port}'")
                     return port
+            self.logger.warning(f"SerialCommunicator: 未找到设备 '{device_id}' 对应的端口")
             return None
         except Exception as e:
             self.logger.error(f"SerialCommunicator: 获取设备端口失败: {e}")
@@ -275,53 +364,66 @@ class SerialCommunicator(QObject):
 
     def start_reading(self, port_name: str):
         """
-        开始从指定串口周期性读取数据。
+        开始从指定串口周期性读取数据（使用独立线程，避免阻塞UI）。
         :param port_name: 串口名称。
         """
         if port_name not in self._serial_ports:
             self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 未打开，无法开始读取。")
             return
-        if port_name in self._read_timers and self._read_timers[port_name].isActive():
+        if port_name in self._read_threads and self._read_threads[port_name].isRunning():
             self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 已经在读取中。")
             return
 
-        timer = QTimer(self)
-        timer.timeout.connect(lambda: self._read_serial_data(port_name))
-        timer.start(10) # 每 10ms 尝试读取一次，适应 readline 的阻塞
-        self._read_timers[port_name] = timer
-        self.logger.info(f"SerialCommunicator: 开始从串口 '{port_name}' 读取数据。")
+        # 创建专用读取线程，使用更短的间隔因为readline()会等待完整行
+        read_thread = SerialReadThread(port_name, self._serial_ports[port_name], read_interval=100)
+        read_thread.data_received.connect(self._on_thread_data_received)
+        read_thread.error_occurred.connect(self._on_thread_error)
+        
+        self._read_threads[port_name] = read_thread
+        read_thread.start()
+        self.logger.info(f"SerialCommunicator: 开始从串口 '{port_name}' 读取数据（独立线程）。")
 
     def stop_reading(self, port_name: str):
         """
         停止从指定串口读取数据。
         :param port_name: 串口名称。
         """
-        if port_name in self._read_timers:
-            self._read_timers[port_name].stop()
-            self._read_timers[port_name].deleteLater() # 确保 QTimer 对象被正确销毁
-            del self._read_timers[port_name]
+        if port_name in self._read_threads:
+            self._read_threads[port_name].stop()
+            del self._read_threads[port_name]
             self.logger.info(f"SerialCommunicator: 已停止从串口 '{port_name}' 读取数据。")
 
-    @Slot(str)
-    def _read_serial_data(self, port_name: str):
+    def _on_thread_data_received(self, port_name: str, data: bytes):
         """
-        内部方法：从串口读取数据，并解析为 CAN 帧组件。
-        数据格式: AT(2字节) + CANID(4字节) + Len(1字节) + Data(N字节) + \r\n(2字节)
-        例如: 41 54 14 00 37 EC 08 FF FF 82 0F 81 51 01 36 0D 0A 
+        处理线程接收到的数据，调用解析逻辑
+        :param port_name: 端口名
+        :param data: 接收到的数据
         """
-        if port_name not in self._serial_ports or not self._serial_ports[port_name].is_open:
-            self.logger.warning(f"SerialCommunicator: 尝试从已关闭或不存在的串口 '{port_name}' 读取数据。")
-            self.stop_reading(port_name) # 确保停止计时器
-            return
+        # 调用解析逻辑，传入已读取的数据
+        self._process_received_line(port_name, data)
+
+    def _on_thread_error(self, port_name: str, error_msg: str):
+        """
+        处理线程错误
+        :param port_name: 端口名
+        :param error_msg: 错误信息
+        """
+        self.logger.error(f"SerialCommunicator: {error_msg}")
+        self.serial_error.emit(port_name, error_msg)
+
+    def _process_received_line(self, port_name: str, line: bytes):
+        """
+        处理接收到的串口数据行，提取解析逻辑避免重复代码
+        :param port_name: 端口名
+        :param line: 接收到的数据行
+        """
         try:
-            # 读取一行数据直到 '\n' 或超时
-            line = self._serial_ports[port_name].readline()
-            if not line: # 没有读到数据
+            if not line:  # 没有读到数据
                 return
 
             # 检查数据长度是否足够（至少需要9字节：2字节AT + 4字节CANID + 1字节长度 + 2字节\r\n）
             if len(line) < 9:
-                self.logger.warning(f"SerialCommunicator: 串口 '{port_name}' 收到数据长度不足: {len(line)} 字节")
+                self.logger.debug(f"SerialCommunicator: 串口 '{port_name}' 收到数据长度不足: {len(line)} 字节")
                 return
 
             # 检查数据头是否为 "AT"
@@ -349,6 +451,30 @@ class SerialCommunicator(QObject):
             self.raw_frame_received.emit(port_name, processed_line)
             # 发送帧列表更新信号
             self.frame_lists_updated.emit()
+            
+            # 减少日志记录频率，只在收到有效数据时记录
+            if len(processed_line) > 5:
+                self.logger.debug(f"SerialCommunicator: 收到有效数据 - 端口: {port_name}, 长度: {len(processed_line)}")
+
+        except Exception as e:
+            self.logger.error(f"SerialCommunicator: 处理接收数据失败: {e}")
+
+    @Slot(str)
+    def _read_serial_data(self, port_name: str):
+        """
+        内部方法：从串口读取数据，并解析为 CAN 帧组件。
+        数据格式: AT(2字节) + CANID(4字节) + Len(1字节) + Data(N字节) + \r\n(2字节)
+        例如: 41 54 14 00 37 EC 08 FF FF 82 0F 81 51 01 36 0D 0A 
+        """
+        if port_name not in self._serial_ports or not self._serial_ports[port_name].is_open:
+            self.logger.warning(f"SerialCommunicator: 尝试从已关闭或不存在的串口 '{port_name}' 读取数据。")
+            self.stop_reading(port_name) # 确保停止计时器
+            return
+        try:
+            # 读取一行数据直到 '\n' 或超时
+            line = self._serial_ports[port_name].readline()
+            # 使用提取的解析逻辑
+            self._process_received_line(port_name, line)
 
         except serial.SerialException as e:
             error_msg = f"从串口 '{port_name}' 读取数据失败: {e}"
@@ -411,12 +537,13 @@ class SerialCommunicator(QObject):
         data_bytes = frame[5:13]  # 从frame中提取8字节的数据部分
         is_extended_id = True
 
-        if port_name is None:
+        if port_name is None or not port_name.strip():
             port_name = 'DeepMotor'  # 模拟数据使用DeepMotor作为端口名
 
         # 确保端口映射存在（模拟数据场景）
         if port_name not in self._port_to_device_id_map:
-            self._port_to_device_id_map[port_name] = 'DeepMotor'
+            # 使用add_port_device_mapping方法确保一对一映射
+            self.add_port_device_mapping(port_name, 'DeepMotor')
             self.logger.debug(f"SerialCommunicator: 为模拟数据建立端口映射 '{port_name}' -> 'DeepMotor'")
 
         # 记录接收的帧（模拟数据）
@@ -475,8 +602,15 @@ class SerialCommunicator(QObject):
         清理所有打开的串口资源。
         """
         self.logger.info("SerialCommunicator: 清理中...")
+        
+        # 停止所有读取线程
+        for port_name in list(self._read_threads.keys()):
+            self.stop_reading(port_name)
+            
+        # 关闭所有串口
         for port_name in list(self._serial_ports.keys()):
             self.close_port(port_name)
+            
         self.logger.info("SerialCommunicator: 清理完成。")
 
     # 新增：端口映射管理方法
@@ -509,6 +643,19 @@ class SerialCommunicator(QObject):
         :param port_name: 端口名称
         :param device_id: 设备ID
         """
+        # 确保端口名不为空
+        if not port_name or not port_name.strip():
+            self.logger.warning(f"SerialCommunicator: 端口名不能为空，跳过映射建立")
+            return
+            
+        # 确保一对一映射：先清除该设备ID的所有现有映射
+        existing_ports = [port for port, dev_id in self._port_to_device_id_map.items() if dev_id == device_id]
+        for port in existing_ports:
+            if port != port_name:
+                self.logger.info(f"SerialCommunicator: 清除旧映射 '{port}' -> '{device_id}'")
+                del self._port_to_device_id_map[port]
+        
+        # 建立新映射
         self._port_to_device_id_map[port_name] = device_id
         self.logger.info(f"SerialCommunicator: 添加端口映射 '{port_name}' -> '{device_id}'")
         

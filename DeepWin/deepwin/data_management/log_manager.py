@@ -19,7 +19,7 @@ class LogManager:
             cls._instance = super(LogManager, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, log_dir="logs", log_file_name="deepwin", console_level=logging.INFO, file_level=logging.DEBUG):
+    def __init__(self, log_dir="logs", log_file_name="deepwin", console_level=logging.WARNING, file_level=logging.INFO):
         if self._initialized:
             return
 
@@ -37,7 +37,7 @@ class LogManager:
 
         # 避免重复添加 handlers
         if not self.root_logger.handlers:
-            # 文件处理器 - 保持DEBUG级别，记录所有日志
+            # 文件处理器 - 记录INFO及以上级别
             file_handler = logging.FileHandler(self.log_file_path, encoding='utf-8')
             file_handler.setLevel(file_level)
             file_formatter = logging.Formatter(
@@ -46,7 +46,7 @@ class LogManager:
             file_handler.setFormatter(file_formatter)
             self.root_logger.addHandler(file_handler)
 
-            # 控制台处理器 - 默认INFO级别，减少控制台输出
+            # 控制台处理器 - 默认WARNING级别，减少控制台输出
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(console_level)
             console_formatter = logging.Formatter(

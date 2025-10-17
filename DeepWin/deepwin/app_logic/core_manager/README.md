@@ -145,7 +145,7 @@ BaseHandler 提供了以下通用管理器的直接访问：
 - `self.device_logic_manager` - 设备逻辑管理器
 - `self.ai_coordinator` - AI 协调器
 - `self.agent_manager` - 智能体管理器
-- `self.image_video_processor` - 图像视频处理器
+- `self.image_processor` - 图像视频处理器
 - `self.resource_demand_manager` - 资源需求管理器
 - `self.task_scheduler` - 任务调度器
 - `self.mcp_client_manager` - MCP 客户端管理器

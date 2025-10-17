@@ -174,17 +174,17 @@ class ConfigManager:
             from dotenv import load_dotenv
             # 从指定路径加载.env文件，允许覆盖现有环境变量
             if not load_dotenv(override=True):
-                self.logger.warning(f"未找到环境变量配置文件: {config_path}")
+                self.logger.debug(f"未找到环境变量配置文件: {config_path}")
             else:
                 self.logger.info(f"成功加载环境变量配置文件: {config_path}")
             
             # 获取所有环境变量
             config = {}
             for key, value in os.environ.items():
-                # 只获取DeepWin相关的环境变量（可选过滤）
-                # if key.startswith(('DEEPWIN_', 'DB_', 'API_', 'APP_')):
                 config[key] = value
-                self.logger.info(f"环境变量: {key} = {value}")
+                # # 只记录重要的环境变量，减少日志输出
+                # if key.startswith(('DEEPWIN_', 'DB_', 'API_', 'APP_', 'DASHSCOPE_', 'CONDA_')):
+                #     self.logger.debug(f"环境变量: {key} = {value}")
             return config
             
         except ImportError:

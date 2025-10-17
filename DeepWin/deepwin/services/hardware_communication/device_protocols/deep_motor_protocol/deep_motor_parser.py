@@ -97,7 +97,8 @@ class DeepMotorProtocolParser(BaseProtocolParser):
                 speed = params.get('spd', 0)  # 修正参数名：从'speed'改为'spd'
                 return self.protocol2can.create_motor_spd_frame(motor_id, speed)
             elif command_name == "motor_set_pos":
-                position = params.get('position', 0)
+                # 修复参数映射问题：支持 'pos' 和 'position' 两种参数名
+                position = params.get('position', params.get('pos', 0))
                 return self.protocol2can.create_motor_pos_frame(motor_id, position)
             elif command_name == "motor_set_torque":
                 torque = params.get('torque', 0)
@@ -116,8 +117,8 @@ class DeepMotorProtocolParser(BaseProtocolParser):
                 motor_ids = params.get('motor_ids', [motor_id])
                 return self.protocol2can.create_motor_init_frame_all(motor_ids)
             elif command_name == "motor_jog":
-                jog_speed = params.get('jog_speed', 0)
-                return self.protocol2can.create_motor_jog_frame(motor_id, jog_speed)
+                spd = params.get('spd', 0)
+                return self.protocol2can.create_motor_jog_frame(motor_id, spd)
             elif command_name == "motor_jog_stop":
                 return self.protocol2can.create_motor_jog_stop_frame(motor_id)
             else:

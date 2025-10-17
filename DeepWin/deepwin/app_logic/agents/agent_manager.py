@@ -29,7 +29,7 @@ class AgentManager(QObject):
 
     def start_agents(self, agent_name: list[str] = ["memory_curator", "task_planner", "execution_controller", "ai_coordinator"]):
         self.logger.info("AgentManager: 启动智能体: %s", agent_name)
-        self.logger.warning("AgentManager: 智能体启动功能尚未实现: %s", agent_name)
+        self.logger.debug("AgentManager: 智能体启动功能尚未实现: %s", agent_name)
         # TODO: 实现智能体启动逻辑
         # if agent_name == "memory_curator":
         #     self.memory_curator_agent.start()
