@@ -18,12 +18,16 @@
 #include "gimbal_control.h"
 #include "deep_arm.h"
 #include "deep_arm_control.h"
+#include "mjpeg_server.h"
 
 #include <esp_log.h>
 #include <esp_lcd_panel_vendor.h>
+#include <esp_event.h>
+#include <esp_wifi.h>
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
 #include <wifi_station.h>
+#include <cJSON.h>
 
 #define TAG "atk_dnesp32s3"
 
@@ -74,10 +78,13 @@ private:
     CircularStrip* led_strip_;
     
     // 控制类成员
-    LedStripControl* led_control_;        // 临时屏蔽LED控制
-    DeepMotorControl* deep_motor_control_; // 临时屏蔽电机控制
+    LedStripControl* led_control_;        // LED控制
+    DeepMotorControl* deep_motor_control_; // 电机控制
     // GimbalControl* gimbal_control_;       // 临时屏蔽舵机控制
     // DeepArmControl* deep_arm_control_;      // 机械臂MCP控制
+    
+    // MJPEG服务器成员
+    std::unique_ptr<MjpegServer> mjpeg_server_;
 
     void InitializeI2c() {
         // Initialize I2C peripheral
@@ -160,12 +167,15 @@ private:
     // 初始化摄像头：ov2640；
     // 根据正点原子官方示例参数
     void InitializeCamera() {
+#if ENABLE_CAMERA_FEATURE
+        ESP_LOGI(TAG, "初始化相机功能...");
         
         xl9555_->SetOutputState(OV_PWDN_IO, 0); // PWDN=低 (上电)
+        vTaskDelay(pdMS_TO_TICKS(100));          // 延长上电延时
         xl9555_->SetOutputState(OV_RESET_IO, 0); // 确保复位
-        vTaskDelay(pdMS_TO_TICKS(50));           // 延长复位保持时间
+        vTaskDelay(pdMS_TO_TICKS(100));          // 延长复位保持时间
         xl9555_->SetOutputState(OV_RESET_IO, 1); // 释放复位
-        vTaskDelay(pdMS_TO_TICKS(50));           // 延长 50ms
+        vTaskDelay(pdMS_TO_TICKS(200));          // 延长复位释放时间
 
         camera_config_t config = {};
 
@@ -187,8 +197,8 @@ private:
         config.pin_href = CAM_PIN_HREF;
         config.pin_pclk = CAM_PIN_PCLK;
 
-        /* XCLK 20MHz or 10MHz for OV2640 double FPS (Experimental) */
-        config.xclk_freq_hz = 24000000;
+        /* XCLK 10MHz for OV2640 - 降低时钟频率提高稳定性 */
+        config.xclk_freq_hz = 10000000;
         config.ledc_timer = LEDC_TIMER_0;
         config.ledc_channel = LEDC_CHANNEL_0;
 
@@ -196,7 +206,7 @@ private:
         config.frame_size = FRAMESIZE_QVGA;       /* QQVGA-UXGA, For ESP32, do not use sizes above QVGA when not JPEG. The performance of the ESP32-S series has improved a lot, but JPEG mode always gives better frame rates */
 
         config.jpeg_quality = 12;                 /* 0-63, for OV series camera sensors, lower number means higher quality */
-        config.fb_count = 2;                      /* When jpeg mode is used, if fb_count more than one, the driver will work in continuous mode */
+        config.fb_count = 1;                      /* 减少缓冲区，提高稳定性 */
         config.fb_location = CAMERA_FB_IN_PSRAM;
         config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
@@ -210,7 +220,12 @@ private:
         {
             esp_camera_deinit();// 释放之前的摄像头资源,为正确初始化做准备
             camera_ = new Esp32Camera(config);
+            ESP_LOGI(TAG, "相机功能初始化完成");
         }
+#else
+        ESP_LOGI(TAG, "相机功能已禁用");
+        camera_ = nullptr;
+#endif
     }
 
     void InitializeGimbal() {
@@ -230,6 +245,7 @@ private:
     }
 
     void InitializeCan() {
+#if ENABLE_CAN_FEATURE
         ESP_LOGI(TAG, "初始化CAN总线...TX=%d, RX=%d", CAN_TX_GPIO, CAN_RX_GPIO);
         
         // 创建深度电机管理器（集成LED功能）
@@ -253,22 +269,39 @@ private:
         } else {
             ESP_LOGE(TAG, "CAN总线启动失败!");
         }
+#else
+        ESP_LOGI(TAG, "CAN总线功能已禁用");
+        deep_motor_ = nullptr;
+        deep_arm_ = nullptr;
+#endif
     }
 
     void InitializeWs2812() {
+#if ENABLE_LED_STRIP_FEATURE
         ESP_LOGI(TAG, "初始化2812灯带...GPIO=%d, LED数量=%d", WS2812_STRIP_GPIO, WS2812_LED_COUNT);
         
         led_strip_ = new CircularStrip(WS2812_STRIP_GPIO, WS2812_LED_COUNT);
+#else
+        ESP_LOGI(TAG, "2812灯带功能已禁用");
+        led_strip_ = nullptr;
+#endif
     }
     
     void InitializeControls() {
         auto& mcp_server = McpServer::GetInstance();
+        (void)mcp_server; // 避免未使用变量警告
         
         // 初始化各个控制类
-        led_control_ = new LedStripControl(led_strip_, mcp_server);        // 临时屏蔽LED控制
+#if ENABLE_LED_STRIP_FEATURE
+        led_control_ = new LedStripControl(led_strip_, mcp_server);
+        ESP_LOGI(TAG, "LED灯带控制类初始化完成");
+#else
+        led_control_ = nullptr;
+#endif
+
+#if ENABLE_CAN_FEATURE
         deep_motor_control_ = new DeepMotorControl(deep_motor_, mcp_server); // 电机控制（LED已集成到DeepMotor中）
-        // gimbal_control_ = new GimbalControl(&gimbal_, mcp_server);         // 临时屏蔽舵机控制
-        // deep_arm_control_ = new DeepArmControl(deep_arm_, mcp_server, led_strip_);        // 机械臂MCP控制
+        ESP_LOGI(TAG, "电机控制类初始化完成");
         
         // 启动机械臂状态更新任务
         // BaseType_t ret = xTaskCreate(arm_status_update_task, "arm_status_update", 2048, this, 3, &arm_status_update_task_handle_);
@@ -277,13 +310,68 @@ private:
         // } else {
         //     ESP_LOGI(TAG, "机械臂状态更新任务创建成功!");
         // }
+#else
+        deep_motor_control_ = nullptr;
+#endif
+
         
-        ESP_LOGI(TAG, "控制类初始化完成（已屏蔽舵机，机械臂控制，激活了LED，电机控制）");
+        // gimbal_control_ = new GimbalControl(&gimbal_, mcp_server);         // 临时屏蔽舵机控制
+        // deep_arm_control_ = new DeepArmControl(deep_arm_, mcp_server, led_strip_);        // 机械臂MCP控制
+        
+        // 初始化MJPEG服务器
+#if ENABLE_CAMERA_FEATURE
+        InitializeMjpegServer();
+#endif
+        
+        ESP_LOGI(TAG, "控制类初始化完成");
+    }
+    
+    void InitializeMjpegServer() {
+        if (camera_ == nullptr) {
+            ESP_LOGI(TAG, "相机未初始化，跳过MJPEG服务器");
+            return;
+        }
+        
+        // 创建MJPEG服务器（不立即启动）
+        mjpeg_server_ = std::make_unique<MjpegServer>(8080);  // 端口8080
+        mjpeg_server_->SetFrameRate(10);   // 10fps
+        mjpeg_server_->SetJpegQuality(80); // JPEG质量80
+        
+        ESP_LOGI(TAG, "MJPEG服务器对象创建完成");
+        ESP_LOGI(TAG, "等待WiFi连接后自动启动服务器...");
+        
+        ESP_LOGI(TAG, "MJPEG服务器初始化完成");
+    }
+    
+    void StartMjpegServerWhenReady() {
+        if (mjpeg_server_ == nullptr) {
+            ESP_LOGW(TAG, "MJPEG服务器对象未创建");
+            return;
+        }
+        
+        if (mjpeg_server_->IsRunning()) {
+            ESP_LOGI(TAG, "MJPEG服务器已在运行");
+            return;
+        }
+        
+        ESP_LOGI(TAG, "WiFi已连接，启动MJPEG服务器...");
+        
+        // 延迟一下，确保网络栈完全就绪
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        
+        if (mjpeg_server_->Start()) {
+            ESP_LOGI(TAG, "MJPEG服务器启动成功");
+            ESP_LOGI(TAG, "访问地址: %s", mjpeg_server_->GetUrl().c_str());
+            ESP_LOGI(TAG, "可通过VLC、浏览器或ffmpeg直接访问视频流");
+        } else {
+            ESP_LOGE(TAG, "MJPEG服务器启动失败");
+        }
     }
     
     // 机械臂状态更新任务
     static void arm_status_update_task(void *pvParameters) {
         atk_dnesp32s3* board = static_cast<atk_dnesp32s3*>(pvParameters);
+        (void)board; // 避免未使用变量警告
         
         while (1) {
             // if (board->deep_arm_control_) {
@@ -342,8 +430,11 @@ public:
         InitializeButtons();
         InitializeCamera();
         InitializeGimbal();
+        
+#if ENABLE_CAN_FEATURE || ENABLE_LED_STRIP_FEATURE
         InitializeWs2812();  // 先初始化2812灯带（DeepMotor需要使用）
         InitializeCan();     // 再初始化CAN和DeepMotor（使用led_strip_）
+#endif
         InitializeControls(); // 最后初始化所有控制类
     }
 
@@ -356,19 +447,21 @@ public:
         if (arm_status_update_task_handle_ != nullptr) {
             vTaskDelete(arm_status_update_task_handle_);
         }
+        
         // 删除控制类
-        // if (led_control_ != nullptr) {
-        //     delete led_control_;
-        // }
-        // if (deep_motor_control_ != nullptr) {
-        //     delete deep_motor_control_;
-        // }
+        if (led_control_ != nullptr) {
+            delete led_control_;
+        }
+        if (deep_motor_control_ != nullptr) {
+            delete deep_motor_control_;
+        }
         // if (gimbal_control_ != nullptr) {
         //     delete gimbal_control_;
         // }
         // if (deep_arm_control_ != nullptr) {
         //     delete deep_arm_control_;
         // }
+        
         // 删除机械臂控制器
         if (deep_arm_ != nullptr) {
             delete deep_arm_;
@@ -387,6 +480,32 @@ public:
     virtual Led* GetLed() override {
         static SingleLed led(BUILTIN_LED_GPIO);
         return &led;
+    }
+
+    virtual void StartNetwork() override {
+        // 注册WiFi事件处理器，在连接成功后启动MJPEG服务器
+        esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED,
+            [](void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+                auto* board = static_cast<atk_dnesp32s3*>(arg);
+                // 创建一个延迟任务来启动MJPEG服务器
+                xTaskCreate(
+                    [](void* pvParameters) {
+                        auto* board = static_cast<atk_dnesp32s3*>(pvParameters);
+                        board->StartMjpegServerWhenReady();
+                        vTaskDelete(NULL);
+                    },
+                    "mjpeg_starter",
+                    8192,  // 8KB栈空间
+                    board,
+                    5,
+                    nullptr
+                );
+            },
+            this
+        );
+        
+        // 调用父类的网络启动方法
+        WifiBoard::StartNetwork();
     }
 
     virtual AudioCodec* GetAudioCodec() override {

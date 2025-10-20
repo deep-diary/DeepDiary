@@ -5,8 +5,8 @@
 
 #include <driver/gpio.h>
 
-#define AUDIO_INPUT_SAMPLE_RATE      24000
-#define AUDIO_OUTPUT_SAMPLE_RATE     24000
+#define AUDIO_INPUT_SAMPLE_RATE      24000    //24000
+#define AUDIO_OUTPUT_SAMPLE_RATE     24000   //24000
 
 #define AUDIO_I2S_GPIO_MCLK GPIO_NUM_3
 #define AUDIO_I2S_GPIO_WS GPIO_NUM_9
@@ -71,6 +71,19 @@
 // 2812灯带
 #define WS2812_STRIP_GPIO GPIO_NUM_7
 #define WS2812_LED_COUNT 24
+
+// 功能使能配置 - 相机功能与CAN总线、灯带功能存在GPIO冲突
+#define ENABLE_CAMERA_FEATURE 1    // 1:启用相机功能, 0:禁用相机功能
+#define ENABLE_CAN_FEATURE 0       // 1:启用CAN总线功能, 0:禁用CAN总线功能  
+#define ENABLE_LED_STRIP_FEATURE 0 // 1:启用2812灯带功能, 0:禁用2812灯带功能
+
+// 当启用相机功能时，自动禁用冲突的功能
+#if ENABLE_CAMERA_FEATURE
+    #undef ENABLE_CAN_FEATURE
+    #undef ENABLE_LED_STRIP_FEATURE
+    #define ENABLE_CAN_FEATURE 0
+    #define ENABLE_LED_STRIP_FEATURE 0
+#endif
 
 #endif // _BOARD_CONFIG_H_
 

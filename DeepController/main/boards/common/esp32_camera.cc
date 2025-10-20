@@ -59,10 +59,21 @@ bool Esp32Camera::Capture() {
     }
     auto end_time = esp_timer_get_time();
     ESP_LOGI(TAG, "Camera captured %d frames in %d ms", frames_to_get, int((end_time - start_time) / 1000));
+    
+    // 详细打印帧信息
+    ESP_LOGI(TAG, "=== 相机帧信息 ===");
+    ESP_LOGI(TAG, "帧宽度: %d", fb_->width);
+    ESP_LOGI(TAG, "帧高度: %d", fb_->height);
+    ESP_LOGI(TAG, "帧长度: %d 字节", fb_->len);
+    ESP_LOGI(TAG, "帧格式: %d (0=RGB565, 1=YUV422, 2=GRAYSCALE, 3=JPEG)", fb_->format);
+    ESP_LOGI(TAG, "预期长度: %d 字节 (width*height*2)", fb_->width * fb_->height * 2);
+    ESP_LOGI(TAG, "长度匹配: %s", (fb_->len == fb_->width * fb_->height * 2) ? "是" : "否");
+    ESP_LOGI(TAG, "==================");
 
     // 显示预览图片
     auto display = dynamic_cast<LvglDisplay*>(Board::GetInstance().GetDisplay());
     if (display != nullptr) {
+        ESP_LOGI(TAG, "找到LvglDisplay，开始处理图像...");
         auto data = (uint8_t*)heap_caps_malloc(fb_->len, MALLOC_CAP_SPIRAM);
         if (data == nullptr) {
             ESP_LOGE(TAG, "Failed to allocate memory for preview image");
@@ -72,13 +83,27 @@ bool Esp32Camera::Capture() {
         auto src = (uint16_t*)fb_->buf;
         auto dst = (uint16_t*)data;
         size_t pixel_count = fb_->len / 2;
+        
+        ESP_LOGI(TAG, "=== 图像处理信息 ===");
+        ESP_LOGI(TAG, "像素总数: %d", pixel_count);
+        ESP_LOGI(TAG, "每行像素: %d", fb_->width);
+        ESP_LOGI(TAG, "总行数: %d", fb_->height);
+        ESP_LOGI(TAG, "每行字节数: %d", fb_->width * 2);
+        ESP_LOGI(TAG, "开始字节序转换...");
+        
         for (size_t i = 0; i < pixel_count; i++) {
             // 交换每个16位字内的字节
             dst[i] = __builtin_bswap16(src[i]);
         }
-
+        
+        ESP_LOGI(TAG, "字节序转换完成");
+        ESP_LOGI(TAG, "创建LvglAllocatedImage: 宽度=%d, 高度=%d, 步长=%d", fb_->width, fb_->height, fb_->width * 2);
+        
         auto image = std::make_unique<LvglAllocatedImage>(data, fb_->len, fb_->width, fb_->height, fb_->width * 2, LV_COLOR_FORMAT_RGB565);
         display->SetPreviewImage(std::move(image));
+        
+        ESP_LOGI(TAG, "图像已发送到显示系统");
+        ESP_LOGI(TAG, "====================");
     }
     return true;
 }

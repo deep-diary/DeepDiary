@@ -1,0 +1,186 @@
+# Build directories
+build/
+builds/
+out/
+
+# ESP-IDF specific
+sdkconfig.old
+sdkconfig.old.*
+
+# Compiled Object files
+*.o
+*.obj
+*.elf
+*.bin
+*.map
+
+# Libraries
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# ESP-IDF build artifacts
+managed_components/
+dependencies.lock
+
+# Partition tables
+partitions.csv
+
+# Flash arguments
+flash_args
+flash_args.in
+app-flash_args
+bootloader-flash_args
+partition-table-flash_args
+otadata-flash_args
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Ninja
+build.ninja
+.ninja_log
+.ninja_deps
+
+# Compile commands
+compile_commands.json
+
+# Project description
+project_description.json
+
+# OTA data
+ota_data_initial.bin
+
+# Certificate bundle
+x509_crt_bundle.S
+
+# HTML files (generated)
+*.html.S
+
+# Audio files (generated)
+*.ogg.S
+
+# Binary timestamp
+.bin_timestamp
+
+# Flasher args
+flasher_args.json
+
+# LD generation
+ldgen_libraries
+ldgen_libraries.in
+
+# Project ELF source
+project_elf_src_*.c
+
+# Config environment
+config.env
+
+# Kconfig
+kconfigs.in
+kconfigs_projbuild.in
+
+# CPack
+CPackConfig.cmake
+CPackSourceConfig.cmake
+
+# Bootloader prefix
+bootloader-prefix/
+
+# GDB init
+gdbinit/
+
+# Partition table
+partition_table/
+
+# Log directory
+log/
+
+# ESP-IDF components
+esp-idf/
+
+# Bootloader
+bootloader/

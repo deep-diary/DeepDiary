@@ -381,7 +381,7 @@ void MotorProtocol::parseMotorData(const CanFrame& can_frame, motor_status_t* st
     // 解析数据
     switch (cmd_type) {
         case MOTOR_CMD_FEEDBACK:
-            status->current_angle = RX_DATA_DISASSEMBLE_CUR_ANGLE(can_frame.data) * INT2ANGLE - 4 * PI;
+            status->current_angle = RX_DATA_DISASSEMBLE_CUR_ANGLE(can_frame.data) * INT2ANGLE - 4 * MOTOR_PI;
             status->current_speed = RX_DATA_DISASSEMBLE_CUR_SPEED(can_frame.data) * INT2SPEED - 30;
             status->current_torque = RX_DATA_DISASSEMBLE_CUR_TORQUE(can_frame.data) * INT2TORQUE - 12;
             status->current_temp = RX_DATA_DISASSEMBLE_CUR_TEMP(can_frame.data) / 10.0f;
