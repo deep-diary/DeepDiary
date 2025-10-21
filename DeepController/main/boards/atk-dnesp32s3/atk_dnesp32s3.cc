@@ -19,6 +19,7 @@
 #include "deep_arm.h"
 #include "deep_arm_control.h"
 #include "mjpeg_server.h"
+#include "QMA6100P/qma6100p.h"
 
 #include <esp_log.h>
 #include <esp_lcd_panel_vendor.h>
@@ -30,6 +31,9 @@
 #include <cJSON.h>
 
 #define TAG "atk_dnesp32s3"
+
+// 是否启用QMA6100P加速度计
+#define ENABLE_QMA6100P_FEATURE 1
 
 class XL9555 : public I2cDevice {
 public:
@@ -85,6 +89,12 @@ private:
     
     // MJPEG服务器成员
     std::unique_ptr<MjpegServer> mjpeg_server_;
+    
+    // QMA6100P加速度计相关成员
+    bool qma6100p_initialized_;
+    
+    // 用户主循环任务
+    TaskHandle_t user_main_loop_task_handle_;  // 用户主循环任务句柄
 
     void InitializeI2c() {
         // Initialize I2C peripheral
@@ -343,6 +353,76 @@ private:
         ESP_LOGI(TAG, "MJPEG服务器初始化完成");
     }
     
+    void InitializeQMA6100P() {
+#if ENABLE_QMA6100P_FEATURE
+        ESP_LOGI(TAG, "初始化QMA6100P加速度计...");
+        
+        esp_err_t ret = qma6100p_init(i2c_bus_);
+        if (ret == ESP_OK) {
+            qma6100p_initialized_ = true;
+            ESP_LOGI(TAG, "QMA6100P加速度计初始化成功!");
+        } else {
+            qma6100p_initialized_ = false;
+            ESP_LOGW(TAG, "QMA6100P加速度计初始化失败，可能未连接传感器");
+        }
+#else
+        ESP_LOGI(TAG, "QMA6100P加速度计功能已禁用");
+        qma6100p_initialized_ = false;
+#endif
+    }
+    
+    // 用户主循环任务 - 处理周期性的业务逻辑
+    static void user_main_loop_task(void *pvParameters) {
+        atk_dnesp32s3* board = static_cast<atk_dnesp32s3*>(pvParameters);
+        
+        ESP_LOGI(TAG, "用户主循环任务启动");
+        
+        qma6100p_rawdata_t accel_data;
+        uint8_t update_counter = 0;
+        char msg_buffer[256];
+        
+        while (1) {  // 用户主循环
+            vTaskDelay(pdMS_TO_TICKS(10)); // 10ms延迟
+            update_counter++;
+            
+            // ========== 加速度计数据采集和显示 ==========
+            if (update_counter >= 20 && board->qma6100p_initialized_) {  // 每200ms更新一次
+                update_counter = 0;
+                
+                // 读取加速度计数据
+                qma6100p_read_rawdata(&accel_data);
+                
+                // 格式化显示文本
+                snprintf(msg_buffer, sizeof(msg_buffer),
+                         "🔄 加速度计数据:\n"
+                         "ACC_X: %.2f m/s²\n"
+                         "ACC_Y: %.2f m/s²\n"
+                         "ACC_Z: %.2f m/s²\n"
+                         "俯仰角: %.1f°\n"
+                         "翻滚角: %.1f°",
+                         accel_data.acc_x,
+                         accel_data.acc_y,
+                         accel_data.acc_z,
+                         accel_data.pitch,
+                         accel_data.roll);
+                
+                // 在屏幕上显示数据
+                if (board->display_ != nullptr) {
+                    board->display_->SetChatMessage("system", msg_buffer);
+                }
+                
+                // 同时打印到日志（每次都打印，方便调试）
+                ESP_LOGI(TAG, "ACC[%.2f, %.2f, %.2f] Pitch:%.1f° Roll:%.1f°", 
+                         accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
+                         accel_data.pitch, accel_data.roll);
+            }
+            
+            // ========== 在这里添加其他周期性任务 ==========
+            // 例如：其他传感器读取、状态检查、定时操作等
+            
+        }
+    }
+    
     void StartMjpegServerWhenReady() {
         if (mjpeg_server_ == nullptr) {
             ESP_LOGW(TAG, "MJPEG服务器对象未创建");
@@ -423,7 +503,14 @@ private:
 
 
 public:
-    atk_dnesp32s3() : boot_button_(BOOT_BUTTON_GPIO, false), can_receive_task_handle_(nullptr), arm_status_update_task_handle_(nullptr), deep_motor_(nullptr), deep_arm_(nullptr), led_strip_(nullptr) {
+    atk_dnesp32s3() : boot_button_(BOOT_BUTTON_GPIO, false), 
+                      can_receive_task_handle_(nullptr), 
+                      arm_status_update_task_handle_(nullptr), 
+                      deep_motor_(nullptr), 
+                      deep_arm_(nullptr), 
+                      led_strip_(nullptr),
+                      qma6100p_initialized_(false),
+                      user_main_loop_task_handle_(nullptr) {
         InitializeI2c();
         InitializeSpi();
         InitializeSt7789Display();
@@ -435,10 +522,33 @@ public:
         InitializeWs2812();  // 先初始化2812灯带（DeepMotor需要使用）
         InitializeCan();     // 再初始化CAN和DeepMotor（使用led_strip_）
 #endif
-        InitializeControls(); // 最后初始化所有控制类
+        InitializeControls(); // 初始化所有控制类
+        
+        // 初始化QMA6100P加速度计
+        InitializeQMA6100P();
+        
+        // 启动用户主循环任务
+        BaseType_t ret = xTaskCreate(
+            user_main_loop_task,
+            "user_main_loop",     // 任务名称
+            8192,                 // 栈大小（8KB，预留足够空间用于扩展）
+            this,                 // 参数（传递this指针）
+            4,                    // 优先级（介于系统任务和实时任务之间）
+            &user_main_loop_task_handle_
+        );
+        
+        if (ret != pdPASS) {
+            ESP_LOGE(TAG, "创建用户主循环任务失败!");
+        } else {
+            ESP_LOGI(TAG, "用户主循环任务创建成功!");
+        }
     }
 
     ~atk_dnesp32s3() {
+        // 删除用户主循环任务
+        if (user_main_loop_task_handle_ != nullptr) {
+            vTaskDelete(user_main_loop_task_handle_);
+        }
         // 删除CAN接收任务
         if (can_receive_task_handle_ != nullptr) {
             vTaskDelete(can_receive_task_handle_);
