@@ -6,7 +6,7 @@
 #ifndef GIMBAL_H
 #define GIMBAL_H
 
-#include "Servo.h"
+#include "../servo/Servo.h"
 #include "driver/twai.h"
 
 #ifdef __cplusplus

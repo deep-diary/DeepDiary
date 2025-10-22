@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <math.h>
-#include "ESP32-TWAI-CAN.hpp"
+#include "../can/ESP32-TWAI-CAN.hpp"
 
 /**
  * @brief 电机协议层 - 用于构建和发送CAN帧控制小米电机

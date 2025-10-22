@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
-#include "deep_motor.h"
-#include "protocol_motor.h"
+#include "../motor/deep_motor.h"
+#include "../motor/protocol_motor.h"
 #include "settings.h"
 #include "trajectory_planner.h"
 #include "freertos/FreeRTOS.h"

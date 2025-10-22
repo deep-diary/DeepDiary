@@ -2,7 +2,7 @@
 #include "settings.h"
 #include "mcp_server.h"
 #include <esp_log.h>
-#include "config.h"
+#include "../config.h"
 
 
 #define TAG "LedStripControl"
