@@ -87,20 +87,33 @@ class VideoStreamHandler:
     def get_latest_frame(self):
         """获取最新的图像帧"""
         with self.frame_lock:
-            return self.latest_frame.copy() if self.latest_frame is not None else None
+            if self.latest_frame is not None:
+                return self.latest_frame.copy()
+            else:
+                return None
     
     def get_jpeg_frame(self):
         """获取最新帧的 JPEG 编码"""
-        frame = self.get_latest_frame()
-        if frame is None:
+        try:
+            frame = self.get_latest_frame()
+            if frame is None:
+                logger.warning("get_jpeg_frame: 没有可用的帧数据")
+                return None
+            
+            # 添加信息覆盖层
+            frame = self.add_overlay(frame)
+            
+            # 编码为 JPEG
+            success, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not success:
+                logger.error("JPEG编码失败")
+                return None
+                
+            return jpeg.tobytes()
+            
+        except Exception as e:
+            logger.error(f"get_jpeg_frame出错: {e}")
             return None
-        
-        # 添加信息覆盖层
-        frame = self.add_overlay(frame)
-        
-        # 编码为 JPEG
-        _, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        return jpeg.tobytes()
     
     def add_overlay(self, frame):
         """添加信息覆盖层"""
@@ -385,17 +398,38 @@ class WebStreamHandler(BaseHTTPRequestHandler):
     
     def send_snapshot(self):
         """发送快照"""
-        jpeg_data = self.stream_handler.get_jpeg_frame()
-        if jpeg_data:
-            self.send_response(200)
-            self.send_header('Content-type', 'image/jpeg')
-            self.send_header('Content-length', str(len(jpeg_data)))
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            self.send_header('Content-Disposition', f'attachment; filename="snapshot_{timestamp}.jpg"')
-            self.end_headers()
-            self.wfile.write(jpeg_data)
-        else:
-            self.send_error(503, "No frame available")
+        try:
+            logger.info("收到截图请求")
+            jpeg_data = self.stream_handler.get_jpeg_frame()
+            
+            if jpeg_data:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f"snapshot_{timestamp}.jpg"
+                
+                logger.info(f"发送截图: {filename}, 大小: {len(jpeg_data)} 字节")
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'image/jpeg')
+                self.send_header('Content-length', str(len(jpeg_data)))
+                self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
+                self.send_header('Cache-Control', 'no-cache')
+                self.end_headers()
+                
+                # 分块写入数据，避免大文件导致的问题
+                chunk_size = 8192
+                for i in range(0, len(jpeg_data), chunk_size):
+                    chunk = jpeg_data[i:i + chunk_size]
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                
+                logger.info(f"截图发送完成: {filename}")
+            else:
+                logger.warning("截图请求失败: 没有可用的帧数据")
+                self.send_error(503, "No frame available")
+                
+        except Exception as e:
+            logger.error(f"发送截图时出错: {e}")
+            self.send_error(500, f"Internal server error: {str(e)}")
     
     def send_status(self):
         """发送状态信息"""
@@ -453,6 +487,18 @@ def main():
         logger.info(f"请在浏览器中访问: http://localhost:{args.web_port}")
         logger.info("按 Ctrl+C 停止服务器")
         web_server.serve_forever()
+    
+    except OSError as e:
+        if e.errno == 48:  # Address already in use
+            logger.error(f"端口 {args.web_port} 已被占用！")
+            logger.info("请尝试以下解决方案：")
+            logger.info("1. 使用不同的端口: python3 tcp_video_server_web.py --web-port 8001")
+            logger.info("2. 停止占用端口的进程: lsof -ti:8000 | xargs kill -9")
+            logger.info("3. 使用启动脚本自动检测可用端口: ./start_server.sh")
+        else:
+            logger.error(f"启动Web服务器时出错: {e}")
+        tcp_receiver.stop()
+        return 1
     
     except KeyboardInterrupt:
         logger.info("\n收到键盘中断信号，正在停止...")

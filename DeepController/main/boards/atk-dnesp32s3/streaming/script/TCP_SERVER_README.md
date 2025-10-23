@@ -131,6 +131,17 @@ python tcp_video_server_web.py \
 
 ### Step 2: 启动服务器
 
+**🎯 推荐使用启动脚本（自动检测端口）：**
+```bash
+# 交互式启动，自动检测可用端口
+./start_server.sh
+
+# 快速启动 Web 版（自动选择端口）
+./quick_start_web.sh
+```
+
+**手动启动：**
+
 **本地测试（推荐简化版）：**
 ```bash
 python tcp_video_server_simple.py
@@ -146,7 +157,26 @@ python tcp_video_server.py --save-video
 python tcp_video_server_web.py
 ```
 
-### Step 3: 连接 ESP32
+### Step 3: 端口冲突解决
+
+**检查端口占用：**
+```bash
+./check_ports.sh
+```
+
+**常见端口冲突解决方案：**
+```bash
+# 方案1: 使用不同端口
+python tcp_video_server_web.py --tcp-port 8081 --web-port 8001
+
+# 方案2: 停止占用端口的进程
+lsof -ti:8000 | xargs kill -9
+
+# 方案3: 使用启动脚本自动检测
+./start_server.sh
+```
+
+### Step 4: 连接 ESP32
 
 1. 编译并上传固件到 ESP32
 2. ESP32 连接 WiFi

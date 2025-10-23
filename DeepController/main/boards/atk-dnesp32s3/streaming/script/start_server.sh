@@ -66,13 +66,66 @@ case $choice in
         ;;
     3)
         echo -e "${GREEN}启动 Web 版服务器...${NC}"
+        
+        # 检查端口占用函数
+        check_port() {
+            local port=$1
+            if lsof -i :$port >/dev/null 2>&1; then
+                return 1  # 端口被占用
+            else
+                return 0  # 端口空闲
+            fi
+        }
+        
+        # 自动检测可用端口
+        find_available_port() {
+            local start_port=$1
+            local port=$start_port
+            while [ $port -lt $((start_port + 100)) ]; do
+                if check_port $port; then
+                    echo $port
+                    return 0
+                fi
+                port=$((port + 1))
+            done
+            echo $start_port  # 如果都找不到，返回原始端口
+        }
+        
+        # TCP端口检测
         read -p "TCP 端口 [8080]: " tcp_port
         tcp_port=${tcp_port:-8080}
+        if ! check_port $tcp_port; then
+            echo -e "${YELLOW}警告: TCP端口 $tcp_port 已被占用${NC}"
+            available_tcp=$(find_available_port $tcp_port)
+            if [ $available_tcp -ne $tcp_port ]; then
+                echo -e "${GREEN}建议使用端口: $available_tcp${NC}"
+                read -p "是否使用建议端口 $available_tcp? [Y/n]: " use_suggested
+                if [[ $use_suggested != "n" && $use_suggested != "N" ]]; then
+                    tcp_port=$available_tcp
+                fi
+            fi
+        fi
+        
+        # Web端口检测
         read -p "Web 端口 [8000]: " web_port
         web_port=${web_port:-8000}
+        if ! check_port $web_port; then
+            echo -e "${YELLOW}警告: Web端口 $web_port 已被占用${NC}"
+            available_web=$(find_available_port $web_port)
+            if [ $available_web -ne $web_port ]; then
+                echo -e "${GREEN}建议使用端口: $available_web${NC}"
+                read -p "是否使用建议端口 $available_web? [Y/n]: " use_suggested
+                if [[ $use_suggested != "n" && $use_suggested != "N" ]]; then
+                    web_port=$available_web
+                fi
+            fi
+        fi
+        
         echo ""
         echo -e "${GREEN}服务器启动中...${NC}"
         echo -e "${YELLOW}浏览器访问: http://localhost:${web_port}${NC}"
+        echo -e "${BLUE}TCP接收端口: ${tcp_port}${NC}"
+        echo -e "${BLUE}Web访问端口: ${web_port}${NC}"
         python3 tcp_video_server_web.py --tcp-port $tcp_port --web-port $web_port
         ;;
     *)
