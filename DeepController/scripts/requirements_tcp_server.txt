@@ -1,0 +1,13 @@
+# ESP32 TCP 视频服务器依赖包
+# 安装命令: pip install -r requirements_tcp_server.txt
+
+# OpenCV - 图像处理和显示
+opencv-python>=4.8.0
+
+# NumPy - 数组处理（OpenCV 依赖）
+numpy>=1.24.0
+
+# 可选：高级功能
+# matplotlib>=3.7.0  # 用于图表显示
+# pillow>=10.0.0     # 额外的图像处理功能
+

@@ -165,7 +165,7 @@ public:
         return &led;
     }
 
-    // ========== 修改：添加MJPEG服务器启动 ==========
+    // ========== 修改：添加MJPEG服务器/TCP客户端启动 ==========
     virtual void StartNetwork() override {
         // 注册WiFi事件处理器
         esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED,
@@ -181,6 +181,22 @@ public:
                             vTaskDelete(NULL);
                         },
                         "mjpeg_starter",
+                        8192,
+                        board->extensions_,
+                        5,
+                        nullptr
+                    );
+                }
+#elif ENABLE_TCP_CLIENT_MODE
+                if (board->extensions_) {
+                    // 创建延迟任务启动TCP客户端
+                    xTaskCreate(
+                        [](void* pvParameters) {
+                            auto* ext = static_cast<BoardExtensions*>(pvParameters);
+                            ext->StartTcpClientWhenReady();
+                            vTaskDelete(NULL);
+                        },
+                        "tcp_client_starter",
                         8192,
                         board->extensions_,
                         5,

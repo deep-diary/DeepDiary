@@ -77,7 +77,20 @@
 #define ENABLE_CAN_FEATURE 0             // 1:启用CAN总线功能, 0:禁用CAN总线功能  
 #define ENABLE_LED_STRIP_FEATURE 0       // 1:启用2812灯带功能, 0:禁用2812灯带功能
 #define ENABLE_QMA6100P_FEATURE 1        // 1:启用QMA6100P加速度计, 0:禁用QMA6100P加速度计
-#define ENABLE_MJPEG_FEATURE 1           // 1:启用MJPEG流媒体服务器, 0:禁用(计划迁移到RTSP)
+
+// 网络流媒体模式配置 - MJPEG服务器模式与TCP客户端模式互斥
+#define ENABLE_TCP_CLIENT_MODE 1         // 1:启用TCP客户端模式, 0:禁用TCP客户端模式
+#define ENABLE_MJPEG_FEATURE 0           // 1:启用MJPEG流媒体服务器, 0:禁用(计划迁移到RTSP)
+
+// TCP客户端模式配置参数
+#if ENABLE_TCP_CLIENT_MODE
+    #define TCP_SERVER_IP "192.168.31.130"    // TCP服务器IP地址
+    #define TCP_SERVER_PORT 8080             // TCP服务器端口
+    
+    // 当启用TCP客户端模式时，自动禁用MJPEG服务器
+    #undef ENABLE_MJPEG_FEATURE
+    #define ENABLE_MJPEG_FEATURE 0
+#endif
 
 // 当启用相机功能时，自动禁用冲突的功能
 #if ENABLE_CAMERA_FEATURE

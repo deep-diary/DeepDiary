@@ -25,6 +25,12 @@
 #include "streaming/mjpeg_server.h"
 #endif
 
+#if ENABLE_TCP_CLIENT_MODE
+extern "C" {
+#include "streaming/tcp_client.h"
+}
+#endif
+
 #include <esp_log.h>
 #include <esp_camera.h>
 
@@ -180,10 +186,21 @@ Camera* BoardExtensions::InitializeCamera() {
     config.xclk_freq_hz = 10000000;
     config.ledc_timer = LEDC_TIMER_0;
     config.ledc_channel = LEDC_CHANNEL_0;
+    
+#if ENABLE_TCP_CLIENT_MODE
+    // TCP 客户端模式需要 JPEG 格式
+    config.pixel_format = PIXFORMAT_JPEG;
+    config.frame_size = FRAMESIZE_QVGA;
+    config.jpeg_quality = 12;  // 0-63，数值越小质量越高
+    config.fb_count = 2;       // 使用双缓冲提高性能
+#else
+    // MJPEG 服务器或显示模式使用 RGB565
     config.pixel_format = PIXFORMAT_RGB565;
     config.frame_size = FRAMESIZE_QVGA;
     config.jpeg_quality = 12;
     config.fb_count = 1;
+#endif
+    
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
@@ -296,6 +313,10 @@ void BoardExtensions::InitializeControls() {
 #if ENABLE_MJPEG_FEATURE && ENABLE_CAMERA_FEATURE
     InitializeMjpegServer();
 #endif
+
+#if ENABLE_TCP_CLIENT_MODE && ENABLE_CAMERA_FEATURE
+    InitializeTcpClient();
+#endif
     
     ESP_LOGI(TAG, "控制类初始化完成");
 }
@@ -352,6 +373,46 @@ void BoardExtensions::StartMjpegServerWhenReady() {
         ESP_LOGI(TAG, "访问地址: %s", mjpeg_server_->GetUrl().c_str());
     } else {
         ESP_LOGE(TAG, "MJPEG服务器启动失败");
+    }
+}
+#endif
+
+#if ENABLE_TCP_CLIENT_MODE
+void BoardExtensions::InitializeTcpClient() {
+    if (!camera_) {
+        ESP_LOGI(TAG, "相机未初始化，跳过TCP客户端");
+        return;
+    }
+    
+    // 配置TCP客户端
+    tcp_client_config_t config = {
+        .server_ip = TCP_SERVER_IP,
+        .server_port = TCP_SERVER_PORT,
+        .auto_reconnect = true,
+        .reconnect_interval = 3000
+    };
+    
+    strncpy(config.server_ip, TCP_SERVER_IP, sizeof(config.server_ip) - 1);
+    config.server_port = TCP_SERVER_PORT;
+    
+    esp_err_t ret = tcp_client_init(&config);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "TCP客户端初始化完成");
+    } else {
+        ESP_LOGE(TAG, "TCP客户端初始化失败");
+    }
+}
+
+void BoardExtensions::StartTcpClientWhenReady() {
+    ESP_LOGI(TAG, "WiFi已连接，准备启动TCP客户端...");
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    
+    esp_err_t ret = tcp_client_start();
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "TCP客户端启动成功");
+        ESP_LOGI(TAG, "连接目标: %s:%d", TCP_SERVER_IP, TCP_SERVER_PORT);
+    } else {
+        ESP_LOGE(TAG, "TCP客户端启动失败");
     }
 }
 #endif

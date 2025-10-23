@@ -32,6 +32,13 @@ class LcdDisplay;
 class MjpegServer;
 #endif
 
+#if ENABLE_TCP_CLIENT_MODE
+// TCP客户端功能相关（C接口）
+extern "C" {
+#include "streaming/tcp_client.h"
+}
+#endif
+
 /**
  * @brief XL9555 I/O扩展芯片驱动类
  */
@@ -120,6 +127,18 @@ public:
      * @brief WiFi连接后启动MJPEG服务器
      */
     void StartMjpegServerWhenReady();
+#endif
+
+#if ENABLE_TCP_CLIENT_MODE
+    /**
+     * @brief 初始化TCP客户端（可通过ENABLE_TCP_CLIENT_MODE宏启用）
+     */
+    void InitializeTcpClient();
+    
+    /**
+     * @brief WiFi连接后启动TCP客户端
+     */
+    void StartTcpClientWhenReady();
 #endif
     
     /**
