@@ -1,0 +1,17 @@
+{
+  "server": {
+    "host": "34.172.161.212",
+    "port": 8080
+  },
+  "camera": {
+    "width": 640,
+    "height": 480,
+    "fps": 30,
+    "jpeg_quality": 80
+  },
+  "connection": {
+    "max_retry_count": 3,
+    "retry_delay": 2.0,
+    "timeout": 10
+  }
+}
