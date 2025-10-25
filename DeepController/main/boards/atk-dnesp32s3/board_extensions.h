@@ -28,6 +28,11 @@ class Esp32Camera;
 class Camera;
 class LcdDisplay;
 
+// MQTT相关前向声明
+class UserMqttClient;
+class RemoteControlHandler;
+class DeviceInfoCollector;
+
 #if ENABLE_MJPEG_FEATURE
 class MjpegServer;
 #endif
@@ -116,6 +121,16 @@ public:
      * @brief 启动用户主循环任务（传感器数据采集等）
      */
     void StartUserMainLoop();
+    
+    /**
+     * @brief 初始化用户MQTT客户端
+     */
+    void InitializeUserMqtt();
+    
+    /**
+     * @brief 启动用户MQTT客户端
+     */
+    void StartUserMqtt();
     
 #if ENABLE_MJPEG_FEATURE
     /**
@@ -221,6 +236,12 @@ private:
     
     // ========== 传感器 ==========
     bool qma6100p_initialized_;             // QMA6100P初始化状态
+    
+    // ========== MQTT客户端 ==========
+    std::unique_ptr<UserMqttClient> user_mqtt_client_;        // 用户MQTT客户端
+    std::unique_ptr<RemoteControlHandler> remote_control_handler_;  // 远程控制处理器
+    std::unique_ptr<DeviceInfoCollector> device_info_collector_;    // 设备信息收集器
+    bool user_mqtt_initialized_;            // 用户MQTT初始化状态
     
     // ========== 任务句柄 ==========
     TaskHandle_t can_receive_task_handle_;        // CAN接收任务

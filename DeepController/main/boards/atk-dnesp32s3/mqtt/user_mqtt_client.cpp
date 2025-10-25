@@ -57,7 +57,7 @@ UserMqttClient::~UserMqttClient() {
     ESP_LOGI(TAG_USER_MQTT, "UserMqttClient destroyed");
 }
 
-bool UserMqttClient::Initialize(const UserMqttConfig& config) {
+bool UserMqttClient::Initialize(const UserMqttClientConfig& config) {
     config_ = config;
     initialized_ = true;
     
@@ -109,9 +109,15 @@ bool UserMqttClient::Connect() {
         
         // 订阅控制主题
         if (!config_.control_topic.empty()) {
-            // 这里需要根据实际的MQTT客户端实现来订阅主题
-            // mqtt_client_->Subscribe(config_.control_topic);
-            ESP_LOGI(TAG_USER_MQTT, "Subscribed to control topic: %s", config_.control_topic.c_str());
+            ESP_LOGI(TAG_USER_MQTT, "📡 SUBSCRIBING to Control Topic");
+            ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.control_topic.c_str());
+            if (mqtt_client_->Subscribe(config_.control_topic)) {
+                ESP_LOGI(TAG_USER_MQTT, "  ✅ Subscription successful");
+            } else {
+                ESP_LOGE(TAG_USER_MQTT, "  ❌ Subscription failed");
+            }
+        } else {
+            ESP_LOGW(TAG_USER_MQTT, "⚠️ No control topic configured, skipping subscription");
         }
         
         // 启动心跳定时器
@@ -190,7 +196,9 @@ bool UserMqttClient::SendDeviceInfo(const DeviceInfo& info) {
         return false;
     }
     
-    ESP_LOGI(TAG_USER_MQTT, "Device info sent to topic: %s", config_.device_info_topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH Device Info");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.device_info_topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Payload: %s", json.c_str());
     return true;
 }
 
@@ -209,7 +217,11 @@ bool UserMqttClient::SendStatus(const std::string& status, const std::string& me
         return false;
     }
     
-    ESP_LOGI(TAG_USER_MQTT, "Status sent: %s - %s", status.c_str(), message.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH Status");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.status_topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Status: %s", status.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Message: %s", message.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Payload: %s", json.c_str());
     return true;
 }
 
@@ -235,7 +247,9 @@ bool UserMqttClient::SendHeartbeat() {
         return false;
     }
     
-    ESP_LOGD(TAG_USER_MQTT, "Heartbeat sent");
+    ESP_LOGI(TAG_USER_MQTT, "💓 PUBLISH Heartbeat");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.status_topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Payload: %s", json.c_str());
     return true;
 }
 
@@ -247,12 +261,12 @@ void UserMqttClient::SetConnectionCallback(std::function<void(bool)> callback) {
     connection_callback_ = callback;
 }
 
-void UserMqttClient::UpdateConfig(const UserMqttConfig& config) {
+void UserMqttClient::UpdateConfig(const UserMqttClientConfig& config) {
     config_ = config;
     ESP_LOGI(TAG_USER_MQTT, "Configuration updated");
 }
 
-UserMqttConfig UserMqttClient::GetConfig() const {
+UserMqttClientConfig UserMqttClient::GetConfig() const {
     return config_;
 }
 
@@ -299,7 +313,16 @@ void UserMqttClient::SetupCallbacks() {
 }
 
 void UserMqttClient::OnConnected() {
-    ESP_LOGI(TAG_USER_MQTT, "MQTT connected");
+    ESP_LOGI(TAG_USER_MQTT, "🔗 MQTT CONNECTED");
+    ESP_LOGI(TAG_USER_MQTT, "  Broker: %s:%d", config_.broker_host.c_str(), config_.broker_port);
+    ESP_LOGI(TAG_USER_MQTT, "  Client ID: %s", config_.client_id.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Control Topic: %s", config_.control_topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Status Topic: %s", config_.status_topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Device Info Topic: %s", config_.device_info_topic.c_str());
+    
+    connected_ = true;  // 设置连接状态
+    retry_count_ = 0;   // 重置重试计数
+    
     xEventGroupSetBits(event_group_, MQTT_CONNECTED_BIT);
 }
 
@@ -315,17 +338,24 @@ void UserMqttClient::OnDisconnected() {
 }
 
 void UserMqttClient::OnMessage(const std::string& topic, const std::string& payload) {
-    ESP_LOGI(TAG_USER_MQTT, "Received message on topic: %s", topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "📥 RECEIVE Message");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Payload: %s", payload.c_str());
     
     if (topic == config_.control_topic) {
+        ESP_LOGI(TAG_USER_MQTT, "  → Processing as control command");
         ParseControlMessage(topic, payload);
+    } else {
+        ESP_LOGW(TAG_USER_MQTT, "  → Unknown topic, ignoring");
     }
 }
 
 void UserMqttClient::ParseControlMessage(const std::string& topic, const std::string& payload) {
+    ESP_LOGI(TAG_USER_MQTT, "🔧 PARSING Control Command");
+    
     cJSON* root = cJSON_Parse(payload.c_str());
     if (!root) {
-        ESP_LOGE(TAG_USER_MQTT, "Failed to parse control message JSON");
+        ESP_LOGE(TAG_USER_MQTT, "  ❌ Failed to parse control message JSON");
         return;
     }
     
@@ -333,8 +363,14 @@ void UserMqttClient::ParseControlMessage(const std::string& topic, const std::st
     cJSON_Delete(root);
     
     if (!command.command_type.empty() && control_callback_) {
-        ESP_LOGI(TAG_USER_MQTT, "Executing control command: %s", command.command_type.c_str());
+        ESP_LOGI(TAG_USER_MQTT, "  ✅ Command parsed successfully:");
+        ESP_LOGI(TAG_USER_MQTT, "    Type: %s", command.command_type.c_str());
+        ESP_LOGI(TAG_USER_MQTT, "    Target: %s", command.target.c_str());
+        ESP_LOGI(TAG_USER_MQTT, "    Action: %s", command.action.c_str());
+        ESP_LOGI(TAG_USER_MQTT, "  → Executing control command");
         control_callback_(command);
+    } else {
+        ESP_LOGW(TAG_USER_MQTT, "  ⚠️ Invalid command or no callback set");
     }
 }
 

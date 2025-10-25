@@ -40,8 +40,10 @@ void RemoteControlHandler::SetStatusCallback(std::function<void(const std::strin
 }
 
 void RemoteControlHandler::HandleCommand(const RemoteControlCommand& command) {
-    ESP_LOGI(TAG_REMOTE_CONTROL, "Handling command: %s, target: %s, action: %s", 
-             command.command_type.c_str(), command.target.c_str(), command.action.c_str());
+    ESP_LOGI(TAG_REMOTE_CONTROL, "🎮 HANDLING Remote Command");
+    ESP_LOGI(TAG_REMOTE_CONTROL, "  Type: %s", command.command_type.c_str());
+    ESP_LOGI(TAG_REMOTE_CONTROL, "  Target: %s", command.target.c_str());
+    ESP_LOGI(TAG_REMOTE_CONTROL, "  Action: %s", command.action.c_str());
     
     if (command.command_type == CMD_LED) {
         HandleLedCommand(command);
@@ -272,6 +274,10 @@ void RemoteControlHandler::HandleSystemCommand(const RemoteControlCommand& comma
 }
 
 void RemoteControlHandler::SendStatus(const std::string& status, const std::string& message) {
+    ESP_LOGI(TAG_REMOTE_CONTROL, "📤 SENDING Status Response");
+    ESP_LOGI(TAG_REMOTE_CONTROL, "  Status: %s", status.c_str());
+    ESP_LOGI(TAG_REMOTE_CONTROL, "  Message: %s", message.c_str());
+    
     if (status_callback_) {
         status_callback_(status, message);
     }

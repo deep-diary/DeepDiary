@@ -2,11 +2,11 @@
 #define REMOTE_CONTROL_HANDLER_H
 
 #include "user_mqtt_client.h"
-#include "deep_motor.h"
-#include "deep_arm.h"
-#include "Gimbal.h"
-#include "CircularStrip.h"
-#include "esp32_camera.h"
+#include "../motor/deep_motor.h"
+#include "../arm/deep_arm.h"
+#include "../gimbal/Gimbal.h"
+#include "../../led/circular_strip.h"
+#include "../../common/esp32_camera.h"
 #include <string>
 #include <memory>
 #include <functional>

@@ -1,0 +1,5 @@
+---
+description: 当在环境中执行idf.py build编译报错的时候执行
+alwaysApply: false
+---
+当在环境中执行idf.py build编译报错的时候，执行get_idf 加载esp32 编译环境

@@ -10,11 +10,12 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
 #include <esp_log.h>
+#include "user_mqtt_config.h"
 
 #define TAG_USER_MQTT "UserMQTT"
 
 // 用户MQTT配置结构体
-struct UserMqttConfig {
+struct UserMqttClientConfig {
     std::string broker_host;
     int broker_port = 1883;
     std::string client_id;
@@ -26,9 +27,9 @@ struct UserMqttConfig {
     int keepalive_interval = 60;
     bool use_ssl = false;
     
-    UserMqttConfig() = default;
+    UserMqttClientConfig() = default;
     
-    UserMqttConfig(const std::string& host, int port, const std::string& cid,
+    UserMqttClientConfig(const std::string& host, int port, const std::string& cid,
                    const std::string& user = "", const std::string& pass = "")
         : broker_host(host), broker_port(port), client_id(cid), 
           username(user), password(pass) {
@@ -88,7 +89,7 @@ public:
     ~UserMqttClient();
     
     // 初始化和连接
-    bool Initialize(const UserMqttConfig& config);
+    bool Initialize(const UserMqttClientConfig& config);
     bool Connect();
     void Disconnect();
     bool IsConnected() const;
@@ -103,15 +104,15 @@ public:
     void SetConnectionCallback(std::function<void(bool)> callback);
     
     // 配置管理
-    void UpdateConfig(const UserMqttConfig& config);
-    UserMqttConfig GetConfig() const;
+    void UpdateConfig(const UserMqttClientConfig& config);
+    UserMqttClientConfig GetConfig() const;
     
     // 状态查询
     std::string GetLastError() const;
     int GetConnectionRetryCount() const;
     
 private:
-    UserMqttConfig config_;
+    UserMqttClientConfig config_;
     std::unique_ptr<Mqtt> mqtt_client_;
     EventGroupHandle_t event_group_;
     esp_timer_handle_t heartbeat_timer_;

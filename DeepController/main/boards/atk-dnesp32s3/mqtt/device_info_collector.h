@@ -2,11 +2,11 @@
 #define DEVICE_INFO_COLLECTOR_H
 
 #include "user_mqtt_client.h"
-#include "deep_motor.h"
-#include "deep_arm.h"
-#include "Gimbal.h"
-#include "CircularStrip.h"
-#include "esp32_camera.h"
+#include "../motor/deep_motor.h"
+#include "../arm/deep_arm.h"
+#include "../gimbal/Gimbal.h"
+#include "../../led/circular_strip.h"
+#include "../../common/esp32_camera.h"
 #include <string>
 #include <memory>
 
@@ -38,6 +38,7 @@ public:
     std::string GetWifiInfo() const;
     std::string GetIpAddress() const;
     int GetFreeHeap() const;
+    std::string GetDetailedMemoryInfo() const;
     int GetUptimeSeconds() const;
     float GetCpuTemperature() const;
     

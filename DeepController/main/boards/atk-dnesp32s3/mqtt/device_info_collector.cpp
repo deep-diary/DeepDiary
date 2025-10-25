@@ -6,6 +6,7 @@
 #include "esp_flash.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 #include <sstream>
 #include <iomanip>
 
@@ -144,12 +145,41 @@ std::string DeviceInfoCollector::GetWifiInfo() const {
 }
 
 std::string DeviceInfoCollector::GetIpAddress() const {
-    auto& wifi_station = WifiStation::GetInstance();
-    return wifi_station.GetWebServerUrl(); // 这里可能需要修改为获取IP地址的方法
+    // 获取IP地址，这里需要根据实际的WifiStation API来获取
+    // 暂时返回空字符串，实际使用时需要实现正确的IP获取方法
+    // TODO: 实现正确的IP地址获取
+    return "";
 }
 
 int DeviceInfoCollector::GetFreeHeap() const {
     return esp_get_free_heap_size();
+}
+
+std::string DeviceInfoCollector::GetDetailedMemoryInfo() const {
+    std::stringstream ss;
+    
+    // 基本堆内存信息
+    size_t free_heap = esp_get_free_heap_size();
+    size_t min_free_heap = esp_get_minimum_free_heap_size();
+    
+    // 不同类型内存信息
+    size_t free_internal_ram = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t free_spiram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    size_t free_dma = heap_caps_get_free_size(MALLOC_CAP_DMA);
+    
+    // 总内存信息
+    size_t total_internal_ram = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+    size_t total_spiram = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    
+    ss << "Free: " << (free_heap / 1024) << "KB";
+    ss << " | Min: " << (min_free_heap / 1024) << "KB";
+    ss << " | Internal: " << (free_internal_ram / 1024) << "/" << (total_internal_ram / 1024) << "KB";
+    if (total_spiram > 0) {
+        ss << " | PSRAM: " << (free_spiram / 1024) << "/" << (total_spiram / 1024) << "KB";
+    }
+    ss << " | DMA: " << (free_dma / 1024) << "KB";
+    
+    return ss.str();
 }
 
 int DeviceInfoCollector::GetUptimeSeconds() const {
@@ -217,7 +247,8 @@ std::string DeviceInfoCollector::GetChipFeatures() const {
     if (chip_info.features & CHIP_FEATURE_BLE) ss << "BLE ";
     if (chip_info.features & CHIP_FEATURE_IEEE802154) ss << "802.15.4 ";
     if (chip_info.features & CHIP_FEATURE_EMB_FLASH) ss << "Embedded-Flash ";
-    if (chip_info.features & CHIP_FEATURE_EXTERNAL_FLASH) ss << "External-Flash ";
+    // CHIP_FEATURE_EXTERNAL_FLASH 在某些ESP-IDF版本中可能不可用
+    // if (chip_info.features & CHIP_FEATURE_EXTERNAL_FLASH) ss << "External-Flash ";
     
     return ss.str();
 }
@@ -232,14 +263,22 @@ std::string DeviceInfoCollector::GetFlashInfo() const {
 }
 
 std::string DeviceInfoCollector::GetPsramInfo() const {
-    size_t psram_size = esp_psram_get_size();
-    
     std::stringstream ss;
+    
+    // 检查PSRAM是否可用 - 使用更兼容的方法
+    #ifdef CONFIG_SPIRAM
+    // 如果配置了SPIRAM，尝试获取大小
+    extern size_t esp_spiram_get_size(void);
+    size_t psram_size = esp_spiram_get_size();
     if (psram_size > 0) {
         ss << psram_size / (1024 * 1024) << "MB";
     } else {
-        ss << "Not available";
+        ss << "Available but size unknown";
     }
+    #else
+    ss << "Not available";
+    #endif
+    
     return ss.str();
 }
 

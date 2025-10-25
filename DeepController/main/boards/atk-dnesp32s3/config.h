@@ -84,7 +84,7 @@
 
 // TCP客户端模式配置参数
 #if ENABLE_TCP_CLIENT_MODE
-    #define TCP_SERVER_IP "192.168.31.130"    // TCP服务器IP地址
+    #define TCP_SERVER_IP "34.172.161.212"    // TCP服务器IP地址
     #define TCP_SERVER_PORT 8080             // TCP服务器端口
     
     // 当启用TCP客户端模式时，自动禁用MJPEG服务器

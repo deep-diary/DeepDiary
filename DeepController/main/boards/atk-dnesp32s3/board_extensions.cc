@@ -21,6 +21,12 @@
 #include "sensor/QMA6100P/qma6100p.h"
 #include "gimbal/gimbal_control.h"
 
+// MQTT相关头文件
+#include "mqtt/user_mqtt_config.h"
+#include "mqtt/user_mqtt_client.h"
+#include "mqtt/remote_control_handler.h"
+#include "mqtt/device_info_collector.h"
+
 #if ENABLE_MJPEG_FEATURE
 #include "streaming/mjpeg_server.h"
 #endif
@@ -78,6 +84,7 @@ BoardExtensions::BoardExtensions(i2c_master_bus_handle_t i2c_bus, LcdDisplay* di
     , led_control_(nullptr)
     , deep_motor_control_(nullptr)
     , qma6100p_initialized_(false)
+    , user_mqtt_initialized_(false)
     , can_receive_task_handle_(nullptr)
     , user_main_loop_task_handle_(nullptr)
     , arm_status_update_task_handle_(nullptr) {
@@ -104,6 +111,9 @@ BoardExtensions::BoardExtensions(i2c_master_bus_handle_t i2c_bus, LcdDisplay* di
     
     // 初始化控制接口
     InitializeControls();
+    
+    // 初始化用户MQTT客户端
+    InitializeUserMqtt();
     
     // 启动用户主循环
     StartUserMainLoop();
@@ -446,32 +456,52 @@ void BoardExtensions::user_main_loop_task(void* pvParameters) {
     
     qma6100p_rawdata_t accel_data;
     uint8_t update_counter = 0;
+    uint32_t device_info_counter = 0;
     char msg_buffer[256];
     
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(1000)); // 改为1秒循环
         update_counter++;
+        device_info_counter++;
         
         // 每 500ms 更新一次加速度计数据（降低更新频率以减少内存压力）
-        if (update_counter >= 50 && ext->qma6100p_initialized_) {
+        if (update_counter >= 1 && ext->qma6100p_initialized_) {
             update_counter = 0;
             
             qma6100p_read_rawdata(&accel_data);
             
             // 格式化加速度计数据（两行显示）
-            snprintf(msg_buffer, sizeof(msg_buffer),
-                     "X:%.1f Y:%.1f Z:%.1f\n俯仰:%.0f° 翻滚:%.0f°",
-                     accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
-                     accel_data.pitch, accel_data.roll);
+        //     snprintf(msg_buffer, sizeof(msg_buffer),
+        //              "X:%.1f Y:%.1f Z:%.1f\n俯仰:%.0f° 翻滚:%.0f°",
+        //              accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
+        //              accel_data.pitch, accel_data.roll);
             
-            // 使用 SetChatMessage 显示在对话区域
-            if (ext->display_ != nullptr) {
-                ext->display_->SetChatMessage("system", msg_buffer);
+        //     // 使用 SetChatMessage 显示在对话区域
+        //     if (ext->display_ != nullptr) {
+        //         ext->display_->SetChatMessage("system", msg_buffer);
+        //     }
+            
+        //     ESP_LOGI(TAG, "ACC[%.2f, %.2f, %.2f] Pitch:%.1f° Roll:%.1f°", 
+        //              accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
+        //              accel_data.pitch, accel_data.roll);
+        }
+        
+        // 每30秒发送一次设备信息
+        if (device_info_counter >= 10 && ext->user_mqtt_client_ && ext->device_info_collector_) {
+            device_info_counter = 0;
+            
+            ESP_LOGI(TAG, "📊 SENDING Periodic Device Info");
+            
+            // 记录详细内存信息
+            std::string memory_info = ext->device_info_collector_->GetDetailedMemoryInfo();
+            ESP_LOGI(TAG, "🧠 Memory Status: %s", memory_info.c_str());
+            
+            DeviceInfo info = ext->device_info_collector_->CollectDeviceInfo();
+            if (ext->user_mqtt_client_->SendDeviceInfo(info)) {
+                ESP_LOGI(TAG, "✅ Periodic device info sent successfully");
+            } else {
+                ESP_LOGW(TAG, "⚠️ Failed to send periodic device info");
             }
-            
-            ESP_LOGI(TAG, "ACC[%.2f, %.2f, %.2f] Pitch:%.1f° Roll:%.1f°", 
-                     accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
-                     accel_data.pitch, accel_data.roll);
         }
     }
 }
@@ -483,6 +513,135 @@ void BoardExtensions::arm_status_update_task(void* pvParameters) {
     while (1) {
         // 机械臂状态更新逻辑（预留）
         vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+
+// ==================== 用户MQTT功能实现 ====================
+
+void BoardExtensions::InitializeUserMqtt() {
+    ESP_LOGI(TAG, "初始化用户MQTT客户端...");
+    
+    try {
+        // 创建MQTT客户端
+        user_mqtt_client_ = std::make_unique<UserMqttClient>();
+        
+        // 创建远程控制处理器
+        remote_control_handler_ = std::make_unique<RemoteControlHandler>();
+        
+        // 创建设备信息收集器
+        device_info_collector_ = std::make_unique<DeviceInfoCollector>();
+        
+        // 设置设备组件引用
+        if (remote_control_handler_) {
+            remote_control_handler_->SetDeepMotor(deep_motor_);
+            remote_control_handler_->SetDeepArm(deep_arm_);
+            remote_control_handler_->SetGimbal(gimbal_);
+            remote_control_handler_->SetLedStrip(led_strip_);
+            remote_control_handler_->SetCamera(static_cast<Esp32Camera*>(camera_));
+        }
+        
+        if (device_info_collector_) {
+            device_info_collector_->SetDeepMotor(deep_motor_);
+            device_info_collector_->SetDeepArm(deep_arm_);
+            device_info_collector_->SetGimbal(gimbal_);
+            device_info_collector_->SetLedStrip(led_strip_);
+            device_info_collector_->SetCamera(static_cast<Esp32Camera*>(camera_));
+        }
+        
+        user_mqtt_initialized_ = true;
+        ESP_LOGI(TAG, "用户MQTT客户端初始化完成");
+        
+    } catch (const std::exception& e) {
+        ESP_LOGE(TAG, "用户MQTT客户端初始化失败: %s", e.what());
+        user_mqtt_initialized_ = false;
+    }
+}
+
+void BoardExtensions::StartUserMqtt() {
+    if (!user_mqtt_initialized_ || !user_mqtt_client_) {
+        ESP_LOGW(TAG, "用户MQTT客户端未初始化，跳过启动");
+        return;
+    }
+    
+    ESP_LOGI(TAG, "启动用户MQTT客户端...");
+    
+    // 等待网络稳定
+    ESP_LOGI(TAG, "等待网络稳定...");
+    vTaskDelay(pdMS_TO_TICKS(2000)); // 等待2秒
+    
+    // 从NVS加载配置
+    UserMqttConfig::LoadFromNvs();
+    
+    // 创建配置对象
+    UserMqttClientConfig config;
+    config.broker_host = UserMqttConfig::GetBrokerHost();
+    config.broker_port = UserMqttConfig::GetBrokerPort();
+    config.client_id = UserMqttConfig::GetClientId();
+    config.username = UserMqttConfig::GetUsername();
+    config.password = UserMqttConfig::GetPassword();
+    config.keepalive_interval = UserMqttConfig::GetKeepaliveInterval();
+    config.use_ssl = UserMqttConfig::GetUseSsl();
+    
+    // 设置MQTT主题
+    config.device_info_topic = "device/" + config.client_id + "/info";
+    config.control_topic = "device/" + config.client_id + "/control";
+    config.status_topic = "device/" + config.client_id + "/status";
+    
+    ESP_LOGI(TAG, "🔧 MQTT Configuration:");
+    ESP_LOGI(TAG, "  Broker: %s:%d", config.broker_host.c_str(), config.broker_port);
+    ESP_LOGI(TAG, "  Client ID: %s", config.client_id.c_str());
+    ESP_LOGI(TAG, "  Device Info Topic: %s", config.device_info_topic.c_str());
+    ESP_LOGI(TAG, "  Control Topic: %s", config.control_topic.c_str());
+    ESP_LOGI(TAG, "  Status Topic: %s", config.status_topic.c_str());
+    
+    // 初始化客户端
+    if (user_mqtt_client_->Initialize(config)) {
+        // 设置回调函数
+        user_mqtt_client_->SetControlCallback([this](const RemoteControlCommand& cmd) {
+            if (remote_control_handler_) {
+                remote_control_handler_->HandleCommand(cmd);
+            }
+        });
+        
+        user_mqtt_client_->SetConnectionCallback([](bool connected) {
+            if (connected) {
+                ESP_LOGI(TAG, "已连接到用户MQTT服务器");
+            } else {
+                ESP_LOGW(TAG, "与用户MQTT服务器断开连接");
+            }
+        });
+        
+        // 设置状态回调
+        if (remote_control_handler_) {
+            remote_control_handler_->SetStatusCallback([this](const std::string& status, const std::string& message) {
+                if (user_mqtt_client_) {
+                    user_mqtt_client_->SendStatus(status, message);
+                }
+            });
+        }
+        
+        // 连接MQTT服务器
+        if (user_mqtt_client_->Connect()) {
+            ESP_LOGI(TAG, "✅ 成功连接到用户MQTT服务器");
+            
+            // 发送连接测试消息
+            user_mqtt_client_->SendStatus("test", "Device connected and ready for commands");
+            
+            // 发送初始设备信息
+            if (device_info_collector_) {
+                ESP_LOGI(TAG, "📊 SENDING Initial Device Info");
+                DeviceInfo info = device_info_collector_->CollectDeviceInfo();
+                if (user_mqtt_client_->SendDeviceInfo(info)) {
+                    ESP_LOGI(TAG, "✅ Initial device info sent successfully");
+                } else {
+                    ESP_LOGW(TAG, "⚠️ Failed to send initial device info");
+                }
+            }
+        } else {
+            ESP_LOGE(TAG, "❌ 连接用户MQTT服务器失败");
+        }
+    } else {
+        ESP_LOGE(TAG, "用户MQTT客户端初始化失败");
     }
 }
 

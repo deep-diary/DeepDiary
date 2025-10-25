@@ -171,6 +171,18 @@ public:
         esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_CONNECTED,
             [](void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
                 auto* board = static_cast<atk_dnesp32s3*>(arg);
+                ESP_LOGI("atk_dnesp32s3", "WiFi已连接，等待IP地址...");
+            },
+            this
+        );
+        
+        // 注册IP事件处理器 - 在获取IP地址后启动网络服务
+        esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP,
+            [](void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+                auto* board = static_cast<atk_dnesp32s3*>(arg);
+                auto* event = static_cast<ip_event_got_ip_t*>(event_data);
+                ESP_LOGI("atk_dnesp32s3", "WiFi获取IP地址: " IPSTR, IP2STR(&event->ip_info.ip));
+                
 #if ENABLE_MJPEG_FEATURE
                 if (board->extensions_) {
                     // 创建延迟任务启动MJPEG服务器
@@ -204,6 +216,22 @@ public:
                     );
                 }
 #endif
+                
+                // 启动用户MQTT客户端 - 在获取IP地址后启动
+                if (board->extensions_) {
+                    xTaskCreate(
+                        [](void* pvParameters) {
+                            auto* ext = static_cast<BoardExtensions*>(pvParameters);
+                            ext->StartUserMqtt();
+                            vTaskDelete(NULL);
+                        },
+                        "user_mqtt_starter",
+                        8192,
+                        board->extensions_,
+                        5,
+                        nullptr
+                    );
+                }
             },
             this
         );
