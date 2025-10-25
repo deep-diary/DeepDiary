@@ -1,0 +1,161 @@
+#ifndef USER_MQTT_CLIENT_H
+#define USER_MQTT_CLIENT_H
+
+#include <string>
+#include <memory>
+#include <functional>
+#include <cJSON.h>
+#include <mqtt.h>
+#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
+#include <esp_log.h>
+
+#define TAG_USER_MQTT "UserMQTT"
+
+// 用户MQTT配置结构体
+struct UserMqttConfig {
+    std::string broker_host;
+    int broker_port = 1883;
+    std::string client_id;
+    std::string username;
+    std::string password;
+    std::string device_info_topic;    // 设备信息发布主题
+    std::string control_topic;        // 远程控制订阅主题
+    std::string status_topic;         // 状态发布主题
+    int keepalive_interval = 60;
+    bool use_ssl = false;
+    
+    UserMqttConfig() = default;
+    
+    UserMqttConfig(const std::string& host, int port, const std::string& cid,
+                   const std::string& user = "", const std::string& pass = "")
+        : broker_host(host), broker_port(port), client_id(cid), 
+          username(user), password(pass) {
+        // 自动生成主题
+        device_info_topic = "device/" + client_id + "/info";
+        control_topic = "device/" + client_id + "/control";
+        status_topic = "device/" + client_id + "/status";
+    }
+};
+
+// 设备信息结构体
+struct DeviceInfo {
+    std::string device_id;
+    std::string device_type = "ATK-DNESP32S3";
+    std::string firmware_version;
+    std::string wifi_ssid;
+    std::string ip_address;
+    int free_heap;
+    int uptime_seconds;
+    float cpu_temperature;
+    bool camera_available;
+    bool can_bus_available;
+    bool led_strip_available;
+    bool gimbal_available;
+    
+    // 机械臂状态
+    bool arm_connected;
+    int arm_motor_count;
+    std::string arm_status;
+    
+    // 电机状态
+    bool motor_connected;
+    int motor_count;
+    std::string motor_status;
+    
+    DeviceInfo() = default;
+};
+
+// 远程控制命令结构体
+struct RemoteControlCommand {
+    std::string command_type;
+    std::string target;
+    std::string action;
+    cJSON* parameters = nullptr;
+    
+    ~RemoteControlCommand() {
+        if (parameters) {
+            cJSON_Delete(parameters);
+        }
+    }
+};
+
+// 用户MQTT客户端类
+class UserMqttClient {
+public:
+    UserMqttClient();
+    ~UserMqttClient();
+    
+    // 初始化和连接
+    bool Initialize(const UserMqttConfig& config);
+    bool Connect();
+    void Disconnect();
+    bool IsConnected() const;
+    
+    // 设备信息发送
+    bool SendDeviceInfo(const DeviceInfo& info);
+    bool SendStatus(const std::string& status, const std::string& message = "");
+    bool SendHeartbeat();
+    
+    // 远程控制回调设置
+    void SetControlCallback(std::function<void(const RemoteControlCommand&)> callback);
+    void SetConnectionCallback(std::function<void(bool)> callback);
+    
+    // 配置管理
+    void UpdateConfig(const UserMqttConfig& config);
+    UserMqttConfig GetConfig() const;
+    
+    // 状态查询
+    std::string GetLastError() const;
+    int GetConnectionRetryCount() const;
+    
+private:
+    UserMqttConfig config_;
+    std::unique_ptr<Mqtt> mqtt_client_;
+    EventGroupHandle_t event_group_;
+    esp_timer_handle_t heartbeat_timer_;
+    esp_timer_handle_t reconnect_timer_;
+    
+    // 状态变量
+    bool connected_;
+    bool initialized_;
+    std::string last_error_;
+    int retry_count_;
+    uint32_t last_heartbeat_time_;
+    
+    // 回调函数
+    std::function<void(const RemoteControlCommand&)> control_callback_;
+    std::function<void(bool)> connection_callback_;
+    
+    // 内部方法
+    bool CreateMqttClient();
+    void SetupCallbacks();
+    void ParseControlMessage(const std::string& topic, const std::string& payload);
+    RemoteControlCommand ParseCommand(const cJSON* json);
+    std::string DeviceInfoToJson(const DeviceInfo& info);
+    std::string StatusToJson(const std::string& status, const std::string& message);
+    
+    // 定时器回调
+    static void HeartbeatTimerCallback(void* arg);
+    static void ReconnectTimerCallback(void* arg);
+    
+    // MQTT事件回调
+    void OnConnected();
+    void OnDisconnected();
+    void OnMessage(const std::string& topic, const std::string& payload);
+    
+    // 常量定义
+    static constexpr int MQTT_CONNECT_TIMEOUT_MS = 10000;
+    static constexpr int MQTT_RECONNECT_INTERVAL_MS = 30000;
+    static constexpr int HEARTBEAT_INTERVAL_MS = 60000;
+    static constexpr int MAX_RETRY_COUNT = 5;
+    
+    // 事件位定义
+    static constexpr EventBits_t MQTT_CONNECTED_BIT = BIT0;
+    static constexpr EventBits_t MQTT_DISCONNECTED_BIT = BIT1;
+    static constexpr EventBits_t MQTT_ERROR_BIT = BIT2;
+};
+
+#endif // USER_MQTT_CLIENT_H
+
