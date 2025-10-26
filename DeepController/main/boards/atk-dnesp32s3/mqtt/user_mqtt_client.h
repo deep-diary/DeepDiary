@@ -65,6 +65,16 @@ struct DeviceInfo {
     int motor_count;
     std::string motor_status;
     
+    // 传感器数据
+    bool sensor_available;
+    float acc_x;                    // X轴加速度 (m/s²)
+    float acc_y;                    // Y轴加速度 (m/s²)
+    float acc_z;                    // Z轴加速度 (m/s²)
+    float acc_g;                    // 总加速度 (m/s²)
+    float pitch;                    // 俯仰角 (度)
+    float roll;                     // 翻滚角 (度)
+    std::string sensor_status;      // 传感器状态
+    
     DeviceInfo() = default;
 };
 

@@ -14,7 +14,7 @@
 
 DeviceInfoCollector::DeviceInfoCollector() 
     : deep_motor_(nullptr), deep_arm_(nullptr), gimbal_(nullptr), 
-      led_strip_(nullptr), camera_(nullptr), device_id_cached_(false) {
+      led_strip_(nullptr), camera_(nullptr), sensor_data_(nullptr), device_id_cached_(false) {
     ESP_LOGI(TAG_DEVICE_INFO, "DeviceInfoCollector initialized");
 }
 
@@ -42,6 +42,10 @@ void DeviceInfoCollector::SetCamera(Esp32Camera* camera) {
     camera_ = camera;
 }
 
+void DeviceInfoCollector::SetSensor(qma6100p_rawdata_t* sensor_data) {
+    sensor_data_ = sensor_data;
+}
+
 DeviceInfo DeviceInfoCollector::CollectDeviceInfo() {
     DeviceInfo info;
     
@@ -59,6 +63,7 @@ DeviceInfo DeviceInfoCollector::CollectDeviceInfo() {
     info.can_bus_available = true; // CAN总线在板级初始化中已配置
     info.led_strip_available = (led_strip_ != nullptr);
     info.gimbal_available = (gimbal_ != nullptr);
+    info.sensor_available = (sensor_data_ != nullptr);
     
     // 机械臂状态
     info.arm_connected = (deep_arm_ != nullptr);
@@ -69,6 +74,24 @@ DeviceInfo DeviceInfoCollector::CollectDeviceInfo() {
     info.motor_connected = (deep_motor_ != nullptr);
     info.motor_count = info.motor_connected ? 6 : 0; // 假设6个电机
     info.motor_status = GetMotorStatus();
+    
+    // 传感器数据
+    if (info.sensor_available && sensor_data_ != nullptr) {
+        info.acc_x = sensor_data_->acc_x;
+        info.acc_y = sensor_data_->acc_y;
+        info.acc_z = sensor_data_->acc_z;
+        info.acc_g = sensor_data_->acc_g;
+        info.pitch = sensor_data_->pitch;
+        info.roll = sensor_data_->roll;
+    } else {
+        info.acc_x = 0.0f;
+        info.acc_y = 0.0f;
+        info.acc_z = 0.0f;
+        info.acc_g = 0.0f;
+        info.pitch = 0.0f;
+        info.roll = 0.0f;
+    }
+    info.sensor_status = GetSensorStatus();
     
     ESP_LOGI(TAG_DEVICE_INFO, "Device info collected - ID: %s, Heap: %d, Uptime: %d", 
              info.device_id.c_str(), info.free_heap, info.uptime_seconds);
@@ -124,6 +147,19 @@ std::string DeviceInfoCollector::GetCameraStatus() const {
     // 这里可以根据实际的Esp32Camera API来获取状态
     // 暂时返回基本状态
     return "connected";
+}
+
+std::string DeviceInfoCollector::GetSensorStatus() const {
+    if (!sensor_data_) {
+        return "not_available";
+    }
+    
+    // 检查传感器数据是否有效
+    if (sensor_data_->acc_g > 0.1f) { // 如果总加速度大于0.1，认为传感器工作正常
+        return "connected";
+    } else {
+        return "error";
+    }
 }
 
 std::string DeviceInfoCollector::GetDeviceId() const {

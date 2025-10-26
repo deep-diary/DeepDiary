@@ -7,6 +7,7 @@
 #include "../gimbal/Gimbal.h"
 #include "../../led/circular_strip.h"
 #include "../../common/esp32_camera.h"
+#include "../sensor/QMA6100P/qma6100p.h"
 #include <string>
 #include <memory>
 
@@ -21,6 +22,7 @@ public:
     void SetGimbal(Gimbal_t* gimbal);
     void SetLedStrip(CircularStrip* led_strip);
     void SetCamera(Esp32Camera* camera);
+    void SetSensor(qma6100p_rawdata_t* sensor_data);
     
     // 收集设备信息
     DeviceInfo CollectDeviceInfo();
@@ -31,6 +33,7 @@ public:
     std::string GetGimbalStatus() const;
     std::string GetLedStripStatus() const;
     std::string GetCameraStatus() const;
+    std::string GetSensorStatus() const;
     
     // 获取系统信息
     std::string GetDeviceId() const;
@@ -48,6 +51,7 @@ private:
     Gimbal_t* gimbal_;
     CircularStrip* led_strip_;
     Esp32Camera* camera_;
+    qma6100p_rawdata_t* sensor_data_;
     
     // 缓存设备ID
     mutable std::string cached_device_id_;
