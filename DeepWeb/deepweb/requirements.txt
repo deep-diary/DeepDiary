@@ -1,0 +1,27 @@
+# DeepWeb 依赖包 - Python 3.13兼容版本
+# 核心框架
+streamlit>=1.39.0
+plotly>=5.17.0
+pandas>=2.0.0
+
+# MQTT通信
+paho-mqtt>=1.6.1
+
+# 图像处理
+opencv-python>=4.8.0
+numpy>=1.24.0
+Pillow>=10.0.0
+
+# 数据处理
+dataclasses-json>=0.6.0
+
+# 配置管理
+pyyaml>=6.0
+
+# 注意：以下模块是Python标准库，无需安装
+# sqlite3 - Python标准库
+# pathlib - Python标准库  
+# threading - Python标准库
+# json - Python标准库
+# time - Python标准库
+# datetime - Python标准库

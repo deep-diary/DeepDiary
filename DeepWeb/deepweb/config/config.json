@@ -1,0 +1,33 @@
+{
+  "mqtt": {
+    "host": "34.172.161.212",
+    "port": 1883,
+    "username": null,
+    "password": null,
+    "client_id": "deepweb-client",
+    "keepalive": 60,
+    "auto_reconnect": true,
+    "reconnect_interval": 5
+  },
+  "tcp_server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "web_host": "0.0.0.0",
+    "web_port": 8000
+  },
+  "ui": {
+    "theme": "浅色",
+    "language": "中文",
+    "auto_refresh": true,
+    "refresh_interval": 5,
+    "show_debug": false
+  },
+  "devices": {
+    "default_device": {
+      "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
+      "device_type": "ATK-DNESP32S3",
+      "firmware_version": "1.0.0",
+      "ip_address": "192.168.1.100"
+    }
+  }
+}
