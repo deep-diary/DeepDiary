@@ -17,46 +17,66 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+# 初始化日志管理器（应用入口处全局初始化）
+from data_management.log_manager import LogManager
+_log_manager = LogManager()  # 单例模式，全局唯一
+logger = _log_manager.get_logger(__name__)
+
 # 导入服务模块
 from services.cloud_communication.mqtt.mqtt_manager import MQTTManager
 from services.simple_video_receiver import get_video_receiver, start_video_service
 from app_logic.device_logic_manager import DeviceLogicManager
 from config.config_manager import ConfigManager
 
+# 导出日志管理器供其他模块使用
+def get_log_manager():
+    """获取全局日志管理器实例"""
+    return _log_manager
+
 def initialize_session_state():
     """初始化会话状态"""
+    # 获取日志管理器
+    log_manager = get_log_manager()
+    
     # 初始化配置管理器
     if 'config_manager' not in st.session_state:
+        logger.debug("初始化配置管理器")
         st.session_state.config_manager = ConfigManager()
     
-    # 初始化MQTT管理器
+    # 初始化设备逻辑管理器（传递logger）
+    if 'device_manager' not in st.session_state:
+        logger.debug("初始化设备逻辑管理器")
+        st.session_state.device_manager = DeviceLogicManager(log_manager=log_manager)
+    
+    # 初始化MQTT管理器（传递logger）
     if 'mqtt_manager' not in st.session_state:
         config = st.session_state.config_manager.get_config()
         mqtt_config = config.get('mqtt', {})
+        logger.debug(f"初始化MQTT管理器: {mqtt_config.get('host')}:{mqtt_config.get('port')}")
         st.session_state.mqtt_manager = MQTTManager(
             host=mqtt_config.get('host', 'localhost'),
             port=mqtt_config.get('port', 1883),
             username=mqtt_config.get('username'),
             password=mqtt_config.get('password'),
-            debug=True
+            debug=True,
+            log_manager=log_manager
         )
-    
-    # 初始化设备逻辑管理器
-    if 'device_manager' not in st.session_state:
-        st.session_state.device_manager = DeviceLogicManager()
     
     # 初始化视频接收器
     if 'video_receiver' not in st.session_state:
+        logger.debug("初始化视频接收器")
         st.session_state.video_receiver = get_video_receiver()
         # 启动视频服务
         start_video_service()
     
-    # 初始化MQTT服务适配器
+    # 初始化MQTT服务适配器（传递logger）
     if 'mqtt_adapter' not in st.session_state:
         from services.mqtt_service_adapter import MQTTServiceAdapter
+        logger.debug("初始化MQTT服务适配器")
         st.session_state.mqtt_adapter = MQTTServiceAdapter(
             st.session_state.mqtt_manager,
-            st.session_state.device_manager
+            st.session_state.device_manager,
+            log_manager=log_manager
         )
 
 def show_sidebar():
@@ -90,14 +110,17 @@ def show_sidebar():
         
         # 快速操作
         st.markdown("### 快速操作")
-        if st.button("🔄 刷新状态", use_container_width=True):
+        if st.button("🔄 刷新状态", width="stretch"):
             st.rerun()
         
-        if st.button("📹 摄像头监控", use_container_width=True):
+        if st.button("📹 摄像头监控", width="stretch"):
             st.switch_page("pages/04_📹_摄像头监控.py")
         
-        if st.button("🎮 设备控制", use_container_width=True):
+        if st.button("🎮 设备控制", width="stretch"):
             st.switch_page("pages/03_🎮_设备控制.py")
+        
+        if st.button("📡 MQTT监控", width="stretch"):
+            st.switch_page("pages/06_📡_MQTT数据监控.py")
 
 def main():
     """主程序入口"""

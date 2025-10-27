@@ -69,7 +69,8 @@ class MQTTManager:
                  keepalive: int = 60,
                  auto_reconnect: bool = True,
                  reconnect_interval: int = 5,
-                 debug: bool = False):
+                 debug: bool = False,
+                 log_manager=None):
         """
         初始化MQTT管理器
         
@@ -83,6 +84,7 @@ class MQTTManager:
             auto_reconnect: 是否自动重连
             reconnect_interval: 重连间隔（秒）
             debug: 是否开启调试模式
+            log_manager: 日志管理器实例
         """
         self.host = host
         self.port = port
@@ -93,6 +95,12 @@ class MQTTManager:
         self.auto_reconnect = auto_reconnect
         self.reconnect_interval = reconnect_interval
         self.debug = debug
+        
+        # 设置日志管理器
+        if log_manager:
+            self.logger = log_manager.get_logger(__name__)
+        else:
+            self.logger = None
         
         # 连接状态
         self.status = ConnectionStatus.DISCONNECTED
@@ -323,8 +331,13 @@ class MQTTManager:
             
     def _log(self, message: str):
         """日志输出"""
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"[{timestamp}] MQTT: {message}")
+        if self.debug:
+            if self.logger:
+                self.logger.info(message)
+            else:
+                # 如果logger不可用，使用print作为后备
+                timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+                print(f"[{timestamp}] MQTT: {message}")
         
     def connect(self) -> bool:
         """连接到MQTT代理"""

@@ -43,7 +43,7 @@ class ConfigManager:
         """获取默认配置"""
         return {
             "mqtt": {
-                "host": "34.172.161.212",
+                "host": "localhost",
                 "port": 1883,
                 "username": None,
                 "password": None,

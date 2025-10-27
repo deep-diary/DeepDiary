@@ -153,7 +153,7 @@ if components_data:
         }
     )
     fig.update_layout(yaxis_title="Available", showlegend=True)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 st.markdown("---")
 
@@ -195,7 +195,7 @@ if device.sensor_data:
                 }
             ))
             fig_acc.update_layout(height=300)
-            st.plotly_chart(fig_acc, use_container_width=True)
+            st.plotly_chart(fig_acc, width="stretch")
         
         with col2:
             st.markdown("### 三轴加速度")
@@ -213,7 +213,7 @@ if device.sensor_data:
                 yaxis_title="加速度 (m/s²)",
                 height=300
             )
-            st.plotly_chart(fig_axes, use_container_width=True)
+            st.plotly_chart(fig_axes, width="stretch")
     
     # 姿态数据
     if 'orientation' in sensor_data:
@@ -254,7 +254,7 @@ if device.motor_data:
         
         if motor_df_data:
             motor_df = pd.DataFrame(motor_df_data)
-            st.dataframe(motor_df, use_container_width=True)
+            st.dataframe(motor_df, width="stretch")
             
             # 电机位置图表
             if len(motors) > 0:
@@ -270,7 +270,7 @@ if device.motor_data:
                     yaxis_title="位置 (°)",
                     height=400
                 )
-                st.plotly_chart(fig_motors, use_container_width=True)
+                st.plotly_chart(fig_motors, width="stretch")
 
 st.markdown("---")
 
@@ -296,7 +296,7 @@ if device.arm_data:
         
         if joint_df_data:
             joint_df = pd.DataFrame(joint_df_data)
-            st.dataframe(joint_df, use_container_width=True)
+            st.dataframe(joint_df, width="stretch")
     
     # 末端执行器位置
     if 'end_effector' in arm_data:
@@ -348,7 +348,7 @@ if device.free_heap > 0:
         )
     ])
     fig_memory.update_layout(title="内存使用情况")
-    st.plotly_chart(fig_memory, use_container_width=True)
+    st.plotly_chart(fig_memory, width="stretch")
 
 # 最后更新时间
 st.markdown("---")

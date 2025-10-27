@@ -63,7 +63,7 @@ def initialize_session_state():
 initialize_session_state()
 
 st.title("🎮 设备控制")
-st.markdown("发送控制命令到不倒翁设备")
+st.markdown("根据MQTT协议发送控制命令到DeepController设备")
 
 # 获取设备管理器
 device_manager = st.session_state.device_manager
@@ -96,7 +96,7 @@ st.markdown("---")
 mqtt_adapter = st.session_state.mqtt_adapter
 
 # 控制面板
-tab1, tab2, tab3, tab4 = st.tabs(["⚙️ 电机控制", "🤖 机械臂控制", "📹 摄像头控制", "💡 LED控制"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚙️ 电机控制", "🤖 机械臂控制", "📹 摄像头控制", "💡 LED控制", "📡 MQTT命令"])
 
 with tab1:
     st.markdown("### 电机控制")
@@ -416,6 +416,255 @@ with tab4:
             else:
                 st.error("预设效果应用失败")
 
+with tab5:
+    st.markdown("### 📡 MQTT命令发送")
+    st.markdown("根据DeepController MQTT协议发送控制命令")
+    
+    # 获取MQTT管理器
+    mqtt_manager = st.session_state.mqtt_manager
+    
+    # 命令类型选择
+    command_types = {
+        "motor_control": "电机控制",
+        "arm_control": "机械臂控制", 
+        "camera_control": "摄像头控制",
+        "led_control": "LED控制",
+        "system_control": "系统控制"
+    }
+    
+    selected_command_type = st.selectbox(
+        "选择命令类型",
+        list(command_types.keys()),
+        format_func=lambda x: command_types[x]
+    )
+    
+    # 根据命令类型显示不同的参数
+    if selected_command_type == "motor_control":
+        st.markdown("#### 电机控制参数")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            motor_id = st.selectbox("电机ID", [1, 2, 3, 4, 5, 6], key="mqtt_motor_id")
+            action = st.selectbox(
+                "动作",
+                ["start", "stop", "move", "set_position", "set_speed"],
+                key="mqtt_motor_action"
+            )
+        
+        with col2:
+            if action in ["move", "set_position"]:
+                position = st.slider("位置 (度)", -180, 180, 0, key="mqtt_position")
+                speed = st.slider("速度 (rpm)", 0, 100, 50, key="mqtt_speed")
+                duration = st.slider("持续时间 (ms)", 100, 10000, 1000, key="mqtt_duration")
+            elif action == "set_speed":
+                speed = st.slider("速度 (rpm)", -100, 100, 0, key="mqtt_speed_set")
+            else:
+                position = 0
+                speed = 0
+                duration = 0
+    
+    elif selected_command_type == "arm_control":
+        st.markdown("#### 机械臂控制参数")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            joint_id = st.selectbox("关节ID", [1, 2, 3, 4, 5, 6], key="mqtt_joint_id")
+            action = st.selectbox(
+                "动作",
+                ["start", "stop", "set_angle", "set_velocity", "grip", "release"],
+                key="mqtt_arm_action"
+            )
+        
+        with col2:
+            if action == "set_angle":
+                angle = st.slider("角度 (度)", -180, 180, 0, key="mqtt_angle")
+                velocity = st.slider("速度 (度/秒)", 0, 90, 30, key="mqtt_velocity")
+            elif action == "set_velocity":
+                velocity = st.slider("速度 (度/秒)", -90, 90, 0, key="mqtt_velocity_set")
+            else:
+                angle = 0
+                velocity = 0
+    
+    elif selected_command_type == "camera_control":
+        st.markdown("#### 摄像头控制参数")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            action = st.selectbox(
+                "动作",
+                ["start_stream", "stop_stream", "take_photo", "start_recording", "stop_recording", "set_config"],
+                key="mqtt_camera_action"
+            )
+        
+        with col2:
+            if action == "set_config":
+                resolution = st.selectbox(
+                    "分辨率",
+                    ["320x240", "640x480", "800x600", "1024x768"],
+                    key="mqtt_resolution"
+                )
+                quality = st.slider("质量", 10, 100, 80, key="mqtt_quality")
+                fps = st.slider("帧率", 1, 30, 15, key="mqtt_fps")
+            else:
+                resolution = "640x480"
+                quality = 80
+                fps = 15
+    
+    elif selected_command_type == "led_control":
+        st.markdown("#### LED控制参数")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            action = st.selectbox(
+                "动作",
+                ["set_mode", "set_color", "set_brightness"],
+                key="mqtt_led_action"
+            )
+        
+        with col2:
+            if action == "set_mode":
+                mode = st.selectbox(
+                    "模式",
+                    ["solid", "blink", "rainbow", "breathing", "off"],
+                    key="mqtt_led_mode"
+                )
+                if mode != "off":
+                    color = st.color_picker("颜色", "#00ff00", key="mqtt_led_color")
+                    brightness = st.slider("亮度", 0, 255, 128, key="mqtt_led_brightness")
+                else:
+                    color = "#000000"
+                    brightness = 0
+            else:
+                mode = "solid"
+                color = "#00ff00"
+                brightness = 128
+    
+    elif selected_command_type == "system_control":
+        st.markdown("#### 系统控制参数")
+        
+        action = st.selectbox(
+            "动作",
+            ["restart", "shutdown", "get_status", "get_config"],
+            key="mqtt_system_action"
+        )
+    
+    # 通用参数
+    st.markdown("#### 通用参数")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        priority = st.selectbox("优先级", ["high", "normal", "low"], key="mqtt_priority")
+    
+    with col2:
+        timeout = st.slider("超时时间 (ms)", 1000, 30000, 10000, key="mqtt_timeout")
+    
+    with col3:
+        command_id = st.text_input("命令ID", value=f"cmd_{int(time.time())}", key="mqtt_command_id")
+    
+    # 发送命令
+    if st.button("📤 发送MQTT命令", width="stretch"):
+        try:
+            # 构建命令数据
+            command_data = {
+                "command_id": command_id,
+                "timestamp": int(time.time()),
+                "command_type": selected_command_type,
+                "target": selected_command_type.split('_')[0],  # motor, arm, camera, led, system
+                "action": action,
+                "parameters": {},
+                "priority": priority,
+                "timeout": timeout
+            }
+            
+            # 根据命令类型添加特定参数
+            if selected_command_type == "motor_control":
+                command_data["parameters"] = {
+                    "motor_id": motor_id,
+                    "position": position if action in ["move", "set_position"] else None,
+                    "speed": speed if action in ["move", "set_position", "set_speed"] else None,
+                    "duration": duration if action in ["move", "set_position"] else None
+                }
+            elif selected_command_type == "arm_control":
+                command_data["parameters"] = {
+                    "joint_id": joint_id,
+                    "angle": angle if action == "set_angle" else None,
+                    "velocity": velocity if action in ["set_angle", "set_velocity"] else None
+                }
+            elif selected_command_type == "camera_control":
+                if action == "set_config":
+                    width, height = map(int, resolution.split('x'))
+                    command_data["parameters"] = {
+                        "resolution": {"width": width, "height": height},
+                        "quality": quality,
+                        "fps": fps
+                    }
+                else:
+                    command_data["parameters"] = {}
+            elif selected_command_type == "led_control":
+                if action == "set_mode":
+                    rgb = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+                    command_data["parameters"] = {
+                        "mode": mode,
+                        "color": rgb,
+                        "brightness": brightness
+                    }
+                else:
+                    command_data["parameters"] = {}
+            elif selected_command_type == "system_control":
+                command_data["parameters"] = {}
+            
+            # 发送到MQTT
+            topic = f"deepcontroller/{selected_device_id}/command"
+            success = mqtt_manager.publish_json(topic, command_data)
+            
+            if success:
+                st.success(f"✅ 命令发送成功到主题: {topic}")
+                
+                # 显示发送的命令
+                st.markdown("#### 发送的命令内容:")
+                st.json(command_data)
+                
+                # 记录到命令历史
+                from app_logic.device_logic_manager import DeviceCommand
+                cmd = DeviceCommand(
+                    command_id=command_id,
+                    command_type=selected_command_type,
+                    target=command_data["target"],
+                    action=action,
+                    parameters=command_data["parameters"],
+                    timestamp=time.time(),
+                    device_id=selected_device_id
+                )
+                device_manager.add_command(cmd)
+                
+            else:
+                st.error("❌ 命令发送失败")
+                
+        except Exception as e:
+            st.error(f"❌ 发送命令时出错: {e}")
+    
+    # 显示MQTT连接状态
+    st.markdown("---")
+    st.markdown("#### MQTT连接状态")
+    
+    mqtt_status = mqtt_manager.get_status()
+    if mqtt_status['status'] == 'connected':
+        st.success(f"🟢 已连接到 {mqtt_status['host']}:{mqtt_status['port']}")
+        st.info(f"📊 统计信息: 发送 {mqtt_status['stats']['messages_sent']} 条消息, 接收 {mqtt_status['stats']['messages_received']} 条消息")
+    else:
+        st.error(f"🔴 连接失败: {mqtt_status.get('last_error', 'Unknown error')}")
+    
+    # 显示订阅的主题
+    if mqtt_manager.subscriptions:
+        st.markdown("#### 已订阅的主题:")
+        for name, config in mqtt_manager.subscriptions.items():
+            st.markdown(f"- `{config.topic}` ({config.description})")
+
 st.markdown("---")
 
 # 命令历史
@@ -437,6 +686,6 @@ if command_history:
     
     import pandas as pd
     df_history = pd.DataFrame(history_data)
-    st.dataframe(df_history, use_container_width=True)
+    st.dataframe(df_history, width="stretch")
 else:
     st.info("暂无命令历史")

@@ -16,6 +16,7 @@ import threading
 import time
 import sys
 from pathlib import Path
+from functools import lru_cache
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
@@ -73,6 +74,7 @@ with col1:
 
 with col2:
     auto_refresh = st.checkbox("自动刷新", value=True)
+    refresh_rate = st.slider("刷新频率 (秒)", 0.1, 2.0, 0.5, 0.1)
 
 with col3:
     if st.button("📷 保存截图"):
@@ -133,7 +135,7 @@ else:
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
         # 显示图像
-        st.image(frame_rgb, caption="实时视频流", use_column_width=True)
+        st.image(frame_rgb, caption="实时视频流", width="stretch")
         
         # 显示图像信息
         height, width, channels = frame.shape
@@ -183,22 +185,22 @@ with col2:
     col_start, col_stop = st.columns(2)
     
     with col_start:
-        if st.button("▶️ 开始流", use_container_width=True):
+        if st.button("▶️ 开始流", width="stretch"):
             st.success("视频流已开始")
     
     with col_stop:
-        if st.button("⏹️ 停止流", use_container_width=True):
+        if st.button("⏹️ 停止流", width="stretch"):
             st.success("视频流已停止")
     
     # 其他控制
     col_photo, col_record = st.columns(2)
     
     with col_photo:
-        if st.button("📷 拍照", use_container_width=True):
+        if st.button("📷 拍照", width="stretch"):
             st.success("拍照完成")
     
     with col_record:
-        if st.button("🔴 录制", use_container_width=True):
+        if st.button("🔴 录制", width="stretch"):
             st.success("录制已开始")
 
 st.markdown("---")
@@ -235,7 +237,7 @@ if processing_options:
             # 转换BGR到RGB
             processed_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
             
-            st.image(processed_rgb, caption="处理后的图像", use_container_width=True)
+            st.image(processed_rgb, caption="处理后的图像", width="stretch")
 
 st.markdown("---")
 
@@ -261,7 +263,8 @@ with col3:
     else:
         st.metric("客户端状态", "未连接")
 
-# 自动刷新
+# 优化视频流显示
 if auto_refresh:
-    time.sleep(1)
+    # 使用用户设置的刷新频率
+    time.sleep(refresh_rate)
     st.rerun()

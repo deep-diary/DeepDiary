@@ -11,6 +11,8 @@ DeepToy/**/*.out
 DeepToy/**/*.app
 
 # DeepWeb
+DeepWeb/**/__pycache__/
+DeepWeb/**/logs/
 DeepWeb/**/node_modules/
 DeepWeb/**/dist
 DeepWeb/**/npm-debug.log*

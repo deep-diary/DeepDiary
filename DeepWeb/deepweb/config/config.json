@@ -1,6 +1,6 @@
 {
   "mqtt": {
-    "host": "34.172.161.212",
+    "host": "localhost",
     "port": 1883,
     "username": null,
     "password": null,
