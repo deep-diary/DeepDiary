@@ -21,9 +21,12 @@ struct UserMqttClientConfig {
     std::string client_id;
     std::string username;
     std::string password;
-    std::string device_info_topic;    // 设备信息发布主题
+    std::string device_info_topic;    // 设备信息发布主题（静态配置）
     std::string control_topic;        // 远程控制订阅主题
     std::string status_topic;         // 状态发布主题
+    std::string system_status_topic;  // 系统状态发布主题
+    std::string sensor_status_topic;  // 传感器状态发布主题
+    std::string actuator_status_topic;// 执行器状态发布主题
     int keepalive_interval = 60;
     bool use_ssl = false;
     
@@ -37,46 +40,73 @@ struct UserMqttClientConfig {
         device_info_topic = "device/" + client_id + "/info";
         control_topic = "device/" + client_id + "/control";
         status_topic = "device/" + client_id + "/status";
+        system_status_topic = "device/" + client_id + "/status/system";
+        sensor_status_topic = "device/" + client_id + "/status/sensor";
+        actuator_status_topic = "device/" + client_id + "/status/actuator";
     }
 };
 
-// 设备信息结构体
-struct DeviceInfo {
+// 设备固定配置信息（基本不变）
+struct DeviceConfigInfo {
     std::string device_id;
     std::string device_type = "ATK-DNESP32S3";
     std::string firmware_version;
-    std::string wifi_ssid;
-    std::string ip_address;
-    int free_heap;
-    int uptime_seconds;
-    float cpu_temperature;
-    bool camera_available;
-    bool can_bus_available;
-    bool led_strip_available;
-    bool gimbal_available;
+    std::string mac_address;
+    std::string chip_model;
+    std::string chip_revision;
     
-    // 机械臂状态
-    bool arm_connected;
-    int arm_motor_count;
-    std::string arm_status;
+    // 硬件能力（固定属性）
+    struct {
+        bool camera = false;
+        bool can_bus = false;
+        bool led_strip = false;
+        bool gimbal = false;
+        bool arm = false;
+        bool motor = false;
+        bool sensor = false;
+    } capabilities;
     
-    // 电机状态
-    bool motor_connected;
-    int motor_count;
-    std::string motor_status;
+    DeviceConfigInfo() = default;
+};
+
+// 设备状态分类结构
+namespace DeviceStatus {
+    // 系统动态信息
+    struct SystemInfo {
+        std::string wifi_ssid;
+        std::string ip_address;
+        int free_heap;
+        int uptime_seconds;
+        float cpu_temperature;
+        std::string network_status;
+    };
     
     // 传感器数据
-    bool sensor_available;
-    float acc_x;                    // X轴加速度 (m/s²)
-    float acc_y;                    // Y轴加速度 (m/s²)
-    float acc_z;                    // Z轴加速度 (m/s²)
-    float acc_g;                    // 总加速度 (m/s²)
-    float pitch;                    // 俯仰角 (度)
-    float roll;                     // 翻滚角 (度)
-    std::string sensor_status;      // 传感器状态
+    struct SensorData {
+        float acc_x;                    // X轴加速度 (m/s²)
+        float acc_y;                    // Y轴加速度 (m/s²)
+        float acc_z;                    // Z轴加速度 (m/s²)
+        float acc_g;                    // 总加速度 (m/s²)
+        float pitch;                    // 俯仰角 (度)
+        float roll;                     // 翻滚角 (度)
+        std::string sensor_status;
+    };
     
-    DeviceInfo() = default;
-};
+    // 执行器状态
+    struct ActuatorStatus {
+        struct {
+            bool connected;
+            int motor_count;
+            std::string status;
+        } arm;
+        
+        struct {
+            bool connected;
+            int motor_count;
+            std::string status;
+        } motor;
+    };
+}
 
 // 远程控制命令结构体
 struct RemoteControlCommand {
@@ -104,10 +134,15 @@ public:
     void Disconnect();
     bool IsConnected() const;
     
-    // 设备信息发送
-    bool SendDeviceInfo(const DeviceInfo& info);
+    // 状态发送
     bool SendStatus(const std::string& status, const std::string& message = "");
     bool SendHeartbeat();
+    
+    // 新的分级发送方法
+    bool SendDeviceConfig(const DeviceConfigInfo& config);
+    bool SendSystemStatus(const DeviceStatus::SystemInfo& system_info);
+    bool SendSensorStatus(const DeviceStatus::SensorData& sensor_data);
+    bool SendActuatorStatus(const DeviceStatus::ActuatorStatus& actuator_status);
     
     // 远程控制回调设置
     void SetControlCallback(std::function<void(const RemoteControlCommand&)> callback);
@@ -144,7 +179,6 @@ private:
     void SetupCallbacks();
     void ParseControlMessage(const std::string& topic, const std::string& payload);
     RemoteControlCommand ParseCommand(const cJSON* json);
-    std::string DeviceInfoToJson(const DeviceInfo& info);
     std::string StatusToJson(const std::string& status, const std::string& message);
     
     // 定时器回调

@@ -107,14 +107,25 @@ bool UserMqttClient::Connect() {
         retry_count_ = 0;
         ESP_LOGI(TAG_USER_MQTT, "Successfully connected to broker");
         
+        // 等待 MQTT 客户端完全就绪
+        vTaskDelay(pdMS_TO_TICKS(500));
+        
         // 订阅控制主题
         if (!config_.control_topic.empty()) {
             ESP_LOGI(TAG_USER_MQTT, "📡 SUBSCRIBING to Control Topic");
             ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.control_topic.c_str());
-            if (mqtt_client_->Subscribe(config_.control_topic)) {
-                ESP_LOGI(TAG_USER_MQTT, "  ✅ Subscription successful");
+            
+            // 检查客户端是否真的可用
+            if (!mqtt_client_) {
+                ESP_LOGE(TAG_USER_MQTT, "  ❌ MQTT client is null");
+            } else if (!mqtt_client_->IsConnected()) {
+                ESP_LOGE(TAG_USER_MQTT, "  ❌ MQTT client is not connected");
             } else {
-                ESP_LOGE(TAG_USER_MQTT, "  ❌ Subscription failed");
+                if (mqtt_client_->Subscribe(config_.control_topic)) {
+                    ESP_LOGI(TAG_USER_MQTT, "  ✅ Subscription successful");
+                } else {
+                    ESP_LOGE(TAG_USER_MQTT, "  ❌ Subscription failed");
+                }
             }
         } else {
             ESP_LOGW(TAG_USER_MQTT, "⚠️ No control topic configured, skipping subscription");
@@ -179,29 +190,6 @@ bool UserMqttClient::IsConnected() const {
     return connected_ && mqtt_client_ != nullptr;
 }
 
-bool UserMqttClient::SendDeviceInfo(const DeviceInfo& info) {
-    if (!IsConnected()) {
-        ESP_LOGW(TAG_USER_MQTT, "Not connected, cannot send device info");
-        return false;
-    }
-    
-    std::string json = DeviceInfoToJson(info);
-    if (json.empty()) {
-        ESP_LOGE(TAG_USER_MQTT, "Failed to serialize device info");
-        return false;
-    }
-    
-    if (!mqtt_client_->Publish(config_.device_info_topic, json)) {
-        ESP_LOGE(TAG_USER_MQTT, "Failed to publish device info");
-        return false;
-    }
-    
-    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH Device Info");
-    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.device_info_topic.c_str());
-    ESP_LOGI(TAG_USER_MQTT, "  Payload: %s", json.c_str());
-    return true;
-}
-
 bool UserMqttClient::SendStatus(const std::string& status, const std::string& message) {
     if (!IsConnected()) {
         return false;
@@ -250,6 +238,144 @@ bool UserMqttClient::SendHeartbeat() {
     ESP_LOGI(TAG_USER_MQTT, "💓 PUBLISH Heartbeat");
     ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.status_topic.c_str());
     ESP_LOGI(TAG_USER_MQTT, "  Payload: %s", json.c_str());
+    return true;
+}
+
+bool UserMqttClient::SendDeviceConfig(const DeviceConfigInfo& config) {
+    if (!IsConnected()) {
+        ESP_LOGW(TAG_USER_MQTT, "Not connected, cannot send device config");
+        return false;
+    }
+    
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "device_id", config.device_id.c_str());
+    cJSON_AddStringToObject(root, "device_type", config.device_type.c_str());
+    cJSON_AddStringToObject(root, "firmware_version", config.firmware_version.c_str());
+    cJSON_AddStringToObject(root, "mac_address", config.mac_address.c_str());
+    cJSON_AddStringToObject(root, "chip_model", config.chip_model.c_str());
+    cJSON_AddStringToObject(root, "chip_revision", config.chip_revision.c_str());
+    
+    // 硬件能力
+    cJSON* capabilities = cJSON_CreateObject();
+    cJSON_AddBoolToObject(capabilities, "camera", config.capabilities.camera);
+    cJSON_AddBoolToObject(capabilities, "can_bus", config.capabilities.can_bus);
+    cJSON_AddBoolToObject(capabilities, "led_strip", config.capabilities.led_strip);
+    cJSON_AddBoolToObject(capabilities, "gimbal", config.capabilities.gimbal);
+    cJSON_AddBoolToObject(capabilities, "arm", config.capabilities.arm);
+    cJSON_AddBoolToObject(capabilities, "motor", config.capabilities.motor);
+    cJSON_AddBoolToObject(capabilities, "sensor", config.capabilities.sensor);
+    cJSON_AddItemToObject(root, "hardware_capabilities", capabilities);
+    
+    char* json_string = cJSON_PrintUnformatted(root);
+    std::string json(json_string);
+    cJSON_free(json_string);
+    cJSON_Delete(root);
+    
+    if (!mqtt_client_->Publish(config_.device_info_topic, json)) {
+        ESP_LOGE(TAG_USER_MQTT, "Failed to publish device info");
+        return false;
+    }
+    
+    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH Device Info");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.device_info_topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Payload: %s", json.c_str());
+    return true;
+}
+
+bool UserMqttClient::SendSystemStatus(const DeviceStatus::SystemInfo& system_info) {
+    if (!IsConnected()) {
+        return false;
+    }
+    
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "wifi_ssid", system_info.wifi_ssid.c_str());
+    cJSON_AddStringToObject(root, "ip_address", system_info.ip_address.c_str());
+    cJSON_AddNumberToObject(root, "free_heap", system_info.free_heap);
+    cJSON_AddNumberToObject(root, "uptime_seconds", system_info.uptime_seconds);
+    cJSON_AddNumberToObject(root, "cpu_temperature", system_info.cpu_temperature);
+    cJSON_AddStringToObject(root, "network_status", system_info.network_status.c_str());
+    cJSON_AddNumberToObject(root, "timestamp", esp_timer_get_time() / 1000000);
+    
+    char* json_string = cJSON_PrintUnformatted(root);
+    std::string json(json_string);
+    cJSON_free(json_string);
+    cJSON_Delete(root);
+    
+    if (!mqtt_client_->Publish(config_.system_status_topic, json)) {
+        ESP_LOGE(TAG_USER_MQTT, "Failed to publish system status");
+        return false;
+    }
+    
+    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH System Status");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.system_status_topic.c_str());
+    return true;
+}
+
+bool UserMqttClient::SendSensorStatus(const DeviceStatus::SensorData& sensor_data) {
+    if (!IsConnected()) {
+        return false;
+    }
+    
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "acc_x", sensor_data.acc_x);
+    cJSON_AddNumberToObject(root, "acc_y", sensor_data.acc_y);
+    cJSON_AddNumberToObject(root, "acc_z", sensor_data.acc_z);
+    cJSON_AddNumberToObject(root, "acc_g", sensor_data.acc_g);
+    cJSON_AddNumberToObject(root, "pitch", sensor_data.pitch);
+    cJSON_AddNumberToObject(root, "roll", sensor_data.roll);
+    cJSON_AddStringToObject(root, "sensor_status", sensor_data.sensor_status.c_str());
+    cJSON_AddNumberToObject(root, "timestamp", esp_timer_get_time() / 1000000);
+    
+    char* json_string = cJSON_PrintUnformatted(root);
+    std::string json(json_string);
+    cJSON_free(json_string);
+    cJSON_Delete(root);
+    
+    if (!mqtt_client_->Publish(config_.sensor_status_topic, json)) {
+        ESP_LOGE(TAG_USER_MQTT, "Failed to publish sensor status");
+        return false;
+    }
+    
+    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH Sensor Status");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.sensor_status_topic.c_str());
+    return true;
+}
+
+bool UserMqttClient::SendActuatorStatus(const DeviceStatus::ActuatorStatus& actuator_status) {
+    if (!IsConnected()) {
+        return false;
+    }
+    
+    cJSON* root = cJSON_CreateObject();
+    
+    // 机械臂状态
+    cJSON* arm = cJSON_CreateObject();
+    cJSON_AddBoolToObject(arm, "connected", actuator_status.arm.connected);
+    cJSON_AddNumberToObject(arm, "motor_count", actuator_status.arm.motor_count);
+    cJSON_AddStringToObject(arm, "status", actuator_status.arm.status.c_str());
+    cJSON_AddItemToObject(root, "arm", arm);
+    
+    // 电机状态
+    cJSON* motor = cJSON_CreateObject();
+    cJSON_AddBoolToObject(motor, "connected", actuator_status.motor.connected);
+    cJSON_AddNumberToObject(motor, "motor_count", actuator_status.motor.motor_count);
+    cJSON_AddStringToObject(motor, "status", actuator_status.motor.status.c_str());
+    cJSON_AddItemToObject(root, "motor", motor);
+    
+    cJSON_AddNumberToObject(root, "timestamp", esp_timer_get_time() / 1000000);
+    
+    char* json_string = cJSON_PrintUnformatted(root);
+    std::string json(json_string);
+    cJSON_free(json_string);
+    cJSON_Delete(root);
+    
+    if (!mqtt_client_->Publish(config_.actuator_status_topic, json)) {
+        ESP_LOGE(TAG_USER_MQTT, "Failed to publish actuator status");
+        return false;
+    }
+    
+    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH Actuator Status");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.actuator_status_topic.c_str());
     return true;
 }
 
@@ -316,9 +442,9 @@ void UserMqttClient::OnConnected() {
     ESP_LOGI(TAG_USER_MQTT, "🔗 MQTT CONNECTED");
     ESP_LOGI(TAG_USER_MQTT, "  Broker: %s:%d", config_.broker_host.c_str(), config_.broker_port);
     ESP_LOGI(TAG_USER_MQTT, "  Client ID: %s", config_.client_id.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Device Info Topic: %s", config_.device_info_topic.c_str());
     ESP_LOGI(TAG_USER_MQTT, "  Control Topic: %s", config_.control_topic.c_str());
     ESP_LOGI(TAG_USER_MQTT, "  Status Topic: %s", config_.status_topic.c_str());
-    ESP_LOGI(TAG_USER_MQTT, "  Device Info Topic: %s", config_.device_info_topic.c_str());
     
     connected_ = true;  // 设置连接状态
     retry_count_ = 0;   // 重置重试计数
@@ -398,44 +524,6 @@ RemoteControlCommand UserMqttClient::ParseCommand(const cJSON* json) {
     }
     
     return command;
-}
-
-std::string UserMqttClient::DeviceInfoToJson(const DeviceInfo& info) {
-    cJSON* root = cJSON_CreateObject();
-    
-    cJSON_AddStringToObject(root, "device_id", info.device_id.c_str());
-    cJSON_AddStringToObject(root, "device_type", info.device_type.c_str());
-    cJSON_AddStringToObject(root, "firmware_version", info.firmware_version.c_str());
-    cJSON_AddStringToObject(root, "wifi_ssid", info.wifi_ssid.c_str());
-    cJSON_AddStringToObject(root, "ip_address", info.ip_address.c_str());
-    cJSON_AddNumberToObject(root, "free_heap", info.free_heap);
-    cJSON_AddNumberToObject(root, "uptime_seconds", info.uptime_seconds);
-    cJSON_AddNumberToObject(root, "cpu_temperature", info.cpu_temperature);
-    cJSON_AddBoolToObject(root, "camera_available", info.camera_available);
-    cJSON_AddBoolToObject(root, "can_bus_available", info.can_bus_available);
-    cJSON_AddBoolToObject(root, "led_strip_available", info.led_strip_available);
-    cJSON_AddBoolToObject(root, "gimbal_available", info.gimbal_available);
-    
-    // 机械臂状态
-    cJSON* arm = cJSON_CreateObject();
-    cJSON_AddBoolToObject(arm, "connected", info.arm_connected);
-    cJSON_AddNumberToObject(arm, "motor_count", info.arm_motor_count);
-    cJSON_AddStringToObject(arm, "status", info.arm_status.c_str());
-    cJSON_AddItemToObject(root, "arm", arm);
-    
-    // 电机状态
-    cJSON* motor = cJSON_CreateObject();
-    cJSON_AddBoolToObject(motor, "connected", info.motor_connected);
-    cJSON_AddNumberToObject(motor, "motor_count", info.motor_count);
-    cJSON_AddStringToObject(motor, "status", info.motor_status.c_str());
-    cJSON_AddItemToObject(root, "motor", motor);
-    
-    char* json_string = cJSON_PrintUnformatted(root);
-    std::string result(json_string);
-    cJSON_free(json_string);
-    cJSON_Delete(root);
-    
-    return result;
 }
 
 std::string UserMqttClient::StatusToJson(const std::string& status, const std::string& message) {

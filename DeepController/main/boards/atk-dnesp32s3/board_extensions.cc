@@ -455,52 +455,130 @@ void BoardExtensions::user_main_loop_task(void* pvParameters) {
     ESP_LOGI(TAG, "用户主循环任务启动");
     
     qma6100p_rawdata_t accel_data;
-    uint8_t update_counter = 0;
-    uint32_t device_info_counter = 0;
     char msg_buffer[256];
     
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000)); // 改为1秒循环
-        update_counter++;
-        device_info_counter++;
+    // ==================== 计数器初始化 ====================
+    static uint32_t cycle_counter = 0;
+    static bool first_run = true;
+    
+    // ==================== 时间标志位 ====================
+    struct TimeFlags {
+        bool sensor_update;
+        bool mqtt_config;
+        bool mqtt_system_status;
+        bool mqtt_sensor_status;
+        bool mqtt_actuator_status;
         
-        // 每 500ms 更新一次加速度计数据（降低更新频率以减少内存压力）
-        if (update_counter >= 1 && ext->qma6100p_initialized_) {
-            update_counter = 0;
-            
+        void clear() {
+            sensor_update = false;
+            mqtt_config = false;
+            mqtt_system_status = false;
+            mqtt_sensor_status = false;
+            mqtt_actuator_status = false;
+        }
+    } time_flags;
+    
+    time_flags.clear();
+    
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_BASE_DELAY_MS));
+        
+        // 首次运行后增加计数器，避免cycle_counter=0时立即触发所有任务
+        if (!first_run) {
+            cycle_counter++;
+        } else {
+            first_run = false;
+        }
+        
+        // 防止计数器溢出（重新开始计数不影响周期性任务）
+        // 使用所有任务周期中的最大值，确保所有周期性任务都能正确触发
+        if (cycle_counter > MAX_TASK_CYCLE) { 
+            cycle_counter = 1; // 重置为1而不是0，避免立即触发
+        }
+        
+        // ==================== 时间标志位判断 ====================
+        // 由于主循环基础延时是100ms，所以使用倍数即可
+        time_flags.clear();
+        
+        // 设置各个标志位（使用取模运算判断是否到达指定周期）
+        if ((cycle_counter % SENSOR_UPDATE_CYCLE) == 0) {
+            time_flags.sensor_update = true;
+        }
+        
+        if ((cycle_counter % MQTT_CONFIG_CYCLE) == 0) {
+            time_flags.mqtt_config = true;
+        }
+        
+        if ((cycle_counter % MQTT_SYSTEM_STATUS_CYCLE) == 0) {
+            time_flags.mqtt_system_status = true;
+        }
+        
+        if ((cycle_counter % MQTT_SENSOR_STATUS_CYCLE) == 0) {
+            time_flags.mqtt_sensor_status = true;
+        }
+        
+        if ((cycle_counter % MQTT_ACTUATOR_STATUS_CYCLE) == 0) {
+            time_flags.mqtt_actuator_status = true;
+        }
+        
+        // ==================== 执行任务（根据标志位）====================
+        
+        // 传感器更新任务
+        if (time_flags.sensor_update && ext->qma6100p_initialized_) {
             qma6100p_read_rawdata(&accel_data);
             
             // 格式化加速度计数据（两行显示）
-        //     snprintf(msg_buffer, sizeof(msg_buffer),
-        //              "X:%.1f Y:%.1f Z:%.1f\n俯仰:%.0f° 翻滚:%.0f°",
-        //              accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
-        //              accel_data.pitch, accel_data.roll);
+            snprintf(msg_buffer, sizeof(msg_buffer),
+                     "X:%.1f Y:%.1f Z:%.1f\n俯仰:%.0f° 翻滚:%.0f°",
+                     accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
+                     accel_data.pitch, accel_data.roll);
             
-        //     // 使用 SetChatMessage 显示在对话区域
-        //     if (ext->display_ != nullptr) {
-        //         ext->display_->SetChatMessage("system", msg_buffer);
-        //     }
+            // 使用 SetChatMessage 显示在对话区域
+            if (ext->display_ != nullptr) {
+                ext->display_->SetChatMessage("system", msg_buffer);
+            }
             
-        //     ESP_LOGI(TAG, "ACC[%.2f, %.2f, %.2f] Pitch:%.1f° Roll:%.1f°", 
-        //              accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
-        //              accel_data.pitch, accel_data.roll);
+            // ESP_LOGI(TAG, "ACC[%.2f, %.2f, %.2f] Pitch:%.1f° Roll:%.1f°", 
+            //          accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
+            //          accel_data.pitch, accel_data.roll);
         }
         
-        // 每30秒发送一次设备信息
-        if (device_info_counter >= 10 && ext->user_mqtt_client_ && ext->device_info_collector_) {
-            device_info_counter = 0;
+        // MQTT任务（仅在连接时执行）
+        if (ext->user_mqtt_client_ && ext->user_mqtt_client_->IsConnected() && ext->device_info_collector_) {
+            // MQTT设备信息发送任务（静态配置）
+            if (time_flags.mqtt_config) {
+                ESP_LOGI(TAG, "📋 SENDING Device Info");
+                DeviceConfigInfo config = ext->device_info_collector_->CollectDeviceConfig();
+                if (ext->user_mqtt_client_->SendDeviceConfig(config)) {
+                    ESP_LOGI(TAG, "✅ Device info sent successfully");
+                }
+            }
             
-            ESP_LOGI(TAG, "📊 SENDING Periodic Device Info");
+            // MQTT系统状态发送任务
+            if (time_flags.mqtt_system_status) {
+                ESP_LOGI(TAG, "💻 SENDING System Status");
+                DeviceStatus::SystemInfo system_status = ext->device_info_collector_->CollectSystemStatus();
+                if (ext->user_mqtt_client_->SendSystemStatus(system_status)) {
+                    ESP_LOGI(TAG, "✅ System status sent successfully");
+                }
+            }
             
-            // 记录详细内存信息
-            std::string memory_info = ext->device_info_collector_->GetDetailedMemoryInfo();
-            ESP_LOGI(TAG, "🧠 Memory Status: %s", memory_info.c_str());
+            // MQTT传感器状态发送任务
+            if (time_flags.mqtt_sensor_status) {
+                ESP_LOGI(TAG, "📡 SENDING Sensor Status");
+                DeviceStatus::SensorData sensor_status = ext->device_info_collector_->CollectSensorStatus();
+                if (ext->user_mqtt_client_->SendSensorStatus(sensor_status)) {
+                    // ESP_LOGI(TAG, "✅ Sensor status sent successfully");
+                }
+            }
             
-            DeviceInfo info = ext->device_info_collector_->CollectDeviceInfo();
-            if (ext->user_mqtt_client_->SendDeviceInfo(info)) {
-                ESP_LOGI(TAG, "✅ Periodic device info sent successfully");
-            } else {
-                ESP_LOGW(TAG, "⚠️ Failed to send periodic device info");
+            // MQTT执行器状态发送任务
+            if (time_flags.mqtt_actuator_status) {
+                ESP_LOGI(TAG, "⚙️ SENDING Actuator Status");
+                DeviceStatus::ActuatorStatus actuator_status = ext->device_info_collector_->CollectActuatorStatus();
+                if (ext->user_mqtt_client_->SendActuatorStatus(actuator_status)) {
+                    ESP_LOGI(TAG, "✅ Actuator status sent successfully");
+                }
             }
         }
     }
@@ -586,6 +664,9 @@ void BoardExtensions::StartUserMqtt() {
     config.device_info_topic = "device/" + config.client_id + "/info";
     config.control_topic = "device/" + config.client_id + "/control";
     config.status_topic = "device/" + config.client_id + "/status";
+    config.system_status_topic = "device/" + config.client_id + "/status/system";
+    config.sensor_status_topic = "device/" + config.client_id + "/status/sensor";
+    config.actuator_status_topic = "device/" + config.client_id + "/status/actuator";
     
     ESP_LOGI(TAG, "🔧 MQTT Configuration:");
     ESP_LOGI(TAG, "  Broker: %s:%d", config.broker_host.c_str(), config.broker_port);
@@ -593,6 +674,9 @@ void BoardExtensions::StartUserMqtt() {
     ESP_LOGI(TAG, "  Device Info Topic: %s", config.device_info_topic.c_str());
     ESP_LOGI(TAG, "  Control Topic: %s", config.control_topic.c_str());
     ESP_LOGI(TAG, "  Status Topic: %s", config.status_topic.c_str());
+    ESP_LOGI(TAG, "  System Status Topic: %s", config.system_status_topic.c_str());
+    ESP_LOGI(TAG, "  Sensor Status Topic: %s", config.sensor_status_topic.c_str());
+    ESP_LOGI(TAG, "  Actuator Status Topic: %s", config.actuator_status_topic.c_str());
     
     // 初始化客户端
     if (user_mqtt_client_->Initialize(config)) {
@@ -624,19 +708,9 @@ void BoardExtensions::StartUserMqtt() {
         if (user_mqtt_client_->Connect()) {
             ESP_LOGI(TAG, "✅ 成功连接到用户MQTT服务器");
             
-            // 发送连接测试消息
-            user_mqtt_client_->SendStatus("test", "Device connected and ready for commands");
+            // 发送连接状态通知（通用状态主题）
+            user_mqtt_client_->SendStatus("connected", "Device connected and ready for commands");
             
-            // 发送初始设备信息
-            if (device_info_collector_) {
-                ESP_LOGI(TAG, "📊 SENDING Initial Device Info");
-                DeviceInfo info = device_info_collector_->CollectDeviceInfo();
-                if (user_mqtt_client_->SendDeviceInfo(info)) {
-                    ESP_LOGI(TAG, "✅ Initial device info sent successfully");
-                } else {
-                    ESP_LOGW(TAG, "⚠️ Failed to send initial device info");
-                }
-            }
         } else {
             ESP_LOGE(TAG, "❌ 连接用户MQTT服务器失败");
         }

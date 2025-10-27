@@ -46,59 +46,6 @@ void DeviceInfoCollector::SetSensor(qma6100p_rawdata_t* sensor_data) {
     sensor_data_ = sensor_data;
 }
 
-DeviceInfo DeviceInfoCollector::CollectDeviceInfo() {
-    DeviceInfo info;
-    
-    // 基本信息
-    info.device_id = GetDeviceId();
-    info.firmware_version = GetFirmwareVersion();
-    info.wifi_ssid = GetWifiInfo();
-    info.ip_address = GetIpAddress();
-    info.free_heap = GetFreeHeap();
-    info.uptime_seconds = GetUptimeSeconds();
-    info.cpu_temperature = GetCpuTemperature();
-    
-    // 组件可用性
-    info.camera_available = (camera_ != nullptr);
-    info.can_bus_available = true; // CAN总线在板级初始化中已配置
-    info.led_strip_available = (led_strip_ != nullptr);
-    info.gimbal_available = (gimbal_ != nullptr);
-    info.sensor_available = (sensor_data_ != nullptr);
-    
-    // 机械臂状态
-    info.arm_connected = (deep_arm_ != nullptr);
-    info.arm_motor_count = info.arm_connected ? 6 : 0; // 假设6个电机
-    info.arm_status = GetArmStatus();
-    
-    // 电机状态
-    info.motor_connected = (deep_motor_ != nullptr);
-    info.motor_count = info.motor_connected ? 6 : 0; // 假设6个电机
-    info.motor_status = GetMotorStatus();
-    
-    // 传感器数据
-    if (info.sensor_available && sensor_data_ != nullptr) {
-        info.acc_x = sensor_data_->acc_x;
-        info.acc_y = sensor_data_->acc_y;
-        info.acc_z = sensor_data_->acc_z;
-        info.acc_g = sensor_data_->acc_g;
-        info.pitch = sensor_data_->pitch;
-        info.roll = sensor_data_->roll;
-    } else {
-        info.acc_x = 0.0f;
-        info.acc_y = 0.0f;
-        info.acc_z = 0.0f;
-        info.acc_g = 0.0f;
-        info.pitch = 0.0f;
-        info.roll = 0.0f;
-    }
-    info.sensor_status = GetSensorStatus();
-    
-    ESP_LOGI(TAG_DEVICE_INFO, "Device info collected - ID: %s, Heap: %d, Uptime: %d", 
-             info.device_id.c_str(), info.free_heap, info.uptime_seconds);
-    
-    return info;
-}
-
 std::string DeviceInfoCollector::GetArmStatus() const {
     if (!deep_arm_) {
         return "not_available";
@@ -316,5 +263,83 @@ std::string DeviceInfoCollector::GetPsramInfo() const {
     #endif
     
     return ss.str();
+}
+
+DeviceConfigInfo DeviceInfoCollector::CollectDeviceConfig() {
+    DeviceConfigInfo config;
+    
+    config.device_id = GetDeviceId();
+    config.device_type = "ATK-DNESP32S3";
+    config.firmware_version = GetFirmwareVersion();
+    config.mac_address = GetMacAddress();
+    config.chip_model = GetChipModel();
+    config.chip_revision = GetChipRevision();
+    
+    // 硬件能力
+    config.capabilities.camera = (camera_ != nullptr);
+    config.capabilities.can_bus = true; // CAN总线在板级初始化中已配置
+    config.capabilities.led_strip = (led_strip_ != nullptr);
+    config.capabilities.gimbal = (gimbal_ != nullptr);
+    config.capabilities.arm = (deep_arm_ != nullptr);
+    config.capabilities.motor = (deep_motor_ != nullptr);
+    config.capabilities.sensor = (sensor_data_ != nullptr);
+    
+    ESP_LOGI(TAG_DEVICE_INFO, "Device config collected - ID: %s", config.device_id.c_str());
+    
+    return config;
+}
+
+DeviceStatus::SystemInfo DeviceInfoCollector::CollectSystemStatus() {
+    DeviceStatus::SystemInfo status;
+    
+    status.wifi_ssid = GetWifiInfo();
+    status.ip_address = GetIpAddress();
+    status.free_heap = GetFreeHeap();
+    status.uptime_seconds = GetUptimeSeconds();
+    status.cpu_temperature = GetCpuTemperature();
+    status.network_status = "connected"; // 简化处理
+    
+    return status;
+}
+
+DeviceStatus::SensorData DeviceInfoCollector::CollectSensorStatus() {
+    DeviceStatus::SensorData sensor_data;
+    
+    if (sensor_data_ != nullptr) {
+        sensor_data.acc_x = sensor_data_->acc_x;
+        sensor_data.acc_y = sensor_data_->acc_y;
+        sensor_data.acc_z = sensor_data_->acc_z;
+        sensor_data.acc_g = sensor_data_->acc_g;
+        sensor_data.pitch = sensor_data_->pitch;
+        sensor_data.roll = sensor_data_->roll;
+        sensor_data.sensor_status = GetSensorStatus();
+    } else {
+        // 传感器不可用
+        sensor_data.acc_x = 0.0f;
+        sensor_data.acc_y = 0.0f;
+        sensor_data.acc_z = 0.0f;
+        sensor_data.acc_g = 0.0f;
+        sensor_data.pitch = 0.0f;
+        sensor_data.roll = 0.0f;
+        sensor_data.sensor_status = "not_available";
+    }
+    
+    return sensor_data;
+}
+
+DeviceStatus::ActuatorStatus DeviceInfoCollector::CollectActuatorStatus() {
+    DeviceStatus::ActuatorStatus actuator_status;
+    
+    // 机械臂状态
+    actuator_status.arm.connected = (deep_arm_ != nullptr);
+    actuator_status.arm.motor_count = actuator_status.arm.connected ? 6 : 0; // 假设6个电机
+    actuator_status.arm.status = GetArmStatus();
+    
+    // 电机状态
+    actuator_status.motor.connected = (deep_motor_ != nullptr);
+    actuator_status.motor.motor_count = actuator_status.motor.connected ? 6 : 0;
+    actuator_status.motor.status = GetMotorStatus();
+    
+    return actuator_status;
 }
 

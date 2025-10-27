@@ -24,8 +24,13 @@ public:
     void SetCamera(Esp32Camera* camera);
     void SetSensor(qma6100p_rawdata_t* sensor_data);
     
-    // 收集设备信息
-    DeviceInfo CollectDeviceInfo();
+    // 收集设备固定配置信息
+    DeviceConfigInfo CollectDeviceConfig();
+    
+    // 收集各种状态信息
+    DeviceStatus::SystemInfo CollectSystemStatus();
+    DeviceStatus::SensorData CollectSensorStatus();
+    DeviceStatus::ActuatorStatus CollectActuatorStatus();
     
     // 获取特定组件状态
     std::string GetArmStatus() const;
@@ -44,6 +49,9 @@ public:
     std::string GetDetailedMemoryInfo() const;
     int GetUptimeSeconds() const;
     float GetCpuTemperature() const;
+    std::string GetMacAddress() const;
+    std::string GetChipModel() const;
+    std::string GetChipRevision() const;
     
 private:
     DeepMotor* deep_motor_;
@@ -59,9 +67,6 @@ private:
     
     // 内部方法
     std::string GenerateDeviceId() const;
-    std::string GetMacAddress() const;
-    std::string GetChipModel() const;
-    std::string GetChipRevision() const;
     std::string GetChipFeatures() const;
     std::string GetFlashInfo() const;
     std::string GetPsramInfo() const;

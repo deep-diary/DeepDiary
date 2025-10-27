@@ -33,6 +33,7 @@ sys.path.insert(0, str(project_root))
 
 # 导入服务模块
 from services.cloud_communication.mqtt.mqtt_manager import MQTTManager
+from services.cloud_communication.mqtt.protocol_parser import get_protocol_parser
 from config.config_manager import ConfigManager
 
 # 初始化日志管理器
@@ -97,25 +98,18 @@ def initialize_session_state():
     # 初始化MQTT数据存储
     if 'mqtt_data' not in st.session_state:
         st.session_state.mqtt_data = {
+            # 新协议格式
             'device_info': [],
             'device_status': [],
+            'device_events': [],
+            # 从 device_status 中分离出来的类别
             'device_sensor': [],
             'device_motor': [],
             'device_arm': [],
             'device_camera': [],
             'device_system': [],
             'device_alarm': [],
-            'device_log': [],
-            # 保留原有格式
-            'legacy_status': [],
-            'legacy_sensor': [],
-            'legacy_motor': [],
-            'legacy_arm': [],
-            'legacy_camera': [],
-            'legacy_system': [],
-            'legacy_alarm': [],
-            'legacy_log': []
-            
+            'device_log': []
         }
     
     # 初始化设备列表
@@ -123,47 +117,42 @@ def initialize_session_state():
         st.session_state.mqtt_devices = set()
 
 def setup_mqtt_subscriptions():
-    """设置MQTT订阅"""
+    """设置MQTT订阅（基于协议自动配置）"""
     mqtt_manager = st.session_state.mqtt_manager
     
-    # 根据实际设备发送的主题格式定义订阅
-    message_types = {
-        'device_info': 'device/+/info',  # 设备信息主题
-        'device_status': 'device/+/status',  # 设备状态主题
-        'device_sensor': 'device/+/sensor',  # 传感器数据主题
-        'device_motor': 'device/+/motor',  # 电机数据主题
-        'device_arm': 'device/+/arm',  # 机械臂数据主题
-        'device_camera': 'device/+/camera',  # 摄像头数据主题
-        'device_system': 'device/+/system',  # 系统信息主题
-        'device_alarm': 'device/+/alarm',  # 告警信息主题
-        'device_log': 'device/+/log',  # 日志信息主题
-        # 保留原有的deepcontroller格式作为备用
-        'legacy_status': 'deepcontroller/+/status',
-        'legacy_sensor': 'deepcontroller/+/sensor',
-        'legacy_motor': 'deepcontroller/+/motor',
-        'legacy_arm': 'deepcontroller/+/arm',
-        'legacy_camera': 'deepcontroller/+/camera',
-        'legacy_system': 'deepcontroller/+/system',
-        'legacy_alarm': 'deepcontroller/+/alarm',
-        'legacy_log': 'deepcontroller/+/log'
+    # 获取协议解析器
+    protocol_parser = get_protocol_parser()
+    
+    # 获取所有需要订阅的主题
+    subscribe_topics = protocol_parser.get_subscribe_topics()
+    
+    # 定义消息类型映射（topic_key -> 存储key）
+    msg_type_mapping = {
+        'device_info': 'device_info',
+        'device_status': 'device_status',
+        'device_events': 'device_events'
     }
     
-    # 为每种消息类型设置回调
-    for msg_type, topic_pattern in message_types.items():
+    # 为新协议主题添加订阅
+    for topic_def in subscribe_topics:
+        topic_key = topic_def['key']
+        
+        # 创建回调函数
         def create_callback(msg_type):
             return lambda topic, payload, message: on_mqtt_message(topic, payload, message, msg_type)
         
+        # 确定存储的消息类型
+        msg_type = msg_type_mapping.get(topic_key, topic_key)
+        
         success = mqtt_manager.add_subscription(
-            name=f"{msg_type}_subscription",
-            topic=topic_pattern,
+            name=f"{topic_key}_subscription",
+            topic=topic_def['pattern'],
             callback=create_callback(msg_type),
-            description=f"{msg_type}数据订阅"
+            description=topic_def.get('description', '')
         )
         
         if success:
-            log_debug(f"订阅成功: {topic_pattern} -> {msg_type}")
-        else:
-            log_error(f"订阅失败: {topic_pattern}")
+            log_debug(f"订阅成功: {topic_def['pattern']} -> {msg_type}")
 
 def on_mqtt_message(topic: str, payload: Dict[str, Any], message, message_type: str):
     """MQTT消息回调函数（线程安全版本）"""
@@ -173,6 +162,9 @@ def on_mqtt_message(topic: str, payload: Dict[str, Any], message, message_type: 
     try:
         # 获取全局队列实例
         global_queue = get_global_message_queue()
+        
+        # 获取协议解析器
+        protocol_parser = get_protocol_parser()
         
         # 详细日志记录
         log_debug(f"收到消息 - 主题: {topic}, 类型: {message_type}")
@@ -184,6 +176,12 @@ def on_mqtt_message(topic: str, payload: Dict[str, Any], message, message_type: 
             log_debug(f"提取到设备ID: {device_id}")
         else:
             log_debug(f"警告: 无法从主题 {topic} 提取设备ID")
+        
+        # 为新协议的 device_status 处理分分类数据
+        if message_type == 'device_status' and ('system' in payload or 'sensor' in payload or 'actuator' in payload):
+            # 新格式：将 categories 的数据分别存储
+            process_new_format_status(topic, payload, message_type, device_id)
+            return
         
         # 添加时间戳
         payload['_received_time'] = time.time()
@@ -207,18 +205,85 @@ def on_mqtt_message(topic: str, payload: Dict[str, Any], message, message_type: 
     except Exception as e:
         log_error(f"处理MQTT消息失败: {e}")
 
+def process_new_format_status(topic: str, payload: Dict[str, Any], message_type: str, device_id: str):
+    """处理新格式的 device_status 消息（包含 categories）"""
+    try:
+        global_queue = get_global_message_queue()
+        
+        # 处理 system 数据
+        if 'system' in payload:
+            system_data = payload['system'].copy()
+            system_data['_received_time'] = time.time()
+            system_data['_device_id'] = device_id
+            system_data['_topic'] = topic
+            
+            message_info = {
+                'topic': topic,
+                'payload': system_data,
+                'message_type': 'device_system',
+                'device_id': device_id
+            }
+            global_queue.put(message_info)
+        
+        # 处理 sensor 数据
+        if 'sensor' in payload:
+            sensor_data = payload['sensor'].copy()
+            sensor_data['_received_time'] = time.time()
+            sensor_data['_device_id'] = device_id
+            sensor_data['_topic'] = topic
+            
+            message_info = {
+                'topic': topic,
+                'payload': sensor_data,
+                'message_type': 'device_sensor',
+                'device_id': device_id
+            }
+            global_queue.put(message_info)
+        
+        # 处理 actuator 数据
+        if 'actuator' in payload:
+            actuator_data = payload['actuator']
+            
+            # motor 数据
+            if 'motor' in actuator_data:
+                motor_data = {'data': {'motors': actuator_data.get('motor', {})}}
+                motor_data['_received_time'] = time.time()
+                motor_data['_device_id'] = device_id
+                motor_data['_topic'] = topic
+                
+                message_info = {
+                    'topic': topic,
+                    'payload': motor_data,
+                    'message_type': 'device_motor',
+                    'device_id': device_id
+                }
+                global_queue.put(message_info)
+            
+            # arm 数据
+            if 'arm' in actuator_data:
+                arm_data = {'data': {'joints': actuator_data.get('arm', {})}}
+                arm_data['_received_time'] = time.time()
+                arm_data['_device_id'] = device_id
+                arm_data['_topic'] = topic
+                
+                message_info = {
+                    'topic': topic,
+                    'payload': arm_data,
+                    'message_type': 'device_arm',
+                    'device_id': device_id
+                }
+                global_queue.put(message_info)
+        
+    except Exception as e:
+        log_error(f"处理新格式状态消息失败: {e}")
+
 def extract_device_id(topic: str) -> str:
     """从主题中提取设备ID"""
     try:
         parts = topic.split('/')
-        # 支持两种主题格式:
-        # device/{device_id}/info
-        # deepcontroller/{device_id}/status
-        if len(parts) >= 2:
-            if parts[0] == 'device':
-                return parts[1]
-            elif parts[0] == 'deepcontroller':
-                return parts[1]
+        # 主题格式: device/{device_id}/info 或 device/{device_id}/status
+        if len(parts) >= 2 and parts[0] == 'device':
+            return parts[1]
     except Exception:
         pass
     return "unknown"
@@ -648,6 +713,41 @@ def display_log_data(data: List[Dict[str, Any]]):
         st.markdown(f"**内容**: {log_data}")
         st.markdown("---")
 
+def display_events_data(data: List[Dict[str, Any]]):
+    """显示设备事件数据"""
+    if not data:
+        st.info("暂无设备事件数据")
+        return
+    
+    st.markdown("### 🔔 设备事件")
+    
+    # 显示最近的事件
+    recent_events = data[-10:] if len(data) > 10 else data
+    
+    for event in reversed(recent_events):
+        event_type = event.get('event_type', 'unknown')
+        event_message = event.get('event_message', '')
+        timestamp = format_timestamp(event.get('timestamp', event.get('_received_time', 0)))
+        device_id = event.get('_device_id', 'N/A')
+        
+        # 根据事件类型显示不同的样式
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            if event_type == 'error':
+                st.error(f"❌ {event_type.upper()}")
+            elif event_type == 'warning':
+                st.warning(f"⚠️ {event_type.upper()}")
+            else:
+                st.info(f"ℹ️ {event_type.upper()}")
+        
+        with col2:
+            st.markdown(f"**时间**: {timestamp}")
+            st.markdown(f"**设备**: {device_id}")
+            st.markdown(f"**消息**: {event_message}")
+        
+        st.markdown("---")
+
 # 初始化会话状态
 initialize_session_state()
 
@@ -821,9 +921,9 @@ if show_debug:
 st.markdown("---")
 
 # 数据显示标签页
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "📊 设备信息", "📊 设备状态", "📡 传感器", "⚙️ 电机", "🤖 机械臂", 
-    "📹 摄像头", "💻 系统", "🚨 告警", "📝 日志"
+    "📹 摄像头", "💻 系统", "🚨 告警", "📝 日志", "🔔 事件"
 ])
 
 with tab1:
@@ -855,6 +955,9 @@ with tab8:
 
 with tab9:
     display_log_data(st.session_state.mqtt_data['device_log'])
+
+with tab10:
+    display_events_data(st.session_state.mqtt_data['device_events'])
 
 # 统计信息
 st.markdown("---")

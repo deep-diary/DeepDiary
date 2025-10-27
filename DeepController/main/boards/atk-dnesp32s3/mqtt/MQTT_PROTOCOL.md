@@ -1,425 +1,198 @@
-# DeepController MQTT 协议说明文档
+# MQTT 协议设计文档
 
 ## 概述
 
-本文档详细说明了DeepController设备的MQTT通信协议，包括上行（设备到服务器）和下行（服务器到设备）的消息格式、主题结构和数据规范。
-
-## 协议版本
-- **版本**: v1.0
-- **更新日期**: 2025-10-26
-- **设备型号**: ATK-DNESP32S3
+本文档描述了DeepDiary设备的MQTT通信协议，包括主题设计、数据格式和发送周期。
 
 ## 主题结构
 
-### 基础主题格式
+设备使用以下MQTT主题进行通信：
+
 ```
-deepcontroller/{device_id}/{message_type}
+device/{client_id}/config        # 设备固定配置信息
+device/{client_id}/status/system   # 系统动态状态
+device/{client_id}/status/sensor   # 传感器数据
+device/{device_id}/status/actuator # 执行器状态
+device/{client_id}/control        # 远程控制命令
+device/{client_id}/events         # 事件消息
+device/{client_id}/info           # 完整设备信息（兼容旧版）
+device/{client_id}/status         # 通用状态消息（兼容旧版）
 ```
 
-### 具体主题列表
+## 数据发送周期
 
-#### 上行主题（设备 → 服务器）
+| 主题 | 发送周期 | 说明 |
+|------|---------|------|
+| `device/{client_id}/config` | 60秒 | 设备固定配置信息，首次连接时立即发送 |
+| `device/{client_id}/status/system` | 10秒 | 系统动态信息（网络、内存、运行时间等） |
+| `device/{client_id}/status/sensor` | 3秒 | 传感器数据（加速度、角度等） |
+| `device/{client_id}/status/actuator` | 6秒 | 执行器状态（机械臂、电机等） |
 
-| 主题 | 描述 | 频率 | QoS |
-|------|------|------|-----|
-| `deepcontroller/{device_id}/status` | 设备状态信息 | 30秒 | 1 |
-| `deepcontroller/{device_id}/sensor` | 传感器数据 | 10秒 | 1 |
-| `deepcontroller/{device_id}/motor` | 电机状态 | 5秒 | 1 |
-| `deepcontroller/{device_id}/arm` | 机械臂状态 | 5秒 | 1 |
-| `deepcontroller/{device_id}/camera` | 摄像头状态 | 30秒 | 1 |
-| `deepcontroller/{device_id}/system` | 系统信息 | 60秒 | 1 |
-| `deepcontroller/{device_id}/alarm` | 告警信息 | 实时 | 2 |
-| `deepcontroller/{device_id}/log` | 日志信息 | 按需 | 0 |
+## 数据结构
 
-#### 下行主题（服务器 → 设备）
+### 1. DeviceConfigInfo - 设备固定配置
 
-| 主题 | 描述 | QoS |
-|------|------|-----|
-| `deepcontroller/{device_id}/command` | 控制命令 | 1 |
-| `deepcontroller/{device_id}/config` | 配置更新 | 1 |
-| `deepcontroller/{device_id}/firmware` | 固件更新 | 1 |
-| `deepcontroller/{device_id}/query` | 查询请求 | 1 |
-
-## 消息格式
-
-### 通用消息结构
-
-所有MQTT消息都使用JSON格式，包含以下通用字段：
+**主题**: `device/{client_id}/config`  
+**发送周期**: 60秒  
+**数据内容**: 设备固定不变的配置信息
 
 ```json
 {
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "status|sensor|motor|arm|camera|system|alarm|log",
-  "data": { ... },
-  "version": "1.0"
+  "device_id": "ATK-DNESP32S3-ESP32-S3-12:34:56",
+  "device_type": "ATK-DNESP32S3",
+  "firmware_version": "1.0.0",
+  "mac_address": "12:34:56:78:9A:BC",
+  "chip_model": "ESP32-S3",
+  "chip_revision": "v0.1",
+  "capabilities": {
+    "camera": true,
+    "can_bus": true,
+    "led_strip": true,
+    "gimbal": true,
+    "arm": true,
+    "motor": true,
+    "sensor": true
+  }
 }
 ```
 
-### 1. 设备状态消息 (status)
+### 2. SystemInfo - 系统动态状态
 
-**主题**: `deepcontroller/{device_id}/status`
+**主题**: `device/{client_id}/status/system`  
+**发送周期**: 10秒  
+**数据内容**: 系统运行时动态变化的信息
 
 ```json
 {
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "status",
-  "data": {
-    "device_type": "ATK-DNESP32S3",
-    "firmware_version": "1.0.0",
-    "wifi_ssid": "MyWiFi",
-    "ip_address": "192.168.1.100",
-    "free_heap": 245760,
-    "uptime_seconds": 3600,
-    "cpu_temperature": 0.0,
-    "components": {
-      "camera_available": true,
-      "can_bus_available": true,
-      "led_strip_available": true,
-      "gimbal_available": true,
-      "sensor_available": true
-    },
-    "arm": {
-      "connected": true,
-      "motor_count": 6,
-      "status": "connected"
-    },
-    "motor": {
-      "connected": true,
-      "motor_count": 6,
-      "status": "connected"
-    }
-  },
-  "version": "1.0"
+  "wifi_ssid": "MyWiFi",
+  "ip_address": "192.168.1.100",
+  "free_heap": 234567,
+  "uptime_seconds": 3600,
+  "cpu_temperature": 45.5,
+  "network_status": "connected",
+  "timestamp": 1234567890
 }
 ```
 
-### 2. 传感器数据消息 (sensor)
+### 3. SensorData - 传感器数据
 
-**主题**: `deepcontroller/{device_id}/sensor`
+**主题**: `device/{client_id}/status/sensor`  
+**发送周期**: 3秒  
+**数据内容**: 传感器实时数据
 
 ```json
 {
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "sensor",
-  "data": {
-    "sensor_available": true,
-    "sensor_status": "connected",
-    "acceleration": {
-      "x": 0.12,
-      "y": -0.05,
-      "z": 9.81,
-      "total": 9.82
-    },
-    "orientation": {
-      "pitch": 1.2,
-      "roll": -0.3
-    },
-    "unit": {
-      "acceleration": "m/s²",
-      "orientation": "degrees"
-    }
-  },
-  "version": "1.0"
+  "acc_x": 0.12,
+  "acc_y": -0.05,
+  "acc_z": 9.81,
+  "acc_g": 9.82,
+  "pitch": 5.2,
+  "roll": -2.1,
+  "sensor_status": "connected",
+  "timestamp": 1234567890
 }
 ```
 
-### 3. 电机状态消息 (motor)
+### 4. ActuatorStatus - 执行器状态
 
-**主题**: `deepcontroller/{device_id}/motor`
+**主题**: `device/{client_id}/status/actuator`  
+**发送周期**: 6秒  
+**数据内容**: 机械臂和电机状态
 
 ```json
 {
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "motor",
-  "data": {
-    "motor_connected": true,
+  "arm": {
+    "connected": true,
     "motor_count": 6,
-    "motor_status": "connected",
-    "motors": [
-      {
-        "id": 1,
-        "position": 0.0,
-        "velocity": 0.0,
-        "torque": 0.0,
-        "temperature": 25.0,
-        "status": "idle"
-      }
-    ]
+    "status": "idle"
   },
-  "version": "1.0"
-}
-```
-
-### 4. 机械臂状态消息 (arm)
-
-**主题**: `deepcontroller/{device_id}/arm`
-
-```json
-{
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "arm",
-  "data": {
-    "arm_connected": true,
-    "arm_motor_count": 6,
-    "arm_status": "connected",
-    "joints": [
-      {
-        "joint_id": 1,
-        "angle": 0.0,
-        "velocity": 0.0,
-        "torque": 0.0,
-        "status": "idle"
-      }
-    ],
-    "end_effector": {
-      "position": {"x": 0.0, "y": 0.0, "z": 0.0},
-      "orientation": {"x": 0.0, "y": 0.0, "z": 0.0}
-    }
+  "motor": {
+    "connected": true,
+    "motor_count": 6,
+    "status": "running"
   },
-  "version": "1.0"
+  "timestamp": 1234567890
 }
 ```
 
-### 5. 摄像头状态消息 (camera)
+## 协议定义文件
 
-**主题**: `deepcontroller/{device_id}/camera`
+协议定义位于 `mqtt_protocol.json`，包含完整的主题、字段、类型和周期定义。
 
-```json
-{
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "camera",
-  "data": {
-    "camera_available": true,
-    "camera_status": "connected",
-    "streaming": true,
-    "resolution": {
-      "width": 640,
-      "height": 480
-    },
-    "format": "JPEG",
-    "fps": 30,
-    "quality": 80
-  },
-  "version": "1.0"
-}
+### 生成代码
+
+运行以下命令重新生成协议代码：
+
+```bash
+cd DeepController/main/boards/atk-dnesp32s3/mqtt
+python3 generate_protocol.py
 ```
 
-### 6. 系统信息消息 (system)
+这将生成 `mqtt_protocol_generated.h` 文件，包含所有结构定义和常量。
 
-**主题**: `deepcontroller/{device_id}/system`
+## 代码使用示例
 
-```json
-{
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "system",
-  "data": {
-    "memory": {
-      "free_heap": 245760,
-      "min_free_heap": 200000,
-      "total_internal_ram": 327680,
-      "free_spiram": 4194304,
-      "total_spiram": 8388608
-    },
-    "chip": {
-      "model": "ESP32-S3",
-      "revision": "0",
-      "features": "WiFi BLE"
-    },
-    "flash": "8MB",
-    "psram": "8MB"
-  },
-  "version": "1.0"
-}
+### 发送设备配置
+
+```cpp
+DeviceConfigInfo config = device_info_collector_->CollectDeviceConfig();
+user_mqtt_client_->SendDeviceConfig(config);
 ```
 
-### 7. 告警消息 (alarm)
+### 发送系统状态
 
-**主题**: `deepcontroller/{device_id}/alarm`
-
-```json
-{
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "alarm",
-  "data": {
-    "alarm_level": "warning|error|critical",
-    "alarm_type": "motor_overheat|sensor_error|communication_failure",
-    "description": "Motor 1 temperature exceeds 60°C",
-    "component": "motor",
-    "component_id": 1,
-    "value": 65.0,
-    "threshold": 60.0,
-    "unit": "°C"
-  },
-  "version": "1.0"
-}
+```cpp
+DeviceStatus::SystemInfo system_status = device_info_collector_->CollectSystemStatus();
+user_mqtt_client_->SendSystemStatus(system_status);
 ```
 
-## 下行消息格式
+### 发送传感器数据
 
-### 1. 控制命令 (command)
-
-**主题**: `deepcontroller/{device_id}/command`
-
-```json
-{
-  "command_id": "cmd_001",
-  "timestamp": 1706284800,
-  "command_type": "motor_control|arm_control|camera_control|led_control",
-  "target": "motor|arm|camera|led",
-  "action": "start|stop|move|set_position|set_speed",
-  "parameters": {
-    "motor_id": 1,
-    "position": 90.0,
-    "speed": 50.0,
-    "duration": 5000
-  },
-  "priority": "high|normal|low",
-  "timeout": 10000
-}
+```cpp
+DeviceStatus::SensorData sensor_status = device_info_collector_->CollectSensorStatus();
+user_mqtt_client_->SendSensorStatus(sensor_status);
 ```
 
-### 2. 配置更新 (config)
+### 发送执行器状态
 
-**主题**: `deepcontroller/{device_id}/config`
-
-```json
-{
-  "config_id": "config_001",
-  "timestamp": 1706284800,
-  "config_type": "sensor|motor|camera|system",
-  "parameters": {
-    "sensor": {
-      "sample_rate": 100,
-      "range": "8G",
-      "bandwidth": "100Hz"
-    },
-    "motor": {
-      "max_speed": 100,
-      "max_torque": 50,
-      "acceleration": 10
-    },
-    "camera": {
-      "resolution": "640x480",
-      "quality": 80,
-      "fps": 30
-    }
-  }
-}
+```cpp
+DeviceStatus::ActuatorStatus actuator_status = device_info_collector_->CollectActuatorStatus();
+user_mqtt_client_->SendActuatorStatus(actuator_status);
 ```
 
-### 3. 查询请求 (query)
+## 兼容性说明
 
-**主题**: `deepcontroller/{device_id}/query`
+为了保持向后兼容，原有的 `DeviceInfo` 结构体和 `SendDeviceInfo()` 方法仍然保留，但建议使用新的分级发送方法。
 
-```json
-{
-  "query_id": "query_001",
-  "timestamp": 1706284800,
-  "query_type": "status|sensor|motor|arm|camera|system",
-  "parameters": {
-    "include_details": true,
-    "time_range": {
-      "start": 1706280000,
-      "end": 1706284800
-    }
-  }
-}
+## 文件结构
+
+```
+mqtt/
+├── user_mqtt_client.h              # MQTT客户端头文件
+├── user_mqtt_client.cpp            # MQTT客户端实现
+├── device_info_collector.h         # 设备信息收集器
+├── device_info_collector.cpp       # 设备信息收集实现
+├── mqtt_protocol.json              # 协议定义文件（JSON格式）
+├── generate_protocol.py            # 协议生成器脚本
+├── mqtt_protocol_generated.h        # 生成的协议代码（自动生成）
+└── MQTT_PROTOCOL.md                # 本文档
 ```
 
-## 错误处理
+## 修改协议
 
-### 错误响应格式
+如需修改协议：
 
-```json
-{
-  "device_id": "ATK-DNESP32S3-ESP32-S3-12345678",
-  "timestamp": 1706284800,
-  "message_type": "error",
-  "data": {
-    "error_code": "INVALID_COMMAND|PARAMETER_ERROR|DEVICE_BUSY|HARDWARE_ERROR",
-    "error_message": "Invalid motor ID specified",
-    "command_id": "cmd_001",
-    "details": {
-      "parameter": "motor_id",
-      "value": 10,
-      "valid_range": "1-6"
-    }
-  },
-  "version": "1.0"
-}
-```
+1. 编辑 `mqtt_protocol.json`
+2. 运行 `python3 generate_protocol.py` 重新生成代码
+3. 更新相关的收集器和发送逻辑
 
-### 常见错误代码
+## 服务器端解析
 
-| 错误代码 | 描述 |
-|----------|------|
-| `INVALID_COMMAND` | 无效的命令类型 |
-| `PARAMETER_ERROR` | 参数错误 |
-| `DEVICE_BUSY` | 设备忙碌 |
-| `HARDWARE_ERROR` | 硬件错误 |
-| `COMMUNICATION_ERROR` | 通信错误 |
-| `PERMISSION_DENIED` | 权限不足 |
+服务器端可以根据协议定义文件 `mqtt_protocol.json` 自动生成解析代码。该文件包含：
 
-## 数据单位说明
+- 所有主题的完整定义
+- 每个字段的数据类型
+- 发送周期信息
+- 字段描述
 
-### 传感器数据
-- **加速度**: m/s² (米每秒平方)
-- **角度**: degrees (度)
-- **温度**: °C (摄氏度)
-
-### 电机数据
-- **位置**: degrees (度)
-- **速度**: rpm (转每分钟)
-- **扭矩**: N·m (牛·米)
-
-### 机械臂数据
-- **关节角度**: degrees (度)
-- **位置**: mm (毫米)
-- **速度**: mm/s (毫米每秒)
-
-## 实现建议
-
-### Web界面开发建议
-
-1. **实时数据展示**
-   - 使用WebSocket连接MQTT代理
-   - 订阅所有设备状态主题
-   - 实现数据可视化图表
-
-2. **控制界面**
-   - 发布控制命令到设备
-   - 实现命令确认和错误处理
-   - 提供参数验证
-
-3. **历史数据**
-   - 存储MQTT消息到数据库
-   - 提供数据查询和分析功能
-   - 实现告警历史记录
-
-### 安全建议
-
-1. **认证授权**
-   - 使用MQTT用户名/密码认证
-   - 实现设备ID白名单
-   - 定期更新认证信息
-
-2. **数据加密**
-   - 使用TLS加密MQTT连接
-   - 敏感数据额外加密
-   - 实现消息签名验证
-
-## 版本历史
-
-- **v1.0** (2025-10-26): 初始版本，包含基本设备状态和传感器数据
-
-## 联系方式
-
-如有问题或建议，请联系DeepDiary团队。
+这使得服务器端可以自动生成订阅主题和处理逻辑。

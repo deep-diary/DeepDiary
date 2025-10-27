@@ -18,7 +18,44 @@
 #include "config.h"  // 必须在前面包含，以便使用功能开关宏
 #include "gimbal/Gimbal.h"  // Gimbal_t 是 C 结构体，需要完整定义
 
-// 前向声明
+// ==================== 时间周期宏定义 ====================
+// 主循环基础延时（单位：毫秒）
+#define MAIN_LOOP_BASE_DELAY_MS    100
+
+// 基于基础延时的周期倍数定义（实际周期 = 倍数 × MAIN_LOOP_BASE_DELAY_MS）
+#define CYCLE_100MS       1      // 100ms
+#define CYCLE_500MS       5      // 500ms  
+#define CYCLE_1000MS      10     // 1秒
+#define CYCLE_3000MS      30     // 3秒
+#define CYCLE_5000MS      50     // 5秒
+#define CYCLE_10000MS     100    // 10秒
+#define CYCLE_30000MS     300    // 30秒
+#define CYCLE_60000MS     600    // 60秒
+#define CYCLE_300000MS    3000   // 5分钟
+#define CYCLE_1800000MS   18000  // 30分钟
+
+// 任务特定周期
+#define SENSOR_UPDATE_CYCLE       CYCLE_1000MS     // 传感器更新：1秒
+#define DISPLAY_UPDATE_CYCLE       CYCLE_500MS     // 显示更新：500ms
+#define MQTT_CONFIG_CYCLE          CYCLE_60000MS   // MQTT设备信息：60秒
+#define MQTT_SYSTEM_STATUS_CYCLE   CYCLE_10000MS   // MQTT系统状态：10秒
+#define MQTT_SENSOR_STATUS_CYCLE   CYCLE_3000MS    // MQTT传感器状态：3秒
+#define MQTT_ACTUATOR_STATUS_CYCLE CYCLE_5000MS    // MQTT执行器状态：5秒
+
+// 计算最大值辅助宏
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
+
+// 获取所有任务周期中的最大值（用于计数器重置）
+// 当前最大周期是60秒(600)，如果添加更长周期的任务，需要更新此值
+#define MAX_TASK_CYCLE  MAX(SENSOR_UPDATE_CYCLE, \
+                           MAX(MQTT_CONFIG_CYCLE, \
+                           MAX(MQTT_SYSTEM_STATUS_CYCLE, \
+                               MAX(MQTT_SENSOR_STATUS_CYCLE, \
+                                   MQTT_ACTUATOR_STATUS_CYCLE))))
+
+// ==================== 前向声明 ====================
 class CircularStrip;
 class DeepMotor;
 class DeepArm;
