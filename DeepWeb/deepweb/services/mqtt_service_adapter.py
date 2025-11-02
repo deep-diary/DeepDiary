@@ -53,14 +53,16 @@ class MQTTServiceAdapter:
                 self.logger.debug(message)
         else:
             _default_log_message(level, message)
+        
+        # 强制输出到控制台，确保MQTT消息可见
+        print(f"[{level.upper()}] MQTT_ADAPTER: {message}")
     
     def _setup_mqtt_callbacks(self):
         """设置MQTT回调函数（基于协议自动配置）"""
         # 定义处理器函数映射
         handler_funcs = {
             'device_info': self._on_device_info,
-            'device_status': self._on_device_status,
-            'device_events': self._on_device_events
+            'device_status': self._on_device_status
         }
         
         # 使用协议解析器自动设置订阅
@@ -111,51 +113,74 @@ class MQTTServiceAdapter:
         topic = message_info['topic']
         payload = message_info['payload']
         device_id = message_info['device_id']
+        topic_key = message_info.get('topic_key', '')
         
         if not device_id:
             self._log("warning", f"无法从主题 {topic} 提取设备ID")
             return
         
         try:
-            self._log("info", f"收到设备状态消息: {device_id}")
+            self._log("info", f"收到设备状态消息: {device_id}, 主题: {topic}")
             self._log("debug", f"原始数据: {payload}")
             
-            # 新协议格式：device_status 包含 categories (system, sensor, actuator)
-            status_data = {
-                'wifi_ssid': payload.get('system', {}).get('wifi_ssid', ''),
-                'ip_address': payload.get('system', {}).get('ip_address', ''),
-                'free_heap': payload.get('system', {}).get('free_heap', 0),
-                'uptime_seconds': payload.get('system', {}).get('uptime_seconds', 0),
-                'cpu_temperature': payload.get('system', {}).get('cpu_temperature', 0.0),
-                'network_status': payload.get('system', {}).get('network_status', ''),
-                'sensor': payload.get('sensor', {}),
-                'actuator': payload.get('actuator', {})
-            }
-            
-            self._log("debug", f"解析后的状态数据: {status_data}")
-            
-            # 更新设备状态
-            self.device_manager.update_device_status(device_id, status_data)
+            # 检查是否是子主题（如 device_status_sensor, device_status_actuator 等）
+            if '_' in topic_key and topic_key.startswith('device_status_'):
+                category = topic_key.split('_', 2)[2]  # 提取 category 名称
+                self._log("info", f"处理子主题数据: {category}")
+                
+                # 为子主题创建状态数据结构
+                status_data = {
+                    'status': 'online',
+                    'last_seen': time.time()
+                }
+                
+                # 根据category类型处理数据
+                if category == 'system':
+                    status_data.update({
+                        'wifi_ssid': payload.get('wifi_ssid', ''),
+                        'ip_address': payload.get('ip_address', ''),
+                        'free_heap': payload.get('free_heap', 0),
+                        'uptime_seconds': payload.get('uptime_seconds', 0),
+                        'cpu_temperature': payload.get('cpu_temperature', 0.0),
+                        'network_status': payload.get('network_status', '')
+                    })
+                elif category == 'sensor':
+                    status_data['sensor'] = payload
+                elif category == 'actuator':
+                    status_data['actuator'] = payload
+                
+                self._log("debug", f"子主题 {category} 解析后的状态数据: {status_data}")
+                
+                # 更新设备状态
+                self.device_manager.update_device_status(device_id, status_data)
+                
+            else:
+                # 处理完整的状态消息（包含所有categories）
+                self._log("info", f"处理完整状态消息")
+                
+                # 新协议格式：device_status 包含 categories (system, sensor, actuator)
+                status_data = {
+                    'status': 'online',
+                    'last_seen': time.time(),
+                    'wifi_ssid': payload.get('system', {}).get('wifi_ssid', ''),
+                    'ip_address': payload.get('system', {}).get('ip_address', ''),
+                    'free_heap': payload.get('system', {}).get('free_heap', 0),
+                    'uptime_seconds': payload.get('system', {}).get('uptime_seconds', 0),
+                    'cpu_temperature': payload.get('system', {}).get('cpu_temperature', 0.0),
+                    'network_status': payload.get('system', {}).get('network_status', ''),
+                    'sensor': payload.get('sensor', {}),
+                    'actuator': payload.get('actuator', {})
+                }
+                
+                self._log("debug", f"完整状态解析后的数据: {status_data}")
+                
+                # 更新设备状态
+                self.device_manager.update_device_status(device_id, status_data)
             
             self._log("info", f"设备状态更新成功: {device_id}")
             
         except Exception as e:
             self._log("error", f"处理设备状态消息失败: {e}")
-    
-    def _on_device_events(self, message_info: Dict[str, Any]):
-        """处理设备事件消息"""
-        topic = message_info['topic']
-        payload = message_info['payload']
-        device_id = message_info['device_id']
-        
-        try:
-            event_type = payload.get('event_type', 'unknown')
-            event_message = payload.get('event_message', '')
-            
-            self._log("info", f"收到设备事件: {device_id} -> {event_type}: {event_message}")
-            
-        except Exception as e:
-            self._log("error", f"处理设备事件失败: {e}")
     
     
     def send_device_command(self, device_id: str, command: DeviceCommand) -> bool:
