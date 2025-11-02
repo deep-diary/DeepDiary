@@ -1,0 +1,3 @@
+设备ID (Client ID),命令类型 (Type),动作 (Action),参数 (Parameters),发送结果,实际发送的Payload,timestamp
+ATK-DNESP32S3-ESP32-S3-12345678,control,start,"{""speed"": 1}",发送成功: device/ATK-DNESP32S3-ESP32-S3-12345678/control,"{""type"": ""control"", ""target"": ""ATK-DNESP32S3-ESP32-S3-12345678"", ""action"": ""start"", ""parameters"": {""speed"": 1}}",2025-11-02 13:34:02.827558
+ATK-DNESP32S3-ESP32-S3-12345678,control,start,"{""speed"": 1}",发送成功: device/ATK-DNESP32S3-ESP32-S3-12345678/control,"{""type"": ""control"", ""target"": ""ATK-DNESP32S3-ESP32-S3-12345678"", ""action"": ""start"", ""parameters"": {""speed"": 1}}",2025-11-02 13:34:05.435149

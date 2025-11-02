@@ -48,8 +48,8 @@ def main():
     
     # 获取demo对象并暴露为模块级变量（用于Gradio热重载）
     global demo
-    # demo = ui_manager.get_app()
-    # ui_manager.launch()
+    demo = ui_manager.get_app()
+    ui_manager.launch()
     # 等待按q键退出
     while True:
         time.sleep(1)

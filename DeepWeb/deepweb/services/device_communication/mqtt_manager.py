@@ -91,10 +91,17 @@ class MQTTManager:
                     if not topic_template:
                         continue
                     
-                    # 格式化主题名称（如果有 client_id 占位符）
+                    # 获取主题方向（pub=设备发布，sub=服务器订阅）
+                    direction = topic_config.get("direction", "pub")
+                    
+                    # 对于订阅主题（direction="sub"），不需要自动订阅（这是设备订阅的）
+                    # 对于发布主题（direction="pub"），服务器需要订阅以接收设备消息
+                    # 格式化主题名称：订阅时使用 '+' 通配符订阅所有设备，而不是使用 MQTT 客户端的 client_id
                     try:
                         if "{client_id}" in topic_template:
-                            topic_name = topic_template.format(client_id=self.client_id or "+")
+                            # 订阅主题时使用通配符，以便接收所有设备的消息
+                            # self.client_id 是 MQTT 客户端标识，不是设备 ID
+                            topic_name = topic_template.format(client_id="+")   # 后续需要改为按实际设备传入
                         else:
                             topic_name = topic_template
                     except Exception as e:
@@ -103,9 +110,13 @@ class MQTTManager:
                     
                     qos = topic_config.get("qos", 0)
                     
+                    # 只订阅设备发布的主题（direction="pub"），不订阅服务器发布的主题（direction="sub"）
+                    # if direction == "pub":
                     if (topic_name, qos) not in self._pending_subscriptions:
                         self._pending_subscriptions.append((topic_name, qos))
                         self.logger.info(f"主题已加入自动订阅队列: {topic_name} (QoS: {qos})")
+                    # else:
+                    #     self.logger.debug(f"跳过订阅方向为主题: {topic_template} (direction={direction})")
         
         # 创建MQTT客户端
         self.client = mqtt.Client(

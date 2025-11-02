@@ -56,10 +56,13 @@ class Coordinator:
         self.ui_manager = UIManager(log_manager=self.log_manager, coordinator=self)
 
         # 创建MQTT管理器
+        # 注意：client_id="deepweb" 是 MQTT 客户端的标识符（用于标识这个服务器客户端）
+        # 订阅主题时使用通配符 "+" 来接收所有设备的消息，而不是固定为 "deepweb"
+        # 例如：订阅 device/+/info 可以接收 device/device_001/info, device/device_002/info 等
         self.mqtt_manager = MQTTManager(
             log_manager=self.log_manager,
             server_name="default",
-            client_id="deepweb"
+            client_id="deepweb"  # MQTT 客户端 ID，用于标识服务器端
         )
 
 

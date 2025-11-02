@@ -89,10 +89,16 @@ class MQTTConfigLoader:
         """
         try:
             configs = self._cfg.TOPIC_CONFIGS  # type: ignore[attr-defined]
-            config = configs.get(topic_key, {})
-            # 返回副本，避免外部修改影响原始配置
-            return config.copy() if config else {}
-        except Exception:
+            # TOPIC_CONFIGS 是列表格式，需要遍历查找匹配的 key
+            for config in configs:
+                if config.get("key") == topic_key:
+                    # 返回副本，避免外部修改影响原始配置
+                    return config.copy() if config else {}
+            return {}
+        except Exception as e:
+            # 记录错误以便调试
+            import logging
+            logging.warning(f"get_topic_config 失败: topic_key={topic_key}, error={e}")
             return {}
 
     @staticmethod

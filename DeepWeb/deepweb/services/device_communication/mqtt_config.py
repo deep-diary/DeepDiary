@@ -45,55 +45,61 @@ TOPIC_CONFIGS = [
         "retained": False,
         "direction": "pub"
     },
-    # "device_info": {
-    #     "name": "device/{client_id}/info",
-    #     "description": "设备固定配置信息",
-    #     "period_ms": 60000,
-    #     "qos": 1,
-    #     "retained": False,
-    #     "direction": "pub"  # 设备发布
-    # },
-    # "device_status": {
-    #     "name": "device/{client_id}/status",
-    #     "description": "设备动态状态信息",
-    #     "period_ms": 10000,
-    #     "qos": 0,
-    #     "retained": False,
-    #     "direction": "pub"  # 设备发布
-    # },
-    # # 平铺的二级状态主题（便于直接订阅具体类别）
-    # "device_status_system": {
-    #     "name": "device/{client_id}/status/system",
-    #     "description": "系统动态信息",
-    #     "period_ms": 10000,
-    #     "qos": 0,
-    #     "retained": False,
-    #     "direction": "pub"
-    # },
-    # "device_status_sensor": {
-    #     "name": "device/{client_id}/status/sensor",
-    #     "description": "传感器数据",
-    #     "period_ms": 1000,
-    #     "qos": 0,
-    #     "retained": False,
-    #     "direction": "pub"
-    # },
-    # "device_status_actuator": {
-    #     "name": "device/{client_id}/status/actuator",
-    #     "description": "执行器状态",
-    #     "period_ms": 5000,
-    #     "qos": 0,
-    #     "retained": False,
-    #     "direction": "pub"
-    # },
-    # "control": {
-    #     "name": "device/{client_id}/control",
-    #     "description": "远程控制命令",
-    #     "period_ms": 0,  # 事件驱动，无周期性
-    #     "qos": 1,
-    #     "retained": False,
-    #     "direction": "sub"  # 设备订阅
-    # }
+    {
+        "key": "device_info",
+        "name": "device/{client_id}/info",
+        "description": "设备固定配置信息",
+        "period_ms": 60000,
+        "qos": 1,
+        "retained": False,
+        "direction": "pub"  # 设备发布
+    },
+    {
+        "key": "device_status",
+        "name": "device/{client_id}/status",
+        "description": "设备动态状态信息",
+        "period_ms": 10000,
+        "qos": 0,
+        "retained": False,
+        "direction": "pub"  # 设备发布
+    },
+    # 平铺的二级状态主题（便于直接订阅具体类别）
+    {
+        "key": "device_status_system",
+        "name": "device/{client_id}/status/system",
+        "description": "系统动态信息",
+        "period_ms": 10000,
+        "qos": 0,
+        "retained": False,
+        "direction": "pub"
+    },
+    {
+        "key": "device_status_sensor",
+        "name": "device/{client_id}/status/sensor",
+        "description": "传感器数据",
+        "period_ms": 1000,
+        "qos": 0,
+        "retained": False,
+        "direction": "pub"
+    },
+    {
+        "key": "device_status_actuator",
+        "name": "device/{client_id}/status/actuator",
+        "description": "执行器状态",
+        "period_ms": 5000,
+        "qos": 0,
+        "retained": False,
+        "direction": "pub"
+    },
+    {
+        "key": "control",
+        "name": "device/{client_id}/control",
+        "description": "远程控制命令",
+        "period_ms": 0,  # 事件驱动，无周期性
+        "qos": 1,
+        "retained": False,
+        "direction": "sub"  # 设备订阅
+    }
 ]
 
 # 消息类型定义（按主题平铺）
@@ -186,6 +192,28 @@ MESSAGE_TYPES = {
             "parameters": {"type": "object", "description": "参数"}
         }
     }
+}
+# 命令类型枚举
+CONTROL_TYPES = {
+    "ping": "ping",
+    "echo": "echo",
+    "control": "control"
+}
+# 动作类型枚举
+ACTION_TYPES = {
+    "start": "start",
+    "stop": "stop",
+    "restart": "restart",
+    "reboot": "reboot",
+    "factory_reset": "factory_reset",
+    "update": "update",
+    "config": "config"
+}
+#目标设备枚举
+TARGET_DEVICES = {
+    "deepTumbler": "deepTumbler",
+    "deepMotor": "deepMotor",
+    "deepArm": "deepArm",
 }
 
 # QoS级别定义

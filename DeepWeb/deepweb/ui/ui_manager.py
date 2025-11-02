@@ -96,11 +96,14 @@ class UIManager:
         被设备消息处理器调用，将消息推送到 UI 队列。
         当前实现：直接转发给 MQTT 子页面的本地队列。
         """
+        self.logger.warning(f"<<<<STP3:UI_QUEUE: topic={topic} payload={payload}")
         try:
-            if self._mqtt_page is not None:
-                self._mqtt_page.push_mqtt_message(topic, payload)  # type: ignore[attr-defined]
+            if not self._mqtt_page:
+                self.logger.warning(f"<<<<STP3:UI_QUEUE_ERROR: _mqtt_page not found")
+                return
+            self._mqtt_page.push_mqtt_message(topic, payload)  # type: ignore[attr-defined]
         except Exception as e:
-            self.logger.warning(f"<<<<STP4:UI_QUEUE_ERROR: {e}")
+            self.logger.warning(f"<<<<STP3:UI_QUEUE_ERROR: {e}")
 
     # 页面刷新逻辑由各页面自行注册（如 gr.Timer.tick）
 
