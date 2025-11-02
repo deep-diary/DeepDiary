@@ -187,18 +187,52 @@ MESSAGE_TYPES = {
         "topic_template": "device/{client_id}/control",
         "fields": {
             "type": {"type": "string", "description": "命令类型"},
-            "target": {"type": "string", "description": "目标设备"},
-            "action": {"type": "string", "description": "动作"},
             "parameters": {"type": "object", "description": "参数"}
         }
     }
 }
 # 命令类型枚举
 CONTROL_TYPES = {
-    "ping": "ping",
-    "echo": "echo",
-    "control": "control"
+        "led": "led",
+        "motor": "motor",
+        "arm": "arm",
+        "gimbal": "gimbal",
+        "camera": "camera",
+        "system": "system"
+    }
+
+
+# 命令具体参数
+CONTROL_PARAMETERS = {
+    "led": {
+        "mode": {"type": "string", "description": "LED模式"},
+        "color": {"type": "string", "description": "LED颜色"},
+        "brightness": {"type": "integer", "description": "LED亮度"},
+        "speed": {"type": "integer", "description": "LED速度"}
+    },
+    "motor": {
+        "mode": {"type": "string", "description": "电机模式"},
+        "target_position": {"type": "integer", "description": "电机目标位置"},
+        "target_speed": {"type": "integer", "description": "电机目标速度"},
+        "target_current": {"type": "integer", "description": "电机目标电流"}
+    },
+    "gimbal": {
+        "target_pitch": {"type": "integer", "description": "云台目标俯仰角"},
+        "target_roll": {"type": "integer", "description": "云台目标翻滚角"},
+        "speed": {"type": "integer", "description": "云台速度"}
+    },
+    "camera": {
+        "enable": {"type": "boolean", "description": "摄像头是否启用"},
+    },
+    "system": {
+        "mode": {"type": "string", "description": "系统模式"},
+        "reboot": {"type": "boolean", "description": "是否重启"},
+        "factory_reset": {"type": "boolean", "description": "是否出厂设置"},
+        "update": {"type": "boolean", "description": "是否更新"},
+        "config": {"type": "string", "description": "系统配置"}
+    }
 }
+
 # 动作类型枚举
 ACTION_TYPES = {
     "start": "start",
@@ -208,12 +242,6 @@ ACTION_TYPES = {
     "factory_reset": "factory_reset",
     "update": "update",
     "config": "config"
-}
-#目标设备枚举
-TARGET_DEVICES = {
-    "deepTumbler": "deepTumbler",
-    "deepMotor": "deepMotor",
-    "deepArm": "deepArm",
 }
 
 # QoS级别定义

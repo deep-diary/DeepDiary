@@ -94,27 +94,22 @@ class DeviceMessageHandler:
     def on_device_info(self, topic, payload, message):
         self.logger.warning(f"<<<<STP1:RECV device_info: {topic}")
         self._forward_to_ui(topic, payload)
-        self._send_control_ping(self._extract_client_id(topic))
 
     def on_device_status(self, topic, payload, message):
         self.logger.warning(f"<<<<STP1:RECV device_status: {topic}")
         self._forward_to_ui(topic, payload)
-        self._send_control_ping(self._extract_client_id(topic))
 
     def on_device_status_system(self, topic, payload, message):
         self.logger.warning(f"<<<<STP1:RECV device_status_system: {topic}")
         self._forward_to_ui(topic, payload)
-        self._send_control_ping(self._extract_client_id(topic))
 
     def on_device_status_sensor(self, topic, payload, message):
         self.logger.warning(f"<<<<STP1:RECV device_status_sensor: {topic}")
         self._forward_to_ui(topic, payload)
-        self._send_control_ping(self._extract_client_id(topic))
 
     def on_device_status_actuator(self, topic, payload, message):
         self.logger.warning(f"<<<<STP1:RECV device_status_actuator: {topic}")
         self._forward_to_ui(topic, payload)
-        self._send_control_ping(self._extract_client_id(topic))
 
     def on_test(self, topic, payload, message):
         self.logger.warning(f"<<<<STP1:RECV test: {topic}")

@@ -3,6 +3,7 @@ from typing import Any, Tuple, Optional, List
 from queue import Empty, Queue
 import sys
 from pathlib import Path
+from typing import Dict
 
 # 导入配置
 try:
@@ -16,9 +17,12 @@ try:
 except ImportError:
     # 如果导入失败，使用默认值
     CONTROL_TYPES = {
-        "ping": "ping",
-        "echo": "echo",
-        "control": "control"
+        "led": "led",
+        "motor": "motor",
+        "arm": "arm",
+        "gimbal": "gimbal",
+        "camera": "camera",
+        "system": "system"
     }
     ACTION_TYPES = {
         "start": "start",
@@ -28,11 +32,6 @@ except ImportError:
         "factory_reset": "factory_reset",
         "update": "update",
         "config": "config"
-    }
-    TARGET_DEVICES = {
-        "deepTumbler": "deepTumbler",
-        "deepMotor": "deepMotor",
-        "deepArm": "deepArm",
     }
 
 
@@ -48,9 +47,19 @@ class MqttPage:
         self.logger = logger
         # 子页面自管消息通道与缓存
         self._mqtt_queue: Queue = Queue(maxsize=1000)
+        self.active_device_id: str = "ATK-DNESP32S3-9888e000ae28"
         self._recent_messages: List[Any] = []
+        self._sensor_data: Dict[str, Any] = {
+            "acc_x": 0.0,
+            "acc_y": 0.0,
+            "acc_z": 0.0,
+            "acc_g": 0.0,
+            "pitch": 0.0,
+            "roll": 0.0,
+            "sensor_status": "normal",
+        }
 
-    def _send_control(self, client_id: str, cmd_type: str, action: str, params_text: str) -> Tuple[str, dict]:
+    def _send_control(self, client_id: str, cmd_type: str, params_text: str) -> Tuple[str, dict]:
         if not self.mqtt_manager:
             return ("未找到协调器，无法发送", {})
         if not client_id or not client_id.strip():
@@ -66,8 +75,6 @@ class MqttPage:
 
             payload = {
                 "type": cmd_type or "",
-                "target": client_id or "",
-                "action": action or "",
                 "parameters": parameters,
             }
 
@@ -111,11 +118,22 @@ class MqttPage:
                 pass
             return (f"发送异常: {e}", {})
 
-    def _drain_mqtt_messages(self) -> Any:
+    def _drain_mqtt_messages(self) -> Tuple[Any, Any, Any, Any, Any, Any, Any]:
         """
         定时器回调函数：从队列中取出消息并更新显示
         注意：这个方法会被 Gradio Timer 周期性调用
+        Args:
+            mqtt_json: MQTT消息
+            g_acc_x: X轴加速度
+            g_acc_y: Y轴加速度
+            g_acc_z: Z轴加速度
+            g_acc_g: 总加速度
+            g_pitch: 俯仰角
+            g_roll: 翻滚角
+        Returns:
+            (MQTT消息, X轴加速度, Y轴加速度, Z轴加速度, 总加速度, 俯仰角, 翻滚角)
         """
+        mqtt_json = {}
         try:
             drained = False
             drained_count = 0
@@ -134,9 +152,32 @@ class MqttPage:
             self.logger.error(f"<<<<STP5:UI_DRAIN_TICK_ERROR: {e}", exc_info=True)
 
         if self._recent_messages:
-            return self._recent_messages[-1]
-        else:
-            return {}
+            mqtt_json = self._recent_messages[-1]
+
+        # 如果mqtt_json 的topic 包含sensor 字段，则进行解析，否则返回0.0
+        if "sensor" in mqtt_json.get("topic", ""):
+            payload = mqtt_json.get("payload", {})
+
+            self._sensor_data["acc_x"] = payload.get("acc_x", 0.0)
+            self._sensor_data["acc_y"] = payload.get("acc_y", 0.0)
+            self._sensor_data["acc_z"] = payload.get("acc_z", 0.0)
+            self._sensor_data["acc_g"] = payload.get("acc_g", 0.0)
+            self._sensor_data["pitch"] = payload.get("pitch", 0.0)
+            self._sensor_data["roll"] = payload.get("roll", 0.0)
+
+            self.logger.warning(f"<<<<STP6:UI_DRAIN_TICK_SENSOR_DATA: {self._sensor_data}")
+
+        # 明确返回6个传感器数值，保证顺序与UI组件一致
+        return (
+            self._recent_messages,
+            self._sensor_data["acc_x"],
+            self._sensor_data["acc_y"],
+            self._sensor_data["acc_z"],
+            self._sensor_data["acc_g"],
+            self._sensor_data["pitch"],
+            self._sensor_data["roll"],
+        )
+        
 
     def push_mqtt_message(self, topic: str, payload: Any) -> None:
         """供外部设备消息处理器调用，写入本页面队列。"""
@@ -162,8 +203,8 @@ class MqttPage:
                     inputs=[
                         gr.Textbox(
                             label="设备ID (Client ID)",
-                            placeholder="例如: ATK-DNESP32S3-ESP32-S3-12345678",
-                            value="",
+                            placeholder=f"例如: {self.active_device_id}",
+                            value=self.active_device_id,
                             info="目标设备的唯一标识符"
                         ),
                         gr.Dropdown(
@@ -172,15 +213,9 @@ class MqttPage:
                             label="命令类型 (Type)",
                             info="选择要发送的命令类型"
                         ),
-                        gr.Dropdown(
-                            choices=list(ACTION_TYPES.values()),
-                            value="start",
-                            label="动作 (Action)",
-                            info="选择要执行的动作"
-                        ),
                         gr.Textbox(
                             label="参数 (Parameters)",
-                            placeholder='JSON格式，例如: {"speed": 1, "direction": "forward"}',
+                            placeholder='JSON格式，例如: {"enable": true}',
                             lines=5,
                             info="命令参数，支持JSON格式或纯文本"
                         )
@@ -197,28 +232,37 @@ class MqttPage:
                     title="📤 发送控制命令",
                     description="通过 MQTT 发送控制命令到目标设备。选择命令类型、动作和参数，点击提交发送。",
                     examples=[
-                        # 示例格式：[client_id, cmd_type, action, params_text]
-                        ["ATK-DNESP32S3-ESP32-S3-12345678", "control", "start", '{"speed": 1}'],
-                        ["ATK-DNESP32S3-ESP32-S3-12345678", "control", "stop", "{}"],
-                        ["ATK-DNESP32S3-ESP32-S3-12345678", "control", "reboot", "{}"],
-                        ["ATK-DNESP32S3-ESP32-S3-12345678", "ping", "start", '{"message": "ping"}'],
-                        ["ATK-DNESP32S3-ESP32-S3-12345678", "control", "restart", '{"delay": 5}'],
-                        ["ATK-DNESP32S3-ESP32-S3-12345678", "control", "config", '{"key": "value", "setting": "example"}'],
+                        # 示例格式：[client_id, cmd_type, params_text]
+                        [self.active_device_id, "led", '{"color": "red", "brightness": 100, "speed": 1}'],
+                        [self.active_device_id, "motor", '{"mode": "position", "target_position": 100, "target_speed": 100, "target_current": 100}'],
+                        [self.active_device_id, "gimbal", '{"target_pitch": 100, "target_roll": 100, "speed": 100}'],
+                        [self.active_device_id, "camera", '{"enable": true}'],
+                        [self.active_device_id, "system", '{"mode": "normal", "reboot": true, "factory_reset": true, "update": true, "config": "example"}'],
                     ],
                     examples_per_page=6,  # 每页显示6个示例
                 )
-            with gr.Column(scale=0.5):
-                gr.Markdown("### 实时消息（自动刷新）")
-                mqtt_json = gr.JSON(label="MQTT Messages (最新100条)")
-                timer = gr.Timer(1, active=True)
-                # 定时刷新右侧消息
-                # Gradio Timer 会在页面加载后周期性调用 _drain_mqtt_messages
-                # 注意：根据 Gradio 版本，inputs 可以是 None 或 []，outputs 可以是单个组件或列表
-                timer.tick(fn=self._drain_mqtt_messages, inputs=None, outputs=mqtt_json)
-                self.logger.info(f"timer registered: interval=1s, active=True, output_component={mqtt_json}")
+
+            with gr.Column(scale=2):
+                with gr.Blocks():
+                    gr.Markdown("### 实时消息（自动刷新）")
+                    mqtt_json = gr.JSON(label="MQTT Messages (最新100条)")
+
+                    # 显示传感器反馈消息的UI
+                    g_acc_x = gr.Textbox(label="acc_x", value=0.0)
+                    g_acc_y = gr.Textbox(label="acc_y", value=0.0)
+                    g_acc_z = gr.Textbox(label="acc_z", value=0.0)
+                    g_acc_g = gr.Textbox(label="acc_g", value=0.0)
+                    g_pitch = gr.Textbox(label="pitch", value=0.0)
+                    g_roll = gr.Textbox(label="roll", value=0.0)
+                    
+                    timer = gr.Timer(1, active=True)
+                    timer.tick(fn=self._drain_mqtt_messages, 
+                    inputs=None, 
+                    outputs=[mqtt_json, g_acc_x, g_acc_y, g_acc_z, g_acc_g, g_pitch, g_roll]
+                    )
+                    self.logger.info(f"timer registered: interval=1s, active=True, output_component={mqtt_json}")
 
         return mqtt_json
-
 
 def build_mqtt_tab(mqtt_manager: Optional[object], logger=None):
     """

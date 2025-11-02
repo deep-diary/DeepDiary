@@ -100,8 +100,8 @@ class Coordinator:
         """
         self.logger.info("Coordinator: 启动应用程序...")
         # 开启新线程，循环发送测试主题
-        self.test_thread = threading.Thread(target=self.device_handler.send_test_topic,daemon=True)
-        self.test_thread.start()
+        # self.test_thread = threading.Thread(target=self.device_handler.send_test_topic,daemon=True)
+        # self.test_thread.start()
 
         self.logger.info("Coordinator: 应用程序启动完成。")
   

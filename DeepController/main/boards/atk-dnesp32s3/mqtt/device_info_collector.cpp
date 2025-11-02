@@ -98,6 +98,7 @@ std::string DeviceInfoCollector::GetCameraStatus() const {
 
 std::string DeviceInfoCollector::GetSensorStatus() const {
     if (!sensor_data_) {
+        ESP_LOGI(TAG_DEVICE_INFO, "Sensor data is not available");
         return "not_available";
     }
     
@@ -305,6 +306,7 @@ DeviceStatus::SystemInfo DeviceInfoCollector::CollectSystemStatus() {
 DeviceStatus::SensorData DeviceInfoCollector::CollectSensorStatus() {
     DeviceStatus::SensorData sensor_data;
     
+    // 如果设置了传感器数据指针，直接使用（兼容外部传入数据的情况）
     if (sensor_data_ != nullptr) {
         sensor_data.acc_x = sensor_data_->acc_x;
         sensor_data.acc_y = sensor_data_->acc_y;
@@ -314,14 +316,24 @@ DeviceStatus::SensorData DeviceInfoCollector::CollectSensorStatus() {
         sensor_data.roll = sensor_data_->roll;
         sensor_data.sensor_status = GetSensorStatus();
     } else {
-        // 传感器不可用
-        sensor_data.acc_x = 0.0f;
-        sensor_data.acc_y = 0.0f;
-        sensor_data.acc_z = 0.0f;
-        sensor_data.acc_g = 0.0f;
-        sensor_data.pitch = 0.0f;
-        sensor_data.roll = 0.0f;
-        sensor_data.sensor_status = "not_available";
+        // 指针未设置，直接读取传感器（实时读取最新数据）
+        // 注意：传感器驱动需要在初始化时调用 qma6100p_init()
+        qma6100p_rawdata_t raw_data;
+        qma6100p_read_rawdata(&raw_data);
+        
+        sensor_data.acc_x = raw_data.acc_x;
+        sensor_data.acc_y = raw_data.acc_y;
+        sensor_data.acc_z = raw_data.acc_z;
+        sensor_data.acc_g = raw_data.acc_g;
+        sensor_data.pitch = raw_data.pitch;
+        sensor_data.roll = raw_data.roll;
+        
+        // 根据读取的数据判断传感器状态
+        if (raw_data.acc_g > 0.1f) {
+            sensor_data.sensor_status = "connected";
+        } else {
+            sensor_data.sensor_status = "error";
+        }
     }
     
     return sensor_data;
