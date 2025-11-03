@@ -9,7 +9,8 @@
 """
 
 import socket
-import cv2
+# 延迟导入 cv2，避免 NumPy 版本兼容性问题导致模块导入失败
+# cv2 将在使用时才导入
 import numpy as np
 import threading
 import time
@@ -29,10 +30,25 @@ class SimpleVideoReceiver:
         self.last_update = None
         self.is_running = False
         self.server_thread = None
+        self._cv2 = None  # 延迟导入的 cv2 模块
         
         # JPEG标记
         self.JPEG_START = b'\xff\xd8'
         self.JPEG_END = b'\xff\xd9'
+    
+    def _ensure_cv2(self):
+        """确保 cv2 模块已导入（延迟导入，避免 NumPy 版本兼容性问题）"""
+        if self._cv2 is None:
+            try:
+                import cv2
+                self._cv2 = cv2
+            except Exception as e:
+                print(f"警告: 无法导入 OpenCV (cv2): {e}")
+                print("提示: 请安装 opencv-python-headless 并确保 NumPy 版本兼容")
+                print("建议: pip install 'numpy<2' opencv-python-headless")
+                self._cv2 = False  # 标记为导入失败
+                return None
+        return self._cv2 if self._cv2 is not False else None
     
     def start(self):
         """启动TCP接收服务"""
@@ -126,6 +142,11 @@ class SimpleVideoReceiver:
             
             # 解码图像
             try:
+                cv2 = self._ensure_cv2()
+                if cv2 is None:
+                    # OpenCV 未安装，跳过解码
+                    continue
+                
                 img_array = np.frombuffer(jpeg_data, dtype=np.uint8)
                 frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                 

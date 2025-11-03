@@ -20,6 +20,7 @@ DeepWeb/**/yarn-debug.log*
 DeepWeb/**/yarn-error.log*
 DeepWeb/**/.env.local
 DeepWeb/**/.env.*.local
+DeepWeb/**/env_server/
 
 # DeepServer
 DeepServer/
