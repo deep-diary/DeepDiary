@@ -3,8 +3,8 @@
 
 import cv2
 import numpy as np
-from typing import Optional, Tuple
-import logging
+import gradio as gr
+from typing import Optional
 import threading
 import queue
 import time
@@ -12,31 +12,32 @@ import time
 
 class RtspPage:
     """
-    视频流管理类（支持多种协议：RTSP、HLS、WebRTC 等）
+    视频流管理类
     
     负责从 MediaMTX 服务器拉取视频流和音频流，并提供给 Gradio UI 显示和播放。
-    优先使用浏览器原生支持的协议（HLS/WebRTC）以获得最佳音视频同步效果。
+    使用浏览器 iframe 嵌入 MediaMTX 播放器以获得最佳音视频同步效果。
     """
     
     def __init__(
         self, 
         rtsp_url: str = "rtsp://34.172.161.212:8554/mystream", 
-        logger: Optional[logging.Logger] = None,
-        prefer_browser_native: bool = True
+        log_manager = None
     ):
         """
         初始化视频流页面
         
         Args:
-            rtsp_url: RTSP 流地址（将自动转换为其他协议 URL）
-            logger: 日志记录器（可选）
-            prefer_browser_native: 是否优先使用浏览器原生协议（HLS/WebRTC）
+            rtsp_url: RTSP 流地址（将自动转换为 HTTP URL）
+            log_manager: LogManager 实例（必须）
         """
-        self.rtsp_url = rtsp_url
-        self.logger = logger or logging.getLogger(__name__)
-        self.prefer_browser_native = prefer_browser_native
+        if log_manager is None:
+            raise ValueError("log_manager 必须提供")
         
-        # 解析并生成各种协议 URL
+        self.rtsp_url = rtsp_url
+        self.log_manager = log_manager
+        self.logger = log_manager.get_logger(__name__)
+        
+        # 解析并生成 Web URL
         self._parse_urls()
         
         # RTSP 连接（用于 OpenCV 帧提取）
@@ -57,7 +58,7 @@ class RtspPage:
         # 将在第一次调用 get_frame() 时再连接
     
     def _parse_urls(self):
-        """解析 RTSP URL 并生成各种协议的 URL"""
+        """解析 RTSP URL 并生成 Web URL"""
         # 从 RTSP URL 中提取服务器地址和流名称
         # 例如: rtsp://34.172.161.212:8554/mystream
         if "rtsp://" in self.rtsp_url:
@@ -77,17 +78,12 @@ class RtspPage:
             # MediaMTX 默认 HTTP 端口是 8888
             self.web_base_url = f"http://{host}:8888"
             self.web_stream_url = f"{self.web_base_url}/{stream_name}"
-            self.hls_url = f"{self.web_stream_url}/hls.m3u8"
-            self.webrtc_url = f"{self.web_stream_url}/webrtc"
             
             self.logger.info(f"解析 URL - 主机: {host}, 流名称: {stream_name}")
-            self.logger.info(f"HLS URL: {self.hls_url}")
-            self.logger.info(f"WebRTC URL: {self.webrtc_url}")
+            self.logger.info(f"Web 播放 URL: {self.web_stream_url}")
         else:
             # 如果不是 RTSP URL，假设是 HTTP URL
-            self.web_stream_url = self.rtsp_url
-            self.hls_url = f"{self.rtsp_url}/hls.m3u8" if not self.rtsp_url.endswith("/") else f"{self.rtsp_url}hls.m3u8"
-            self.webrtc_url = f"{self.rtsp_url}/webrtc" if not self.rtsp_url.endswith("/") else f"{self.rtsp_url}webrtc"
+            self.web_stream_url = self.rtsp_url.rstrip("/")
     
     def _init_capture(self) -> bool:
         """
@@ -218,134 +214,24 @@ class RtspPage:
             self.is_connected = False
             return None
     
-    def get_web_player_html(self, protocol: str = "direct") -> str:
+    def _get_web_player_html(self) -> str:
         """
-        生成浏览器原生播放器的 HTML 代码
-        
-        Args:
-            protocol: 使用的协议 ('direct', 'hls', 'webrtc')
+        生成浏览器播放器的 HTML 代码（使用 iframe 嵌入 MediaMTX 播放器）
         
         Returns:
             HTML 代码字符串
         """
-        if protocol == "hls":
-            # 使用 HLS.js 播放 HLS 流（需要加载库）
-            html = f"""
-            <div style="width: 100%; max-width: 1280px; margin: 0 auto;">
-                <video 
-                    id="hls-video-{int(time.time())}" 
-                    controls 
-                    autoplay 
-                    muted 
-                    style="width: 100%; background: #000; min-height: 480px;"
-                    playsinline
-                >
-                    您的浏览器不支持 HTML5 视频播放。
-                </video>
-            </div>
-            <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-            <script>
-                (function() {{
-                    const videoId = 'hls-video-{int(time.time())}';
-                    const video = document.getElementById(videoId);
-                    const hlsUrl = '{self.hls_url}';
-                    
-                    if (!video) {{
-                        console.error('找不到视频元素:', videoId);
-                        return;
-                    }}
-                    
-                    // 检查是否原生支持 HLS (Safari/iOS)
-                    if (video.canPlayType('application/vnd.apple.mpegurl')) {{
-                        video.src = hlsUrl;
-                        video.play().catch(e => console.error('播放失败:', e));
-                        console.log('✅ 使用原生 HLS 支持 (Safari)');
-                    }} else if (typeof Hls !== 'undefined' && Hls.isSupported()) {{
-                        // 使用 HLS.js 库（Chrome/Firefox/Edge）
-                        const hls = new Hls({{
-                            enableWorker: true,
-                            lowLatencyMode: false
-                        }});
-                        hls.loadSource(hlsUrl);
-                        hls.attachMedia(video);
-                        hls.on(Hls.Events.MANIFEST_PARSED, function() {{
-                            video.play().catch(e => console.error('播放失败:', e));
-                            console.log('✅ 使用 HLS.js 库播放');
-                        }});
-                        hls.on(Hls.Events.ERROR, function(event, data) {{
-                            console.error('HLS 错误:', data);
-                            if (data.fatal) {{
-                                // 致命错误，尝试回退到直接播放
-                                console.warn('HLS 播放失败，回退到直接播放');
-                                video.src = '{self.web_stream_url}/';
-                                video.play().catch(e => console.error('回退播放失败:', e));
-                            }}
-                        }});
-                    }} else {{
-                        // 不支持 HLS，回退到直接播放
-                        console.warn('浏览器不支持 HLS，使用直接播放');
-                        video.src = '{self.web_stream_url}/';
-                        video.play().catch(e => console.error('播放失败:', e));
-                    }}
-                    
-                    video.addEventListener('error', function(e) {{
-                        console.error('视频播放错误:', video.error);
-                        // 错误时显示提示
-                        if (video.error) {{
-                            const errorMsg = '播放错误: ' + video.error.message;
-                            video.parentElement.innerHTML = '<div style="padding: 20px; text-align: center; color: #f00;">' + errorMsg + '<br>请尝试使用"直接播放"模式</div>';
-                        }}
-                    }});
-                }})();
-            </script>
-            """
-        elif protocol == "webrtc":
-            # WebRTC 使用 MediaMTX 的 WebRTC 播放器（通过 iframe 嵌入）
-            # MediaMTX 的 WebRTC 播放器通常在 /webrtc 路径
-            html = f"""
-            <div style="width: 100%; max-width: 1280px; margin: 0 auto;">
-                <iframe 
-                    src="{self.webrtc_url}"
-                    style="width: 100%; height: 720px; border: none; background: #000;"
-                    allowfullscreen
-                    allow="autoplay; encrypted-media"
-                >
-                    您的浏览器不支持 iframe 或 WebRTC。
-                </iframe>
-                <p style="text-align: center; color: #666; margin-top: 10px;">
-                    ⚠️ WebRTC 需要浏览器支持，如果无法播放请使用"直接播放"模式
-                </p>
-            </div>
-            """
-        else:
-            # 默认使用 MediaMTX 的直接播放（最简单可靠）
-            html = f"""
-            <div style="width: 100%; max-width: 1280px; margin: 0 auto;">
-                <iframe 
-                    src="{self.web_stream_url}/"
-                    style="width: 100%; height: 720px; border: none; background: #000;"
-                    allowfullscreen
-                    allow="autoplay; encrypted-media"
-                ></iframe>
-            </div>
-            """
-        
+        html = f"""
+        <div style="width: 100%; max-width: 1280px; margin: 0 auto;">
+            <iframe 
+                src="{self.web_stream_url}/"
+                style="width: 100%; height: 720px; border: none; background: #000;"
+                allowfullscreen
+                allow="autoplay; encrypted-media"
+            ></iframe>
+        </div>
+        """
         return html
-    
-    def get_stream_urls(self) -> dict:
-        """
-        获取所有可用的流 URL
-        
-        Returns:
-            包含各种协议 URL 的字典
-        """
-        return {
-            "rtsp": self.rtsp_url,
-            "web_direct": self.web_stream_url,  # MediaMTX 直接播放（推荐）
-            "hls": self.hls_url,
-            "webrtc": self.webrtc_url,
-            "note": "推荐使用 web_direct 或 hls，它们在浏览器中支持音视频同步"
-        }
     
     def release(self) -> None:
         """释放视频捕获资源"""
@@ -364,3 +250,180 @@ class RtspPage:
             self.cap = None
             self.is_connected = False
             self.logger.info("RTSP 流已释放")
+    
+    def build(self):
+        """
+        构建页面 UI 组件
+        
+        Returns:
+            构建好的 Gradio 组件
+        """
+        with gr.Column():
+            gr.Markdown("### 🌐 浏览器播放器（支持音视频同步）")
+            
+            # 使用 HTML 组件嵌入 MediaMTX 的 Web 播放器
+            web_player = gr.HTML(
+                value=self._get_web_player_html(),
+                label="视频流播放器"
+            )
+            
+            gr.Markdown("---")
+            gr.Markdown("### 📹 OpenCV 帧提取模式（用于 AI 图像处理）")
+            
+            # OpenCV 帧提取开关
+            opencv_enable_checkbox = gr.Checkbox(
+                label="启用 OpenCV 帧提取",
+                value=False,
+                info="开启后可以提取视频帧用于 AI 分析、图像处理等场景（会增加 CPU 使用）"
+            )
+            
+            # OpenCV 帧提取模式（用于图像处理等场景）
+            rtsp_video = gr.Image(
+                label="OpenCV 视频帧",
+                type="numpy",
+                interactive=False,
+                visible=False  # 默认隐藏，开启后显示
+            )
+            
+            # OpenCV 状态显示
+            opencv_status = gr.Textbox(
+                label="OpenCV 状态",
+                value="未启用",
+                interactive=False,
+                visible=False
+            )
+            
+            # 流信息显示
+            stream_info = gr.Markdown(
+                value=f"""
+                **流地址信息**:
+                - 🎥 Web 播放: [{self.web_stream_url}]({self.web_stream_url})
+                - 🔴 RTSP: `{self.rtsp_url}`
+                
+                **说明**: 浏览器播放器支持完整的音视频同步。OpenCV 帧提取用于 AI 分析等场景。
+                """
+            )
+            
+            gr.Markdown("### ⚙️ 流配置")
+            
+            # 创建状态显示（需要在按钮点击之前定义）
+            rtsp_status = gr.Textbox(
+                label="连接状态",
+                value="浏览器播放器已就绪",
+                interactive=False
+            )
+            
+            rtsp_url_input = gr.Textbox(
+                label="流地址（RTSP 或 HTTP）",
+                value=self.rtsp_url,
+                placeholder="例如: rtsp://34.172.161.212:8554/mystream 或 http://34.172.161.212:8888/mystream",
+                info="支持 RTSP 和 HTTP URL，会自动解析为 Web 播放 URL"
+            )
+            
+            # 保存 self 引用以便在闭包中使用
+            rtsp_page_instance = self
+            
+            def update_stream_url(url: str):
+                """更新流地址"""
+                try:
+                    rtsp_page_instance.release()
+                    # 重新初始化
+                    rtsp_page_instance.rtsp_url = url
+                    rtsp_page_instance._parse_urls()
+                    
+                    # 更新播放器 HTML
+                    player_html = rtsp_page_instance._get_web_player_html()
+                    
+                    # 更新流信息
+                    new_stream_info = f"""
+                    **流地址信息**:
+                    - 🎥 Web 播放: [{rtsp_page_instance.web_stream_url}]({rtsp_page_instance.web_stream_url})
+                    - 🔴 RTSP: `{rtsp_page_instance.rtsp_url}`
+                    
+                    **说明**: 浏览器播放器支持完整的音视频同步。OpenCV 帧提取用于 AI 分析等场景。
+                    """
+                    
+                    return (
+                        gr.update(value=player_html),
+                        gr.update(value="流地址已更新"),
+                        gr.update(value=new_stream_info)
+                    )
+                except Exception as e:
+                    rtsp_page_instance.logger.error(f"更新流地址失败: {e}")
+                    return (
+                        gr.update(),
+                        gr.update(value=f"更新失败: {e}"),
+                        gr.update()
+                    )
+            
+            update_btn = gr.Button("更新流地址", variant="primary")
+            update_btn.click(
+                fn=update_stream_url,
+                inputs=rtsp_url_input,
+                outputs=[web_player, rtsp_status, stream_info]
+            )
+            
+            # OpenCV 帧提取定时器（可选功能，用于图像处理）
+            rtsp_timer = gr.Timer(0.1, active=False)  # 默认不启用，按需开启
+            
+            def toggle_opencv(enabled: bool):
+                """切换 OpenCV 帧提取的启用状态"""
+                try:
+                    if enabled:
+                        # 启用 OpenCV 帧提取
+                        # 初始化连接（延迟初始化）
+                        rtsp_page_instance._initialized = False
+                        rtsp_page_instance.logger.info("OpenCV 帧提取已启用")
+                        return (
+                            gr.update(visible=True),  # 显示图像组件
+                            gr.update(visible=True, value="正在连接..."),  # 显示状态
+                            gr.update(active=True),  # 启用定时器
+                            gr.update(value=True)  # 保持复选框选中
+                        )
+                    else:
+                        # 禁用 OpenCV 帧提取
+                        rtsp_page_instance.release()
+                        rtsp_page_instance.logger.info("OpenCV 帧提取已禁用")
+                        return (
+                            gr.update(visible=False),  # 隐藏图像组件
+                            gr.update(visible=False, value="未启用"),  # 隐藏状态
+                            gr.update(active=False),  # 禁用定时器
+                            gr.update(value=False)  # 取消复选框选中
+                        )
+                except Exception as e:
+                    rtsp_page_instance.logger.error(f"切换 OpenCV 状态失败: {e}")
+                    return (
+                        gr.update(),
+                        gr.update(value=f"错误: {e}"),
+                        gr.update(active=False),
+                        gr.update(value=False)
+                    )
+            
+            def update_rtsp_frame():
+                """定时更新 OpenCV 视频帧（用于图像处理等场景）"""
+                try:
+                    frame = rtsp_page_instance.get_frame()
+                    if frame is not None:
+                        status = f"✅ OpenCV 已连接 - {rtsp_page_instance.rtsp_url}"
+                        return frame, status
+                    else:
+                        return None, "⏳ OpenCV 正在连接中..."
+                except Exception as e:
+                    rtsp_page_instance.logger.error(f"更新 OpenCV 帧时出错: {e}")
+                    return None, f"❌ 错误: {e}"
+            
+            # 绑定 OpenCV 开关事件
+            opencv_enable_checkbox.change(
+                fn=toggle_opencv,
+                inputs=opencv_enable_checkbox,
+                outputs=[rtsp_video, opencv_status, rtsp_timer, opencv_enable_checkbox]
+            )
+            
+            # 使用定时器自动更新 OpenCV 帧（每100ms更新一次，降低 CPU 使用）
+            rtsp_timer.tick(
+                fn=update_rtsp_frame,
+                inputs=None,
+                outputs=[rtsp_video, opencv_status]
+            )
+            
+            self.logger.info("RTSP 页面已构建，浏览器播放器已就绪")
