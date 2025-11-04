@@ -23,13 +23,12 @@ DeepWeb/**/.env.*.local
 DeepWeb/**/env_server/
 
 # DeepServer
-DeepServer/
+# DeepServer/
 DeepServer/**/*.log
 DeepServer/**/local_settings.py
 DeepServer/**/db.sqlite3
 DeepServer/**/db.sqlite3-journal
 DeepServer/**/media
-DeepServer/**/
 DeepServer/wechat/time_slot.csv
 DeepServer/utilities/diaryai.py
 
