@@ -5,7 +5,7 @@ import time
 from PySide6.QtCore import QObject, Signal, Slot
 from typing import Dict, Any, List, Callable, Optional
 
-from deepwin.data_management.log_manager import LogManager
+from deepweb.data_management.log_manager import LogManager
 
 
 

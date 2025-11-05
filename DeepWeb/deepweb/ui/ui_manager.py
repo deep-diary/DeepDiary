@@ -24,8 +24,8 @@ class UIManager:
         self,
         log_manager: LogManager,  # 必须传入有效的 LogManager（主入口保证）
         coordinator: Optional[object] = None,
-        host: str = "0.0.0.0",
-        port: int = 7860,
+        host: str = "localhost",
+        port: int = 7860,  # 修改默认端口，避免冲突
         share: bool = False,
     ) -> None:
         """
@@ -34,7 +34,7 @@ class UIManager:
         Args:
             log_manager: 日志管理器实例（必须传入有效的 LogManager）
             coordinator: 核心协调器实例，用于处理业务逻辑请求（可选）
-            host: Web 服务器监听地址，默认为 "0.0.0.0"（监听所有网络接口）
+            host: Web 服务器监听地址，默认为 "localhost"（监听本地网络接口）
             port: Web 服务器端口，默认为 7860
             share: 是否创建公共链接，默认为 False
         """
@@ -96,22 +96,6 @@ class UIManager:
         self._demo = demo
         self.logger.info("UIManager: UI 构建完成。")
        
-
-    # ---- MQTT <-> UI 桥接 ----
-    def push_mqtt_message(self, topic: str, payload: Any) -> None:
-        """
-        被设备消息处理器调用，将消息推送到 UI 队列。
-        当前实现：直接转发给 MQTT 子页面的本地队列。
-        """
-        self.logger.warning(f"<<<<STP3:UI_QUEUE: topic={topic} payload={payload}")
-        try:
-            if not self._mqtt_page:
-                self.logger.warning(f"<<<<STP3:UI_QUEUE_ERROR: _mqtt_page not found")
-                return
-            self._mqtt_page.push_mqtt_message(topic, payload)  # type: ignore[attr-defined]
-        except Exception as e:
-            self.logger.warning(f"<<<<STP3:UI_QUEUE_ERROR: {e}")
-
     # 页面刷新逻辑由各页面自行注册（如 gr.Timer.tick）
 
     # 已简化：不再暴露 demo 属性；请使用 launch() 启动（内部会惰性 build）

@@ -140,19 +140,22 @@ class MqttPage:
             while True:
                 try:
                     item = self._mqtt_queue.get_nowait()
-                    self._recent_messages.append(item)
+                    # 将最新消息插入到列表最前面
+                    self._recent_messages.insert(0, item)
                     drained = True
                     drained_count += 1
                     self.logger.warning(f"<<<<STP5:UI_DRAIN_TICK: item={item},drained={drained},drained_count={drained_count},queue_size={self._mqtt_queue.qsize()},messages_size={len(self._recent_messages)}")
                 except Empty:
                     break
             if drained and len(self._recent_messages) > 100:
-                self._recent_messages = self._recent_messages[-100:]
+                # 保留前100条消息（最新的100条）
+                self._recent_messages = self._recent_messages[:100]
         except Exception as e:
             self.logger.error(f"<<<<STP5:UI_DRAIN_TICK_ERROR: {e}", exc_info=True)
 
         if self._recent_messages:
-            mqtt_json = self._recent_messages[-1]
+            # 最新消息现在在最前面（索引0）
+            mqtt_json = self._recent_messages[0]
 
         # 如果mqtt_json 的topic 包含sensor 字段，则进行解析，否则返回0.0
         if "sensor" in mqtt_json.get("topic", ""):
@@ -165,7 +168,7 @@ class MqttPage:
             self._sensor_data["pitch"] = payload.get("pitch", 0.0)
             self._sensor_data["roll"] = payload.get("roll", 0.0)
 
-            self.logger.warning(f"<<<<STP6:UI_DRAIN_TICK_SENSOR_DATA: {self._sensor_data}")
+            # self.logger.warning(f"<<<<STP6:UI_DRAIN_TICK_SENSOR_DATA: {self._sensor_data}")
 
         # 明确返回6个传感器数值，保证顺序与UI组件一致
         return (
@@ -209,7 +212,7 @@ class MqttPage:
                         ),
                         gr.Dropdown(
                             choices=list(CONTROL_TYPES.values()),
-                            value="control",
+                            value="led",  # 使用有效的默认值
                             label="命令类型 (Type)",
                             info="选择要发送的命令类型"
                         ),

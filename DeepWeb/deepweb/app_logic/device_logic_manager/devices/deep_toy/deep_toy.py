@@ -2,9 +2,9 @@
 
 from typing import Dict, Any, List, Callable, Optional
 
-from deepwin.data_management.log_manager import LogManager
-from deepwin.app_logic.device_logic_manager.devices.base_device import BaseDevice
-from deepwin.app_logic.device_logic_manager.devices.base_device import DeviceStatus
+from deepweb.data_management.log_manager import LogManager
+from deepweb.app_logic.device_logic_manager.devices.base_device import BaseDevice
+from deepweb.app_logic.device_logic_manager.devices.base_device import DeviceStatus
 from .state_model import DeepToyState
 from PySide6.QtCore import QObject, Signal, Slot
 

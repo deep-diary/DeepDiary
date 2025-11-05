@@ -3,7 +3,7 @@
 
 from dataclasses import dataclass, field
 from typing import Dict, Any
-from deepwin.app_logic.device_logic_manager.devices.base_device import BaseDeviceState
+from deepweb.app_logic.device_logic_manager.devices.base_device import BaseDeviceState
 
 @dataclass
 class DeepToyState(BaseDeviceState):

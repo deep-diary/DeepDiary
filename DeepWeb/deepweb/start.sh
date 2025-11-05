@@ -20,15 +20,19 @@ python_version=$(python3 --version 2>&1)
 echo "Python版本: $python_version"
 
 # 安装核心依赖
-echo "安装依赖包..."
-pip install -r requirements.txt
+# echo "安装依赖包..."
+# pip install -r requirements.txt
 
 echo "=========================================="
 echo "启动DeepWeb应用..."
-echo "请在浏览器中访问: http://localhost:8501"
+echo "请在浏览器中访问: http://localhost:7860"
 echo "TCP视频接收端口: 8080"
 echo "按 Ctrl+C 停止服务"
 echo "=========================================="
 
-# 启动Streamlit应用
-streamlit run main.py --server.port 8501 --server.address 0.0.0.0
+
+# 杀掉原来进程
+pkill -f "python -u main.py"
+
+# 启动web界面应用
+nohup python -u main.py > output.log 2>&1 &

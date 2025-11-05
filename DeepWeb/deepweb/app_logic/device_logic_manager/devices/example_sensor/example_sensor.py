@@ -6,10 +6,10 @@ import time
 import pandas as pd
 from PySide6.QtCore import QObject, Signal
 
-from deepwin.data_management.log_manager import LogManager
-from deepwin.config.config_manager import ConfigManager
-from deepwin.app_logic.device_logic_manager.devices.base_device import BaseDevice
-from deepwin.app_logic.device_logic_manager.devices.base_device import DeviceStatus
+from deepweb.data_management.log_manager import LogManager
+from deepweb.config.config_manager import ConfigManager
+from deepweb.app_logic.device_logic_manager.devices.base_device import BaseDevice
+from deepweb.app_logic.device_logic_manager.devices.base_device import DeviceStatus
 
 
 class ExampleSensor(BaseDevice):

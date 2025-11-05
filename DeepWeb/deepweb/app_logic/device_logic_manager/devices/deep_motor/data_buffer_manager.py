@@ -4,8 +4,8 @@
 import pandas as pd
 import time
 from typing import Dict, Any, Optional
-from deepwin.config.config_manager import ConfigManager
-from deepwin.data_management.log_manager import LogManager
+from deepweb.config.config_manager import ConfigManager
+from deepweb.data_management.log_manager import LogManager
 
 class DeepMotorDataBufferManager:
     """DeepMotor 数据缓冲区管理器"""

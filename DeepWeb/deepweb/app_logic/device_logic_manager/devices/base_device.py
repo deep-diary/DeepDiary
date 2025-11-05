@@ -1,14 +1,14 @@
 # src/app_logic/device_logic_manager/devices/base_device.py
 # 定义设备逻辑的基类和通用命令接口
+# Web端版本，不依赖PySide6
 
 from abc import ABC, abstractmethod
-from PySide6.QtCore import QObject, Signal
 from typing import Dict, Any, List, Callable, Optional
 from dataclasses import dataclass, field
 import time
 from enum import Enum
 
-from deepwin.data_management.log_manager import LogManager
+from deepweb.data_management.log_manager import LogManager
 
 
 class DeviceStatus(Enum):
@@ -66,29 +66,25 @@ class DeviceCapability:
         raise NotImplementedError
 
 
-class BaseDevice(QObject):
+class BaseDevice:
     """
     所有设备逻辑实现的基类。
     提供了设备通用的属性、状态管理和命令执行接口。
     支持能力管理，允许设备动态添加和移除功能能力。
-    """
-    # 定义设备实例可以向 DeviceLogicManager 反馈的信号
-    # 注意：这些信号的连接通常在 DeviceLogicManager 内部处理
-    # 例如：device_error 信号用于报告设备内部发生的错误
-    device_error = Signal(str, str) # (device_id, error_message)
-    device_states_updated = Signal(str, dict) # (device_id, new_state_dict)
     
-    # 新增：设备实例向协调器发送命令请求的信号
-    command_to_coordinator = Signal(str, str, list) # (device_id, command_name, args)
-
-    def __init__(self, device_id: str, log_manager: LogManager, parent: Optional[QObject] = None):
+    Web端版本，不依赖PySide6的信号槽机制。
+    信号功能通过回调函数实现。
+    """
+    # Web端不使用信号，改用回调函数
+    # 这些回调函数由 DeviceLogicManager 在初始化时设置
+    def __init__(self, device_id: str, log_manager: LogManager, parent=None):
         """
         初始化 BaseDevice。
         :param device_id: 设备的唯一标识符。
         :param log_manager: 全局日志管理器实例。
-        :param parent: QObject 父对象。
+        :param parent: 父对象（可选，web端不使用QObject）。
         """
-        super().__init__(parent)
+        self.parent = parent
         self.device_id = device_id
         # self.logger = log_manager.get_logger(__name__)
         self.logger = log_manager.get_logger(f"{self.__class__.__name__}.{device_id}")
@@ -174,7 +170,9 @@ class BaseDevice(QObject):
         self._state.is_online = True # 收到数据表明在线
         self._state.connection_status = DeviceStatus.CONNECTED
         # self.logger.debug(f"Device '{self.device_id}': 状态已更新。")
-        self.device_states_updated.emit(self.device_id, self._state.to_dict())
+        # Web端：通过回调函数通知状态更新（如果有设置）
+        if hasattr(self, '_on_states_updated') and self._on_states_updated:
+            self._on_states_updated(self.device_id, self._state.to_dict())
 
     def execute_abstract_command(self,
                                  command_name: str,
@@ -189,7 +187,9 @@ class BaseDevice(QObject):
                                      签名应为: (device_id, abstract_command_name, params)
         """
         self.logger.warning(f"Device '{self.device_id}': 抽象命令 '{command_name}' 未被子类实现。")
-        self.device_error.emit(self.device_id, f"抽象命令 '{command_name}' 未实现。")
+        # Web端：通过回调函数通知错误（如果有设置）
+        if hasattr(self, '_on_error') and self._on_error:
+            self._on_error(self.device_id, f"抽象命令 '{command_name}' 未实现。")
 
     def execute_abstract_command_with_params(self,
                                            command_name: str,
@@ -205,7 +205,9 @@ class BaseDevice(QObject):
                                      签名应为: (device_id, abstract_command_name, args)
         """
         self.logger.warning(f"Device '{self.device_id}': 抽象命令 '{command_name}' 未被子类实现。")
-        self.device_error.emit(self.device_id, f"抽象命令 '{command_name}' 未实现。")
+        # Web端：通过回调函数通知错误（如果有设置）
+        if hasattr(self, '_on_error') and self._on_error:
+            self._on_error(self.device_id, f"抽象命令 '{command_name}' 未实现。")
 
     def get_supported_commands(self) -> List[str]:
         """
@@ -222,7 +224,9 @@ class BaseDevice(QObject):
         """
         self.logger.debug(f"Device '{self.device_id}': 正在进行通用异常检测。")
         if self._state.connection_status == DeviceStatus.ERROR:
-            self.device_error.emit(self.device_id, f"设备 '{self.device_id}' 报告错误状态。")
+            # Web端：通过回调函数通知错误（如果有设置）
+            if hasattr(self, '_on_error') and self._on_error:
+                self._on_error(self.device_id, f"设备 '{self.device_id}' 报告错误状态。")
         # 更多通用异常检测，如长时间无数据更新等。
 
     def cleanup(self):

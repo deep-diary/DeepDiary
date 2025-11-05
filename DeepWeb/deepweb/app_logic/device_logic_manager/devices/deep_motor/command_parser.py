@@ -1,6 +1,6 @@
 from typing import List
 from .command_description import *
-from deepwin.data_management.log_manager import LogManager
+from deepweb.data_management.log_manager import LogManager
 
 logger = LogManager().get_logger(__name__)
 

@@ -1,9 +1,9 @@
-# deepwin/app_logic/device_logic_manager/manager.py
+# deepweb/app_logic/device_logic_manager/manager.py
 # 设备逻辑管理器核心实现
+# Web端版本，不依赖PySide6
 
 import os
 import importlib
-from PySide6.QtCore import QObject, Signal, Slot
 from typing import Dict, Any, Optional, List
 
 from ...data_management.log_manager import LogManager
@@ -13,56 +13,58 @@ from .devices.base_device import BaseDevice
 # 直接从具体模块导入，避免循环导入
 
 
-class DeviceLogicManager(QObject):
+class DeviceLogicManager:
     """
-    DeepWin 应用程序的设备逻辑管理器。
+    DeepWeb 应用程序的设备逻辑管理器。
     负责处理与 DeepDevice 设备（如 DeepArm 机械臂和 DeepToy 玩具控制器）相关的复杂业务逻辑。
+    
+    Web端版本，不依赖PySide6的信号槽机制。
+    信号功能通过回调函数实现。
 
     职责包括：
     1. 接收来自服务层已解析的业务语义数据，并更新设备状态模型。
     2. 基于设备状态实时监控，进行异常检测和告警。
     3. 管理 DeepArm 机械臂的示教轨迹录制、存储和播放。（目前暂时不实现）
-    4. 通过信号请求 Coordinator 发送抽象控制指令到底层。
-    5. 通过信号通知 Coordinator 设备状态更新、控制响应或错误。
+    4. 通过回调函数请求 Coordinator 发送抽象控制指令到底层。
+    5. 通过回调函数通知 Coordinator 设备状态更新、控制响应或错误。
     
     支持混合架构：
     - 方案3：直接访问核心设备（便捷访问）
     - 方案2：通用能力管理（动态设备）
     """
-
-    # 定义设备逻辑管理器可以向 Coordinator 发射的信号
-    device_status_updated = Signal(str, dict)    # 设备状态实时更新，参数为设备ID和状态数据 (dict)
-    device_command_response = Signal(str)   # 设备控制命令的响应 (str)
-    device_error = Signal(str)              # 设备相关操作发生错误 (str)
-
-    # 新增信号：请求 Coordinator 发送抽象命令
-    send_device_abstract_command_requested = Signal(str, str, dict) # (device_id, abstract_command_name, args)
-
-    # DeepArm 示教轨迹相关信号 (目前暂时不使用)
-    teaching_started = Signal(str)
-    teaching_stopped = Signal(str, list)
-    trajectory_playback_started = Signal(str, str)
-    trajectory_playback_finished = Signal(str, str)
-    trajectory_playback_error = Signal(str, str)
-
-    # 新增：DeepMotor 轨迹执行相关信号
-    trajectory_execution_progress_updated = Signal(str, dict)  # (device_id, progress_data)
-    trajectory_execution_finished = Signal(str, str)  # (device_id, trajectory_name)
-    trajectory_execution_error = Signal(str, str)  # (device_id, error_message)
-
-    # 新增：示教轨迹实时更新信号
-    teaching_trajectory_updated = Signal(str, list, list)  # 示教轨迹实时更新
-
-    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
+    
+    # Web端：使用回调函数替代信号
+    # 这些回调函数由 Coordinator 在初始化时设置
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager):
         """
-        初始化设备逻辑管理器。
-        :param log_manager: 全局日志管理器实例。
-        :param parent: QObject 父对象。
+        初始化设备逻辑管理器
+        
+        Args:
+            log_manager: 日志管理器
+            config_manager: 配置管理器
         """
-        super().__init__(parent)
-        self.logger_instance = log_manager
-        self.config_manager = config_manager
         self.logger = log_manager.get_logger(__name__)
+        self.config_manager = config_manager
+        # 回调函数（由 Coordinator 设置）
+        self._on_device_status_updated = None
+        self._on_device_command_response = None
+        self._on_device_error = None
+        self._on_send_device_abstract_command_requested = None
+        
+        # 示教轨迹相关回调（目前暂时不使用）
+        self._on_teaching_started = None
+        self._on_teaching_stopped = None
+        self._on_trajectory_playback_started = None
+        self._on_trajectory_playback_finished = None
+        self._on_trajectory_playback_error = None
+        
+        # DeepMotor 轨迹执行相关回调
+        self._on_trajectory_execution_progress_updated = None
+        self._on_trajectory_execution_finished = None
+        self._on_trajectory_execution_error = None
+        
+        # 示教轨迹实时更新回调
+        self._on_teaching_trajectory_updated = None
         
         # 维护当前连接的设备实例 (示例：使用字典存储设备ID -> 设备逻辑实例)
         self.managed_devices: Dict[str, BaseDevice] = {}
@@ -89,6 +91,26 @@ class DeviceLogicManager(QObject):
             import traceback
             self.logger.error(f"设备注册异常详情: {traceback.format_exc()}")
         self.logger.info("设备逻辑管理器初始化完成")
+    
+    def _on_device_status_updated_callback(self, device_id: str, state_dict: Dict[str, Any]):
+        """设备状态更新回调函数"""
+        if self._on_device_status_updated:
+            self._on_device_status_updated(device_id, state_dict)
+    
+    def _on_device_error_callback(self, device_id: str, error_message: str):
+        """设备错误回调函数"""
+        if self._on_device_error:
+            self._on_device_error(error_message)
+    
+    def _on_send_device_abstract_command_requested_callback(self, device_id: str, command: str, args: List[Any]):
+        """设备命令请求回调函数"""
+        if self._on_send_device_abstract_command_requested:
+            # 将args转换为dict格式（如果args是list）
+            if isinstance(args, list):
+                params = args[0] if args else {}
+            else:
+                params = args
+            self._on_send_device_abstract_command_requested(device_id, command, params)
     
     def set_last_command_info(self, command_info: Dict[str, Any]):
         """
@@ -191,7 +213,7 @@ class DeviceLogicManager(QObject):
         """
         try:
             # 构建模块路径
-            module_path = f"deepwin.app_logic.device_logic_manager.devices.{folder_name}.{folder_name}"
+            module_path = f"deepweb.app_logic.device_logic_manager.devices.{folder_name}.{folder_name}"
             self.logger.debug(f"尝试导入模块: {module_path}")
             
             # 导入模块
@@ -283,27 +305,18 @@ class DeviceLogicManager(QObject):
                 
                 self.managed_devices[device_id] = device_instance
                 
-                # 绑定设备状态更新信号
-                device_instance.device_states_updated.connect(self.device_status_updated)
+                # Web端：使用回调函数替代信号连接
+                # 设置设备状态更新回调
+                if hasattr(device_instance, '_on_states_updated'):
+                    device_instance._on_states_updated = self._on_device_status_updated_callback
                 
-                # 绑定设备向协调器发送命令的信号
-                if hasattr(device_instance, 'send_command_request'):
-                    device_instance.send_command_request.connect(self.send_device_abstract_command_requested)
-                elif hasattr(device_instance, 'command_to_coordinator'):
-                    # 兼容旧版本，使用 command_to_coordinator 信号
-                    device_instance.command_to_coordinator.connect(self.send_device_abstract_command_requested)
+                # 设置设备错误回调
+                if hasattr(device_instance, '_on_error'):
+                    device_instance._on_error = self._on_device_error_callback
                 
-                # 绑定轨迹执行相关信号（如果设备支持）
-                if hasattr(device_instance, 'trajectory_execution_progress_updated'):
-                    device_instance.trajectory_execution_progress_updated.connect(self.trajectory_execution_progress_updated)
-                if hasattr(device_instance, 'trajectory_execution_finished'):
-                    device_instance.trajectory_execution_finished.connect(self.trajectory_execution_finished)
-                if hasattr(device_instance, 'trajectory_execution_error'):
-                    device_instance.trajectory_execution_error.connect(self.trajectory_execution_error)
-                
-                # 绑定示教轨迹实时更新信号（如果设备支持）
-                if hasattr(device_instance, 'teaching_trajectory_updated'):
-                    device_instance.teaching_trajectory_updated.connect(self.teaching_trajectory_updated)
+                # 设置设备命令请求回调
+                if hasattr(device_instance, '_on_command_to_coordinator'):
+                    device_instance._on_command_to_coordinator = self._on_send_device_abstract_command_requested_callback
                 
                 self.logger.info(f"成功创建设备实例: {device_id} ({device_type})")
                 
@@ -394,21 +407,25 @@ class DeviceLogicManager(QObject):
         device_instance = self._get_or_create_device_instance(device_id)
         if not device_instance:
             error_msg = f"无法找到或创建设备实例 '{device_id}' 来发送命令"
-            self.device_error.emit(error_msg)
+            if self._on_device_error:
+                self._on_device_error(error_msg)
             raise ValueError(error_msg)
         try:
             # 设备的逻辑实例负责将抽象命令映射到实际的底层命令请求
             command, params = device_instance.command_parser.parse_command_string(abstract_command)
-            self.send_device_abstract_command_requested.emit(device_id, command, params)
-            self.device_command_response.emit(f"命令请求已发送至设备 '{device_id}' 的逻辑实例")
+            if self._on_send_device_abstract_command_requested:
+                self._on_send_device_abstract_command_requested(device_id, command, params)
+            if self._on_device_command_response:
+                self._on_device_command_response(f"命令请求已发送至设备 '{device_id}' 的逻辑实例")
             return "Command request sent to device logic instance."
         except Exception as e:
             error_msg = f"设备 '{device_id}' 处理抽象命令 '{abstract_command}' 失败: {e}"
             self.logger.error(error_msg)
-            self.device_error.emit(error_msg)
+            if self._on_device_error:
+                self._on_device_error(error_msg)
             raise
 
-    @Slot(str, dict) # 接收来自 DeviceProtocolParser 的业务语义数据
+    # Web端：接收来自 DeviceProtocolParser 的业务语义数据（不使用@Slot装饰器）
     def handle_device_semantic_data(self, device_id: str, parsed_semantic_data: Dict[str, Any]):
         """
         处理原始设备数据的解析和状态模型更新。
@@ -419,7 +436,9 @@ class DeviceLogicManager(QObject):
         self.logger.debug(f"收到设备 '{device_id}' 的语义数据")
         device_instance = self._get_or_create_device_instance(device_id)
         if not device_instance:
-            self.device_error.emit(f"无法找到或创建设备实例 '{device_id}' 来处理语义数据")
+            error_msg = f"无法找到或创建设备实例 '{device_id}' 来处理语义数据"
+            if self._on_device_error:
+                self._on_device_error(error_msg)
             return
 
         try:
@@ -430,16 +449,18 @@ class DeviceLogicManager(QObject):
             device_instance.check_anomaly() # 假设设备实例内部会发出错误信号
 
             # 通知 Coordinator 设备状态已更新
-            self.device_status_updated.emit(
-                device_id,
-                device_instance.get_current_state().to_dict() # 获取最新状态字典
-            )
+            if self._on_device_status_updated:
+                self._on_device_status_updated(
+                    device_id,
+                    device_instance.get_current_state().to_dict() # 获取最新状态字典
+                )
             self.logger.debug(f"设备 '{device_id}' 状态已更新")
 
         except Exception as e:
             error_msg = f"处理设备 '{device_id}' 语义数据失败: {e}"
             self.logger.error(error_msg)
-            self.device_error.emit(error_msg)
+            if self._on_device_error:
+                self._on_device_error(error_msg)
 
     def get_registered_device_types(self) -> List[str]:
         """

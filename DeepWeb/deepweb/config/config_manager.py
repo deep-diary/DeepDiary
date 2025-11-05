@@ -30,7 +30,7 @@ class ConfigManager:
             try:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     self._config = json.load(f)
-                print(f"配置已加载: {self.config_file}")
+                # 配置加载成功，不输出日志（避免干扰主程序日志）
             except Exception as e:
                 print(f"加载配置文件失败: {e}")
                 self._config = self._get_default_config()

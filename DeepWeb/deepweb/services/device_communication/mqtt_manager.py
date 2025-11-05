@@ -8,8 +8,9 @@ import time
 import json
 import logging
 from typing import Callable, Optional, Dict, Any, Union
-
+import uuid
 from .mqtt_config_loader import MQTTConfigLoader
+
 
 
 class MQTTManager:
@@ -25,7 +26,7 @@ class MQTTManager:
     def __init__(self, 
                  host: str = "localhost", 
                  port: int = 1883,
-                 client_id: Optional[str] = None,
+                 client_id: Optional[str] = 'deepweb-client',
                  username: Optional[str] = None,
                  password: Optional[str] = None,
                  keepalive: int = 60,
@@ -68,7 +69,10 @@ class MQTTManager:
         
         self.host = host
         self.port = port
-        self.client_id = client_id
+
+        mac = uuid.getnode()
+        mac_suffix = f"{mac:012x}"[-6:]
+        self.client_id = f"{client_id}-{mac_suffix}"
         self.keepalive = keepalive
         
         # 连接标志位（由回调函数更新）

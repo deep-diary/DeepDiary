@@ -10,8 +10,8 @@ from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from typing import Dict, Any, List, Callable, Optional
 import numpy as np
 
-from deepwin.data_management.log_manager import LogManager
-from deepwin.config.config_manager import ConfigManager
+from deepweb.data_management.log_manager import LogManager
+from deepweb.config.config_manager import ConfigManager
 from .robot_trajectory import RobotTrajectory
 
 

@@ -20,7 +20,13 @@ class LogManager:
         return cls._instance
 
     def __init__(self, log_dir="logs", log_file_name="deepweb", console_level=logging.WARNING, file_level=logging.INFO):
+        # 如果已经初始化，只更新日志级别（如果提供了新的级别）
         if self._initialized:
+            # 更新控制台日志级别（如果提供了新的级别且与默认值不同）
+            if console_level != logging.WARNING:
+                self.set_console_level(console_level)
+            if file_level != logging.INFO:
+                self.set_file_level(file_level)
             return
 
         self.log_dir = log_dir

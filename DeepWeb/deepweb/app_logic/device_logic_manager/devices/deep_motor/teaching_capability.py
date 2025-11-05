@@ -5,9 +5,9 @@ from typing import Dict, Any, List, Callable, Optional
 from PySide6.QtCore import QObject, Signal
 import pandas as pd
 
-from deepwin.app_logic.device_logic_manager.devices.base_device import DeviceCapability
-from deepwin.data_management.log_manager import LogManager
-from deepwin.config.config_manager import ConfigManager
+from deepweb.app_logic.device_logic_manager.devices.base_device import DeviceCapability
+from deepweb.data_management.log_manager import LogManager
+from deepweb.config.config_manager import ConfigManager
 from .teaching_trajectory_manager import TeachingTrajectoryManager
 
 
