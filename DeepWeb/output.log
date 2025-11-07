@@ -1,0 +1,51 @@
+INFO - log_manager.py:set_console_level - 控制台日志级别已设置为: INFO
+INFO - main.py:main - DeepWeb 应用程序启动中...
+INFO - coordinator.py:__init__ - Coordinator: 初始化中...
+INFO - coordinator.py:init_managers - Coordinator: 初始化管理器...
+INFO - mqtt_manager.py:__init__ - 从配置读取到 7 个主题配置
+INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: test/hello (QoS: 0)
+INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/info (QoS: 1)
+INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/status (QoS: 0)
+INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/status/system (QoS: 0)
+INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/status/sensor (QoS: 0)
+INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/status/actuator (QoS: 0)
+INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/control (QoS: 1)
+INFO - mqtt_manager.py:connect - 连接到MQTT代理: 34.172.161.212:1883
+INFO - mqtt_manager.py:_on_connect - 连接到MQTT代理成功: 34.172.161.212:1883
+INFO - mqtt_manager.py:_on_connect - 开始自动订阅 7 个待订阅主题
+INFO - mqtt_manager.py:_do_subscribe - 订阅主题: test/hello (QoS: 0)
+INFO - mqtt_manager.py:_do_subscribe - 订阅主题: device/+/info (QoS: 1)
+INFO - mqtt_manager.py:_do_subscribe - 订阅主题: device/+/status (QoS: 0)
+INFO - mqtt_manager.py:_do_subscribe - 订阅主题: device/+/status/system (QoS: 0)
+INFO - mqtt_manager.py:_do_subscribe - 订阅主题: device/+/status/sensor (QoS: 0)
+INFO - mqtt_manager.py:_do_subscribe - 订阅主题: device/+/status/actuator (QoS: 0)
+INFO - mqtt_manager.py:_do_subscribe - 订阅主题: device/+/control (QoS: 1)
+INFO - mqtt_manager.py:connect - 连接成功（等待时间: 0.10秒）
+INFO - mqtt_manager.py:__init__ - MQTTManager initialized
+INFO - coordinator.py:init_handlers - Coordinator: 开始自动发现和初始化处理器...
+WARNING - base_handler.py:set_coordinator_dependencies - MQTTMessageHandler: 无法获取CoordinatorHandler，这是可选的依赖项
+INFO - mqtt_manager.py:set_message_callback - 消息回调已设置
+INFO - coordinator.py:init_handlers - Coordinator: 处理器初始化完成，共初始化 1 个处理器
+INFO - coordinator.py:start_application - Coordinator: 启动应用程序...
+INFO - coordinator.py:__init__ - Coordinator: 应用程序启动完成。
+INFO - _client.py:_send_single_request - HTTP Request: HEAD https://huggingface.co/api/telemetry/https%3A/api.gradio.app/gradio-initiated-analytics "HTTP/1.1 200 OK"
+INFO - _client.py:_send_single_request - HTTP Request: GET https://api.gradio.app/pkg-version "HTTP/1.1 200 OK"
+INFO - _client.py:_send_single_request - HTTP Request: HEAD https://huggingface.co/api/telemetry/https%3A/api.gradio.app/gradio-initiated-analytics "HTTP/1.1 200 OK"
+INFO - _client.py:_send_single_request - HTTP Request: GET https://api.gradio.app/pkg-version "HTTP/1.1 200 OK"
+INFO - _client.py:_send_single_request - HTTP Request: HEAD https://huggingface.co/api/telemetry/https%3A/api.gradio.app/gradio-initiated-analytics "HTTP/1.1 200 OK"
+INFO - mqtt_page.py:build - timer registered: interval=1s, active=True, output_component=<gradio.components.json_component.JSON object at 0x75a9cab082d0>
+INFO - _client.py:_send_single_request - HTTP Request: GET https://api.gradio.app/pkg-version "HTTP/1.1 200 OK"
+INFO - rtsp_page.py:_parse_urls - 解析 URL - 主机: 34.172.161.212, 流名称: mystream
+INFO - rtsp_page.py:_parse_urls - Web 播放 URL (HTTPS 代理): https://www.deep-diary.com/mediamtx/mystream
+INFO - rtsp_page.py:_parse_urls - 原始 MediaMTX URL: http://34.172.161.212:8888/mystream
+INFO - rtsp_page.py:build - RTSP 页面已构建，浏览器播放器已就绪
+INFO - ui_manager.py:build - UIManager: UI 构建完成。
+INFO - main.py:main - DeepWeb 应用程序已启动，启动 UI...
+INFO - main.py:main - 访问地址: http://localhost:7860
+INFO - main.py:main - 按 Ctrl+C 停止服务
+INFO - ui_manager.py:launch - UIManager: 启动 UI，host=localhost, port=7860, share=False
+* Running on local URL:  http://localhost:7860
+INFO - _client.py:_send_single_request - HTTP Request: GET http://localhost:7860/gradio_api/startup-events "HTTP/1.1 200 OK"
+INFO - _client.py:_send_single_request - HTTP Request: HEAD http://localhost:7860/ "HTTP/1.1 200 OK"
+* To create a public link, set `share=True` in `launch()`.
+INFO - _client.py:_send_single_request - HTTP Request: HEAD https://huggingface.co/api/telemetry/https%3A/api.gradio.app/gradio-launched-telemetry "HTTP/1.1 200 OK"

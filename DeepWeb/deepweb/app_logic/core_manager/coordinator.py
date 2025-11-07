@@ -73,8 +73,8 @@ class Coordinator:
         )
         
         # 初始化设备逻辑管理器（如果需要，暂时不初始化，后续用到时再启用）
-        # self.device_logic_manager = None
-        self.device_logic_manager = DeviceLogicManager(log_manager=self.log_manager, config_manager=self.config_manager)
+        self.device_logic_manager = None
+        # self.device_logic_manager = DeviceLogicManager(log_manager=self.log_manager, config_manager=self.config_manager)
 
 
     def init_handlers(self):

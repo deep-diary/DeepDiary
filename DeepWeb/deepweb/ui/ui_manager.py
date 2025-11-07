@@ -112,7 +112,15 @@ class UIManager:
         self.logger.info(
             f"UIManager: 启动 UI，host={self.host}, port={self.port}, share={self.share}"
         )
-        self._demo.launch(server_name=self.host, server_port=self.port, share=self.share)  # type: ignore[union-attr]
+        # 优化 Gradio 启动配置，禁用外部资源加载以提升加载速度
+        self._demo.launch(
+            server_name=self.host,
+            server_port=self.port,
+            share=self.share,
+            show_error=False,  # 减少错误信息显示
+            enable_queue=True,  # 启用队列以提高性能
+            max_threads=10,  # 限制线程数
+        )  # type: ignore[union-attr]
 
     def get_app(self) -> gr.Blocks:
         """

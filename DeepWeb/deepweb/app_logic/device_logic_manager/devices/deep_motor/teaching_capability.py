@@ -2,7 +2,6 @@
 # 示教能力实现
 
 from typing import Dict, Any, List, Callable, Optional
-from PySide6.QtCore import QObject, Signal
 import pandas as pd
 
 from deepweb.app_logic.device_logic_manager.devices.base_device import DeviceCapability
@@ -11,23 +10,23 @@ from deepweb.config.config_manager import ConfigManager
 from .teaching_trajectory_manager import TeachingTrajectoryManager
 
 
-class TeachingCapability(QObject, DeviceCapability):
+class TeachingCapability(DeviceCapability):
     """
     示教能力实现
     将TeachingTrajectoryManager包装为DeviceCapability
+    使用回调机制替代 PySide6 信号槽
     """
     
-    # 示教相关信号
-    trajectory_execution_progress_updated = Signal(str, dict)  # (device_id, progress_data)
-    trajectory_execution_finished = Signal(str, str)  # (device_id, trajectory_name)
-    trajectory_execution_error = Signal(str, str)  # (device_id, error_message)
-    teaching_trajectory_updated = Signal(str, list, list)  # 示教轨迹实时更新
-    send_command_request = Signal(str, str, dict)  # (device_id, command_name, args)
-
-    def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
-        super().__init__(parent)
+    def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent=None):
         self.device_id = device_id
         self.logger = log_manager.get_logger(f"{self.__class__.__name__}.{device_id}")
+        
+        # 回调函数列表（替代信号）
+        self._trajectory_execution_progress_updated_callbacks: List[Callable[[str, dict], None]] = []
+        self._trajectory_execution_finished_callbacks: List[Callable[[str, str], None]] = []
+        self._trajectory_execution_error_callbacks: List[Callable[[str, str], None]] = []
+        self._teaching_trajectory_updated_callbacks: List[Callable[[str, list, list], None]] = []
+        self._send_command_request_callbacks: List[Callable[[str, str, dict], None]] = []
         
         # 初始化示教管理器
         import os
@@ -39,14 +38,69 @@ class TeachingCapability(QObject, DeviceCapability):
             trajectory_folder=trajectory_folder
         )
         
-        # 连接信号
-        self.teaching_manager._trajectory_execution_progress_detailed.connect(self.trajectory_execution_progress_updated.emit)
-        self.teaching_manager._trajectory_execution_finished.connect(self.trajectory_execution_finished.emit)
-        self.teaching_manager._trajectory_execution_error.connect(self.trajectory_execution_error.emit)
-        self.teaching_manager._teaching_trajectory_updated.connect(self.teaching_trajectory_updated.emit)
-        self.teaching_manager._send_command_request.connect(self.send_command_request.emit)
+        # 注册回调（替代信号连接）
+        self.teaching_manager.register_callback('trajectory_execution_progress_detailed', self._on_trajectory_execution_progress_updated)
+        self.teaching_manager.register_callback('trajectory_execution_finished', self._on_trajectory_execution_finished)
+        self.teaching_manager.register_callback('trajectory_execution_error', self._on_trajectory_execution_error)
+        self.teaching_manager.register_callback('teaching_trajectory_updated', self._on_teaching_trajectory_updated)
+        self.teaching_manager.register_callback('send_command_request', self._on_send_command_request)
         
         self.logger.info(f"TeachingCapability '{device_id}': 初始化完成")
+    
+    def register_callback(self, event_name: str, callback: Callable):
+        """注册回调函数（替代信号连接）"""
+        if event_name == 'trajectory_execution_progress_updated':
+            self._trajectory_execution_progress_updated_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_finished':
+            self._trajectory_execution_finished_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_error':
+            self._trajectory_execution_error_callbacks.append(callback)
+        elif event_name == 'teaching_trajectory_updated':
+            self._teaching_trajectory_updated_callbacks.append(callback)
+        elif event_name == 'send_command_request':
+            self._send_command_request_callbacks.append(callback)
+        else:
+            self.logger.warning(f"未知的事件名称: {event_name}")
+    
+    def _on_trajectory_execution_progress_updated(self, device_id: str, progress_data: dict):
+        """内部回调：轨迹执行进度更新"""
+        for callback in self._trajectory_execution_progress_updated_callbacks:
+            try:
+                callback(device_id, progress_data)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
+    
+    def _on_trajectory_execution_finished(self, device_id: str, trajectory_name: str):
+        """内部回调：轨迹执行完成"""
+        for callback in self._trajectory_execution_finished_callbacks:
+            try:
+                callback(device_id, trajectory_name)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
+    
+    def _on_trajectory_execution_error(self, device_id: str, error_message: str):
+        """内部回调：轨迹执行错误"""
+        for callback in self._trajectory_execution_error_callbacks:
+            try:
+                callback(device_id, error_message)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
+    
+    def _on_teaching_trajectory_updated(self, device_id: str, times: list, positions: list):
+        """内部回调：示教轨迹更新"""
+        for callback in self._teaching_trajectory_updated_callbacks:
+            try:
+                callback(device_id, times, positions)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
+    
+    def _on_send_command_request(self, device_id: str, command_name: str, args: dict):
+        """内部回调：发送命令请求"""
+        for callback in self._send_command_request_callbacks:
+            try:
+                callback(device_id, command_name, args)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
 
     def get_capability_name(self) -> str:
         """获取能力名称"""

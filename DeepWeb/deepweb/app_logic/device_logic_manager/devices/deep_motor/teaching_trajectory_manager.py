@@ -6,7 +6,6 @@ import json
 import os
 import threading
 from datetime import datetime
-from PySide6.QtCore import QObject, Signal, Slot, QTimer
 from typing import Dict, Any, List, Callable, Optional
 import numpy as np
 
@@ -15,44 +14,35 @@ from deepweb.config.config_manager import ConfigManager
 from .robot_trajectory import RobotTrajectory
 
 
-class TeachingTrajectoryManager(QObject):
+class TeachingTrajectoryManager:
     """
     管理 DeepMotor 示教轨迹的录制、存储和播放逻辑。
     支持响应式示教，实时记录电机位置和速度信息。
     集中管理所有轨迹相关功能：录制、存储、规划、执行、播放。
+    使用回调机制替代 PySide6 信号槽
     """
-    # 示教相关信号 (用于通知 DeviceLogicManager)
-    _trajectory_recorded = Signal(str, str, list) # (device_id, trajectory_name, trajectory_points)
-    _playback_progress = Signal(str, int) # (device_id, progress_percentage)
-    _teaching_status_changed = Signal(str, bool) # (device_id, is_teaching)
-    _record_point_requested = Signal(str) # (device_id) 请求记录当前点
     
-    # 轨迹播放相关信号
-    _trajectory_point_ready = Signal(str, float, float) # (device_id, position, velocity) 轨迹点就绪信号
-    _trajectory_playback_started = Signal(str, str) # (device_id, trajectory_name) 轨迹播放开始
-    _trajectory_playback_finished = Signal(str, str) # (device_id, trajectory_name) 轨迹播放完成
-    _trajectory_playback_error = Signal(str, str) # (device_id, error_message) 轨迹播放错误
-    
-    # 新增：轨迹执行相关信号
-    _trajectory_execution_started = Signal(str, str) # (device_id, trajectory_name) 轨迹执行开始
-    _trajectory_execution_finished = Signal(str, str) # (device_id, trajectory_name) 轨迹执行完成
-    _trajectory_execution_error = Signal(str, str) # (device_id, error_message) 轨迹执行错误
-    _trajectory_execution_progress = Signal(str, int) # (device_id, progress_percentage) 轨迹执行进度
-    
-    # 新增：执行进度详细信号
-    _trajectory_execution_progress_detailed = Signal(str, dict) # (device_id, progress_data) 详细执行进度数据
-    
-    # 新增：命令发送信号
-    _send_command_request = Signal(str, str, dict) # (device_id, command_name, args) 请求发送命令
-    
-    # 新增：示教轨迹实时更新信号
-    _teaching_trajectory_updated = Signal(str, list, list) # (device_id, times, positions) 示教轨迹实时更新
-
-    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, trajectory_folder: str = None, parent: Optional[QObject] = None):
-        super().__init__(parent)
+    def __init__(self, log_manager: LogManager, config_manager: ConfigManager, trajectory_folder: str = None, parent=None):
         self.logger = log_manager.get_logger(__name__)
         self.logger.info("TeachingTrajectoryManager: 初始化中...")
         self.config_manager = config_manager
+        
+        # 回调函数列表（替代信号）
+        self._trajectory_recorded_callbacks: List[Callable[[str, str, list], None]] = []
+        self._playback_progress_callbacks: List[Callable[[str, int], None]] = []
+        self._teaching_status_changed_callbacks: List[Callable[[str, bool], None]] = []
+        self._record_point_requested_callbacks: List[Callable[[str], None]] = []
+        self._trajectory_point_ready_callbacks: List[Callable[[str, float, float], None]] = []
+        self._trajectory_playback_started_callbacks: List[Callable[[str, str], None]] = []
+        self._trajectory_playback_finished_callbacks: List[Callable[[str, str], None]] = []
+        self._trajectory_playback_error_callbacks: List[Callable[[str, str], None]] = []
+        self._trajectory_execution_started_callbacks: List[Callable[[str, str], None]] = []
+        self._trajectory_execution_finished_callbacks: List[Callable[[str, str], None]] = []
+        self._trajectory_execution_error_callbacks: List[Callable[[str, str], None]] = []
+        self._trajectory_execution_progress_callbacks: List[Callable[[str, int], None]] = []
+        self._trajectory_execution_progress_detailed_callbacks: List[Callable[[str, dict], None]] = []
+        self._send_command_request_callbacks: List[Callable[[str, str, dict], None]] = []
+        self._teaching_trajectory_updated_callbacks: List[Callable[[str, list, list], None]] = []
         
         # 示教状态管理 - 修改为支持motor_id
         self._teaching_sessions: Dict[str, Dict[str, Any]] = {} # {device_id: {'is_teaching': bool, 'motor_id': int}}
@@ -77,9 +67,9 @@ class TeachingTrajectoryManager(QObject):
         self._trajectory_planner = RobotTrajectory()  # 轨迹规划器
         self._planned_trajectories: Dict[str, Dict[str, Any]] = {}  # {trajectory_name: planned_data}
         
-        # 轨迹播放相关
-        self._playback_timer = QTimer()  # 轨迹播放定时器
-        self._playback_timer.timeout.connect(self._play_next_point)
+        # 轨迹播放相关（使用 threading.Timer 替代 QTimer）
+        self._playback_timer: Optional[threading.Timer] = None
+        self._playback_timer_active = False
         self._current_playback: Dict[str, Any] = {}  # 当前播放状态
         
         # 新增：轨迹执行相关
@@ -99,6 +89,81 @@ class TeachingTrajectoryManager(QObject):
         self._load_saved_trajectories()
         
         self.logger.info("TeachingTrajectoryManager: 初始化完成。")
+    
+    def register_callback(self, event_name: str, callback: Callable):
+        """注册回调函数（替代信号连接）"""
+        if event_name == 'trajectory_recorded':
+            self._trajectory_recorded_callbacks.append(callback)
+        elif event_name == 'playback_progress':
+            self._playback_progress_callbacks.append(callback)
+        elif event_name == 'teaching_status_changed':
+            self._teaching_status_changed_callbacks.append(callback)
+        elif event_name == 'record_point_requested':
+            self._record_point_requested_callbacks.append(callback)
+        elif event_name == 'trajectory_point_ready':
+            self._trajectory_point_ready_callbacks.append(callback)
+        elif event_name == 'trajectory_playback_started':
+            self._trajectory_playback_started_callbacks.append(callback)
+        elif event_name == 'trajectory_playback_finished':
+            self._trajectory_playback_finished_callbacks.append(callback)
+        elif event_name == 'trajectory_playback_error':
+            self._trajectory_playback_error_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_started':
+            self._trajectory_execution_started_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_finished':
+            self._trajectory_execution_finished_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_error':
+            self._trajectory_execution_error_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_progress':
+            self._trajectory_execution_progress_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_progress_detailed':
+            self._trajectory_execution_progress_detailed_callbacks.append(callback)
+        elif event_name == 'send_command_request':
+            self._send_command_request_callbacks.append(callback)
+        elif event_name == 'teaching_trajectory_updated':
+            self._teaching_trajectory_updated_callbacks.append(callback)
+        else:
+            self.logger.warning(f"未知的事件名称: {event_name}")
+    
+    def _emit(self, event_name: str, *args):
+        """触发回调函数（替代信号发射）"""
+        callbacks = []
+        if event_name == 'trajectory_recorded':
+            callbacks = self._trajectory_recorded_callbacks
+        elif event_name == 'playback_progress':
+            callbacks = self._playback_progress_callbacks
+        elif event_name == 'teaching_status_changed':
+            callbacks = self._teaching_status_changed_callbacks
+        elif event_name == 'record_point_requested':
+            callbacks = self._record_point_requested_callbacks
+        elif event_name == 'trajectory_point_ready':
+            callbacks = self._trajectory_point_ready_callbacks
+        elif event_name == 'trajectory_playback_started':
+            callbacks = self._trajectory_playback_started_callbacks
+        elif event_name == 'trajectory_playback_finished':
+            callbacks = self._trajectory_playback_finished_callbacks
+        elif event_name == 'trajectory_playback_error':
+            callbacks = self._trajectory_playback_error_callbacks
+        elif event_name == 'trajectory_execution_started':
+            callbacks = self._trajectory_execution_started_callbacks
+        elif event_name == 'trajectory_execution_finished':
+            callbacks = self._trajectory_execution_finished_callbacks
+        elif event_name == 'trajectory_execution_error':
+            callbacks = self._trajectory_execution_error_callbacks
+        elif event_name == 'trajectory_execution_progress':
+            callbacks = self._trajectory_execution_progress_callbacks
+        elif event_name == 'trajectory_execution_progress_detailed':
+            callbacks = self._trajectory_execution_progress_detailed_callbacks
+        elif event_name == 'send_command_request':
+            callbacks = self._send_command_request_callbacks
+        elif event_name == 'teaching_trajectory_updated':
+            callbacks = self._teaching_trajectory_updated_callbacks
+        
+        for callback in callbacks:
+            try:
+                callback(*args)
+            except Exception as e:
+                self.logger.error(f"回调执行错误 ({event_name}): {e}")
 
     def _load_saved_trajectories(self):
         """加载已保存的轨迹文件"""
@@ -256,7 +321,6 @@ class TeachingTrajectoryManager(QObject):
         # 强制使用原始时间模式
         self._plan_trajectory(trajectory_name, keep_original_time=True)
 
-    @Slot(str, int)
     def start_teaching(self, device_id: str, motor_id: int = 1):
         """
         开始示教模式
@@ -272,7 +336,7 @@ class TeachingTrajectoryManager(QObject):
         }
         
         # 发送示教状态变化信号
-        self._teaching_status_changed.emit(device_id, True)
+        self._emit('teaching_status_changed', device_id, True)
         
         # 初始化录制会话，包含motor_id
         self._recording_sessions[device_id] = {
@@ -313,14 +377,13 @@ class TeachingTrajectoryManager(QObject):
         try:
             while self._teaching_sessions.get(device_id, {}).get('is_teaching', False):
                 # 使用传入的motor_id
-                self._send_command_request.emit(device_id, "motor_set_pos", {"motor_id": motor_id, "position": 0})
+                self._emit('send_command_request', device_id, "motor_set_pos", {"motor_id": motor_id, "position": 0})
                 time.sleep(teaching_interval)  # 使用配置文件中的间隔时间
         except Exception as e:
             self.logger.error(f"TeachingTrajectoryManager: 示教线程出错 for device '{device_id}': {e}")
         finally:
             self.logger.info(f"TeachingTrajectoryManager: 示教线程结束 for device '{device_id}'")
 
-    @Slot(str)
     def stop_teaching(self, device_id: str) -> Optional[str]:
         """
         停止示教模式, 并自动保存轨迹。
@@ -341,7 +404,7 @@ class TeachingTrajectoryManager(QObject):
                 self.logger.warning(f"TeachingTrajectoryManager: 示教线程未能在2秒内结束")
         
         # 发送示教状态变化信号
-        self._teaching_status_changed.emit(device_id, False)
+        self._emit('teaching_status_changed', device_id, False)
         
         # 检查是否有录制会话
         if device_id not in self._recording_sessions or len(self._recording_sessions[device_id]['points']) <= 1:
@@ -374,7 +437,6 @@ class TeachingTrajectoryManager(QObject):
                 del self._recording_sessions[device_id]
             return None
 
-    @Slot(str, float, float)
     def record_trajectory_point(self, device_id: str, position: float, velocity: float):
         """
         记录轨迹点（位置和速度）
@@ -441,13 +503,12 @@ class TeachingTrajectoryManager(QObject):
                 
                 # 发送实时更新信号
                 self.logger.debug(f"TeachingTrajectoryManager: 发送示教轨迹更新信号，设备: {device_id}, 点数: {len(valid_points)}")
-                self._teaching_trajectory_updated.emit(device_id, times, positions)
+                self._emit('teaching_trajectory_updated', device_id, times, positions)
             else:
                 self.logger.debug(f"TeachingTrajectoryManager: 有效点数不足，不发送更新信号，设备: {device_id}, 有效点数: {len(valid_points)}")
         
         self.logger.debug(f"TeachingTrajectoryManager: 记录轨迹点 for device '{device_id}': pos={position:.2f}, vel={velocity:.2f}")
 
-    @Slot(str, str)
     def save_trajectory(self, device_id: str, trajectory_name: str) -> bool:
         """
         保存示教轨迹到本地文件
@@ -482,7 +543,7 @@ class TeachingTrajectoryManager(QObject):
             self._plan_trajectory(trajectory_name)
             
             # 发送轨迹录制完成信号
-            self._trajectory_recorded.emit(device_id, trajectory_name, self._recording_sessions[device_id]['points'])
+            self._emit('trajectory_recorded', device_id, trajectory_name, self._recording_sessions[device_id]['points'])
             
             return True
             
@@ -490,7 +551,6 @@ class TeachingTrajectoryManager(QObject):
             self.logger.error(f"TeachingTrajectoryManager: 保存轨迹失败: {e}")
             return False
 
-    @Slot(str)
     def load_trajectory(self, trajectory_name: str) -> Dict[str, Any]:
         """
         加载指定的轨迹
@@ -504,7 +564,6 @@ class TeachingTrajectoryManager(QObject):
             self.logger.warning(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 不存在")
             return {}
 
-    @Slot(str)
     def get_available_trajectories(self) -> List[str]:
         """
         获取所有可用的轨迹名称列表
@@ -512,7 +571,6 @@ class TeachingTrajectoryManager(QObject):
         """
         return list(self._stored_trajectories.keys())
 
-    @Slot(str)
     def delete_trajectory(self, trajectory_name: str) -> bool:
         """
         删除指定的轨迹
@@ -539,7 +597,6 @@ class TeachingTrajectoryManager(QObject):
             self.logger.error(f"TeachingTrajectoryManager: 删除轨迹失败: {e}")
             return False
 
-    @Slot(str)
     def is_teaching(self, device_id: str) -> bool:
         """
         检查指定设备是否正在示教
@@ -556,7 +613,6 @@ class TeachingTrajectoryManager(QObject):
             # _current_execution 在线程结束时会被清空，是准确的状态标志
             return bool(self._current_execution and self._current_execution.get('device_id') == device_id)
 
-    @Slot(str, str)
     def play_trajectory(self, device_id: str, trajectory_name: str):
         """
         播放指定的示教轨迹（旧版，暂不使用）
@@ -567,7 +623,7 @@ class TeachingTrajectoryManager(QObject):
         
         if trajectory_name not in self._planned_trajectories:
             self.logger.warning(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 不存在或未规划。")
-            self._trajectory_playback_error.emit(device_id, f"轨迹 '{trajectory_name}' 不存在或未规划")
+            self._emit('trajectory_playback_error', device_id, f"轨迹 '{trajectory_name}' 不存在或未规划")
             return
 
         planned_data = self._planned_trajectories[trajectory_name]
@@ -576,7 +632,7 @@ class TeachingTrajectoryManager(QObject):
         
         if not planned_times or not planned_positions:
             self.logger.warning(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 数据为空。")
-            self._trajectory_playback_error.emit(device_id, f"轨迹 '{trajectory_name}' 数据为空")
+            self._emit('trajectory_playback_error', device_id, f"轨迹 '{trajectory_name}' 数据为空")
             return
 
         # 设置播放状态
@@ -591,19 +647,34 @@ class TeachingTrajectoryManager(QObject):
         }
         
         # 发送播放开始信号
-        self._trajectory_playback_started.emit(device_id, trajectory_name)
+        self._emit('trajectory_playback_started', device_id, trajectory_name)
         
-        # 开始定时器播放
-        self._playback_timer.start(200)  # 200ms间隔，约5Hz，降低频率以提升性能
+        # 开始定时器播放（使用 threading.Timer 替代 QTimer）
+        self._playback_timer_active = True
+        self._start_playback_timer()
         
         self.logger.info(f"TeachingTrajectoryManager: 开始播放轨迹 '{trajectory_name}'，共 {len(planned_times)} 个点")
 
+    def _start_playback_timer(self):
+        """启动播放定时器（使用 threading.Timer 实现重复调用）"""
+        if not self._playback_timer_active:
+            return
+        
+        self._play_next_point()
+        
+        # 如果仍然活跃，继续设置下一个定时器
+        if self._playback_timer_active and self._current_playback:
+            self._playback_timer = threading.Timer(0.2, self._start_playback_timer)  # 200ms间隔
+            self._playback_timer.start()
+    
     def _play_next_point(self):
         """
         播放下一个轨迹点（定时器回调）
         """
         if not self._current_playback:
-            self._playback_timer.stop()
+            self._playback_timer_active = False
+            if self._playback_timer:
+                self._playback_timer.cancel()
             return
         
         playback = self._current_playback
@@ -615,8 +686,10 @@ class TeachingTrajectoryManager(QObject):
         
         if current_index >= len(times):
             # 播放完成
-            self._playback_timer.stop()
-            self._trajectory_playback_finished.emit(device_id, trajectory_name)
+            self._playback_timer_active = False
+            if self._playback_timer:
+                self._playback_timer.cancel()
+            self._emit('trajectory_playback_finished', device_id, trajectory_name)
             self._current_playback = {}
             self.logger.info(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 播放完成")
             return
@@ -626,11 +699,11 @@ class TeachingTrajectoryManager(QObject):
         current_position = positions[current_index]
         
         # 发送轨迹点就绪信号
-        self._trajectory_point_ready.emit(device_id, current_position, 0.0)  # 暂时不考虑速度
+        self._emit('trajectory_point_ready', device_id, current_position, 0.0)  # 暂时不考虑速度
         
         # 更新进度
         progress = int((current_index + 1) / len(times) * 100)
-        self._playback_progress.emit(device_id, progress)
+        self._emit('playback_progress', device_id, progress)
         
         # 移动到下一个点
         playback['current_index'] = current_index + 1
@@ -645,13 +718,13 @@ class TeachingTrajectoryManager(QObject):
             device_id = self._current_playback.get('device_id', '')
             trajectory_name = self._current_playback.get('trajectory_name', '')
             
-            self._playback_timer.stop()
+            self._playback_timer_active = False
+            if self._playback_timer:
+                self._playback_timer.cancel()
             self._current_playback = {}
             
             self.logger.info(f"TeachingTrajectoryManager: 停止播放轨迹 '{trajectory_name}'")
-            self._trajectory_playback_finished.emit(device_id, trajectory_name)
-
-    @Slot(str)
+            self._emit('trajectory_playback_finished', device_id, trajectory_name)
     def get_trajectory_names_for_device(self, device_id: str) -> List[str]:
         """
         获取指定设备已存储的轨迹名称列表。
@@ -700,7 +773,7 @@ class TeachingTrajectoryManager(QObject):
         planned_data = self.get_planned_trajectory(trajectory_name)
         if not planned_data:
             self.logger.error(f"TeachingTrajectoryManager: 无法获取轨迹 '{trajectory_name}' 的规划数据")
-            self._trajectory_execution_error.emit(device_id, f"无法获取轨迹 '{trajectory_name}' 的规划数据")
+            self._emit('trajectory_execution_error', device_id, f"无法获取轨迹 '{trajectory_name}' 的规划数据")
             return
         
         planned_times = planned_data.get('planned_times', [])
@@ -708,7 +781,7 @@ class TeachingTrajectoryManager(QObject):
         
         if not planned_times or not planned_positions:
             self.logger.error(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 规划数据为空")
-            self._trajectory_execution_error.emit(device_id, f"轨迹 '{trajectory_name}' 规划数据为空")
+            self._emit('trajectory_execution_error', device_id, f"轨迹 '{trajectory_name}' 规划数据为空")
             return
         
         self.logger.info(f"TeachingTrajectoryManager: 使用规划轨迹执行，共 {len(planned_times)} 个点")
@@ -746,7 +819,7 @@ class TeachingTrajectoryManager(QObject):
         # 获取原始轨迹数据
         if trajectory_name not in self._stored_trajectories:
             self.logger.error(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 不存在")
-            self._trajectory_execution_error.emit(device_id, f"轨迹 '{trajectory_name}' 不存在")
+            self._emit('trajectory_execution_error', device_id, f"轨迹 '{trajectory_name}' 不存在")
             return
         
         trajectory_data = self._stored_trajectories[trajectory_name]
@@ -757,7 +830,7 @@ class TeachingTrajectoryManager(QObject):
         
         if len(valid_points) < 1:
             self.logger.error(f"TeachingTrajectoryManager: 轨迹 '{trajectory_name}' 有效点不足")
-            self._trajectory_execution_error.emit(device_id, f"轨迹 '{trajectory_name}' 有效点不足")
+            self._emit('trajectory_execution_error', device_id, f"轨迹 '{trajectory_name}' 有效点不足")
             return
         
         # 提取位置和时间数据
@@ -820,7 +893,7 @@ class TeachingTrajectoryManager(QObject):
                 self._execution_start_time[device_id] = time.time()
             
             # 发送轨迹执行开始信号
-            self._trajectory_execution_started.emit(device_id, trajectory_name)
+            self._emit('trajectory_execution_started', device_id, trajectory_name)
             
             # 更新执行数据
             if device_id in self._execution_data:
@@ -857,7 +930,7 @@ class TeachingTrajectoryManager(QObject):
                 self.logger.debug(f"TeachingTrajectoryManager: 发送{trajectory_type}点 {i+1}/{len(times)}, motor_id: {motor_id}, 位置: {position:.2f}")
                 
                 # 发送命令请求信号
-                self._send_command_request.emit(device_id, command_name, args)
+                self._emit('send_command_request', device_id, command_name, args)
                 
                 # 更新执行数据和发送信号 (加锁)
                 progress_data_to_emit = None
@@ -879,21 +952,21 @@ class TeachingTrajectoryManager(QObject):
 
                 # 发送进度信号
                 progress = int((i + 1) / len(times) * 100)
-                self._trajectory_execution_progress.emit(device_id, progress)
+                self._emit('trajectory_execution_progress', device_id, progress)
                 
                 # 在锁外发射详细信号，避免死锁
                 if progress_data_to_emit:
-                    self._trajectory_execution_progress_detailed.emit(device_id, progress_data_to_emit)
+                    self._emit('trajectory_execution_progress_detailed', device_id, progress_data_to_emit)
             
             # 发送轨迹执行完成信号
-            self._trajectory_execution_finished.emit(device_id, trajectory_name)
+            self._emit('trajectory_execution_finished', device_id, trajectory_name)
             
             total_time_actual = time.time() - execution_start_time
             self.logger.info(f"TeachingTrajectoryManager: {trajectory_type}执行完成。计划时长: {times[-1]:.2f}s, 实际耗时: {total_time_actual:.2f}s")
             
         except Exception as e:
             self.logger.error(f"TeachingTrajectoryManager: 轨迹执行出错: {e}")
-            self._trajectory_execution_error.emit(device_id, str(e))
+            self._emit('trajectory_execution_error', device_id, str(e))
         finally:
             self._trajectory_execution_thread = None
             with self._state_lock:
@@ -946,8 +1019,9 @@ class TeachingTrajectoryManager(QObject):
         清理示教管理器资源。
         """
         # 停止播放定时器
-        if self._playback_timer.isActive():
-            self._playback_timer.stop()
+        self._playback_timer_active = False
+        if self._playback_timer:
+            self._playback_timer.cancel()
         
         # 停止轨迹执行
         self.stop_trajectory_execution()

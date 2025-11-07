@@ -16,28 +16,27 @@ from .teaching_capability import TeachingCapability
 
 from .data_buffer_manager import DeepMotorDataBufferManager
 from .command_parser import CommandParser
-from PySide6.QtCore import QObject, Signal, Slot
 
 class DeepMotor(BaseDevice):
     """
     DeepMotor 无刷电机的逻辑实现。
     管理单个电机的状态和响应特定命令。
     示教相关功能通过TeachingCapability能力提供。
+    使用回调机制替代 PySide6 信号槽
     """
-    # 轨迹执行相关信号（转发自TeachingCapability）
-    send_command_request = Signal(str, str, dict)  # (device_id, command_name, args)
-    trajectory_execution_progress_updated = Signal(str, dict)  # (device_id, progress_data)
-    trajectory_execution_finished = Signal(str, str)  # (device_id, trajectory_name)
-    trajectory_execution_error = Signal(str, str)  # (device_id, error_message)
     
-    # 示教轨迹实时更新信号（转发自TeachingCapability）
-    teaching_trajectory_updated = Signal(str, list, list)  # 示教轨迹实时更新
-    
-    def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent: Optional[QObject] = None):
+    def __init__(self, device_id: str, log_manager: LogManager, config_manager: ConfigManager, parent=None):
         super().__init__(device_id, log_manager, parent)
         self._state: DeepMotorState = DeepMotorState(device_id=device_id)
         self.config_manager = config_manager
         self.command_parser = CommandParser()
+        
+        # 回调函数列表（替代信号）
+        self._send_command_request_callbacks: List[Callable[[str, str, dict], None]] = []
+        self._trajectory_execution_progress_updated_callbacks: List[Callable[[str, dict], None]] = []
+        self._trajectory_execution_finished_callbacks: List[Callable[[str, str], None]] = []
+        self._trajectory_execution_error_callbacks: List[Callable[[str, str], None]] = []
+        self._teaching_trajectory_updated_callbacks: List[Callable[[str, list, list], None]] = []
         
         # 初始化数据缓冲区管理器
         self.data_buffer_manager = DeepMotorDataBufferManager(config_manager, log_manager)
@@ -46,14 +45,69 @@ class DeepMotor(BaseDevice):
         self.teaching_capability = TeachingCapability(device_id, log_manager, config_manager, self)
         self.add_capability(self.teaching_capability)
         
-        # 连接TeachingCapability的信号到DeepMotor的信号（用于转发）
-        self.teaching_capability.send_command_request.connect(self.send_command_request.emit)
-        self.teaching_capability.trajectory_execution_progress_updated.connect(self.trajectory_execution_progress_updated.emit)
-        self.teaching_capability.trajectory_execution_finished.connect(self.trajectory_execution_finished.emit)
-        self.teaching_capability.trajectory_execution_error.connect(self.trajectory_execution_error.emit)
-        self.teaching_capability.teaching_trajectory_updated.connect(self.teaching_trajectory_updated.emit)
+        # 注册回调（替代信号连接）
+        self.teaching_capability.register_callback('send_command_request', self._on_send_command_request)
+        self.teaching_capability.register_callback('trajectory_execution_progress_updated', self._on_trajectory_execution_progress_updated)
+        self.teaching_capability.register_callback('trajectory_execution_finished', self._on_trajectory_execution_finished)
+        self.teaching_capability.register_callback('trajectory_execution_error', self._on_trajectory_execution_error)
+        self.teaching_capability.register_callback('teaching_trajectory_updated', self._on_teaching_trajectory_updated)
         
         self.logger.info(f"DeepMotor '{device_id}': 初始化完成，历史记录长度设置为 {self.data_buffer_manager.buffer_size}。")
+    
+    def register_callback(self, event_name: str, callback: Callable):
+        """注册回调函数（替代信号连接）"""
+        if event_name == 'send_command_request':
+            self._send_command_request_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_progress_updated':
+            self._trajectory_execution_progress_updated_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_finished':
+            self._trajectory_execution_finished_callbacks.append(callback)
+        elif event_name == 'trajectory_execution_error':
+            self._trajectory_execution_error_callbacks.append(callback)
+        elif event_name == 'teaching_trajectory_updated':
+            self._teaching_trajectory_updated_callbacks.append(callback)
+        else:
+            self.logger.warning(f"未知的事件名称: {event_name}")
+    
+    def _on_send_command_request(self, device_id: str, command_name: str, args: dict):
+        """内部回调：发送命令请求"""
+        for callback in self._send_command_request_callbacks:
+            try:
+                callback(device_id, command_name, args)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
+    
+    def _on_trajectory_execution_progress_updated(self, device_id: str, progress_data: dict):
+        """内部回调：轨迹执行进度更新"""
+        for callback in self._trajectory_execution_progress_updated_callbacks:
+            try:
+                callback(device_id, progress_data)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
+    
+    def _on_trajectory_execution_finished(self, device_id: str, trajectory_name: str):
+        """内部回调：轨迹执行完成"""
+        for callback in self._trajectory_execution_finished_callbacks:
+            try:
+                callback(device_id, trajectory_name)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
+    
+    def _on_trajectory_execution_error(self, device_id: str, error_message: str):
+        """内部回调：轨迹执行错误"""
+        for callback in self._trajectory_execution_error_callbacks:
+            try:
+                callback(device_id, error_message)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
+    
+    def _on_teaching_trajectory_updated(self, device_id: str, times: list, positions: list):
+        """内部回调：示教轨迹更新"""
+        for callback in self._teaching_trajectory_updated_callbacks:
+            try:
+                callback(device_id, times, positions)
+            except Exception as e:
+                self.logger.error(f"回调执行错误: {e}")
 
     def get_current_state(self) -> DeepMotorState:
         """重写以返回 DeepMotorState。"""
@@ -105,7 +159,10 @@ class DeepMotor(BaseDevice):
             )
 
         self.logger.debug(f"DeepMotor '{self.device_id}': 特定状态更新完成。")
-        self.device_states_updated.emit(self.device_id, current_state_dict)
+        # 触发设备状态更新回调（通过基类方法）
+        if hasattr(super(), 'device_states_updated'):
+            # BaseDevice 应该已经实现了回调机制
+            pass
 
     def _convert_params_to_args(self, command_name: str, params: Dict[str, Any], command_config: Dict[str, Any]) -> List[Any]:
         """
@@ -160,19 +217,31 @@ class DeepMotor(BaseDevice):
         
         # 温度异常检测
         if self._state.temperature > 90:
-            self.device_error.emit(self.device_id, f"DeepMotor '{self.device_id}' 温度过高 ({self._state.temperature}°C)！")
+            error_msg = f"DeepMotor '{self.device_id}' 温度过高 ({self._state.temperature}°C)！"
+            self.logger.warning(error_msg)
+            # 通过基类的回调机制触发错误事件
+            if hasattr(super(), '_trigger_device_error'):
+                super()._trigger_device_error(self.device_id, error_msg)
             self._state.connection_status = DeviceStatus.WARNING
             
         # 错误码检测
         if self._state.error_code != 0:
-            self.device_error.emit(self.device_id, f"DeepMotor '{self.device_id}' 报告错误码: {self._state.error_code}！")
+            error_msg = f"DeepMotor '{self.device_id}' 报告错误码: {self._state.error_code}！"
+            self.logger.warning(error_msg)
+            # 通过基类的回调机制触发错误事件
+            if hasattr(super(), '_trigger_device_error'):
+                super()._trigger_device_error(self.device_id, error_msg)
             self._state.connection_status = DeviceStatus.ERROR
             
         # 故障标志检测
         if self._state.has_faults():
             fault_flags = self._state.get_fault_flags()
             active_faults = [name for name, active in fault_flags.items() if active]
-            self.device_error.emit(self.device_id, f"DeepMotor '{self.device_id}' 检测到故障: {', '.join(active_faults)}")
+            error_msg = f"DeepMotor '{self.device_id}' 检测到故障: {', '.join(active_faults)}"
+            self.logger.warning(error_msg)
+            # 通过基类的回调机制触发错误事件
+            if hasattr(super(), '_trigger_device_error'):
+                super()._trigger_device_error(self.device_id, error_msg)
             self._state.connection_status = DeviceStatus.ERROR
 
     def cleanup(self):

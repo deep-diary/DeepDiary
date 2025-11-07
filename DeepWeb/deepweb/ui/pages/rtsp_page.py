@@ -58,7 +58,7 @@ class RtspPage:
         # 将在第一次调用 get_frame() 时再连接
     
     def _parse_urls(self):
-        """解析 RTSP URL 并生成 Web URL"""
+        """解析 RTSP URL 并生成 Web URL（使用 HTTPS 代理避免混合内容问题）"""
         # 从 RTSP URL 中提取服务器地址和流名称
         # 例如: rtsp://34.172.161.212:8554/mystream
         if "rtsp://" in self.rtsp_url:
@@ -74,16 +74,26 @@ class RtspPage:
                 host = host_port
                 rtsp_port = "8554"
             
-            # 生成 MediaMTX 的 Web 接口 URL
-            # MediaMTX 默认 HTTP 端口是 8888
-            self.web_base_url = f"http://{host}:8888"
+            # 使用 HTTPS 代理 URL（通过 Nginx 代理 MediaMTX 的 HTTP 服务）
+            # 这样可以避免混合内容问题（HTTPS 页面加载 HTTP iframe）
+            # Nginx 配置了 /mediamtx/ 路径来代理 MediaMTX 的 8888 端口
+            self.web_base_url = f"https://www.deep-diary.com/mediamtx"
             self.web_stream_url = f"{self.web_base_url}/{stream_name}"
             
             self.logger.info(f"解析 URL - 主机: {host}, 流名称: {stream_name}")
-            self.logger.info(f"Web 播放 URL: {self.web_stream_url}")
+            self.logger.info(f"Web 播放 URL (HTTPS 代理): {self.web_stream_url}")
+            self.logger.info(f"原始 MediaMTX URL: http://{host}:8888/{stream_name}")
         else:
-            # 如果不是 RTSP URL，假设是 HTTP URL
-            self.web_stream_url = self.rtsp_url.rstrip("/")
+            # 如果不是 RTSP URL，检查是否是 HTTP URL，如果是则转换为 HTTPS 代理
+            if self.rtsp_url.startswith("http://"):
+                # 提取流名称
+                url_parts = self.rtsp_url.rstrip("/").split("/")
+                stream_name = url_parts[-1] if url_parts else "mystream"
+                self.web_stream_url = f"https://www.deep-diary.com/mediamtx/{stream_name}"
+                self.logger.info(f"HTTP URL 已转换为 HTTPS 代理: {self.web_stream_url}")
+            else:
+                # 假设已经是 HTTPS URL 或相对路径
+                self.web_stream_url = self.rtsp_url.rstrip("/")
     
     def _init_capture(self) -> bool:
         """
