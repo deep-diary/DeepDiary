@@ -109,12 +109,13 @@ BoardExtensions::BoardExtensions(i2c_master_bus_handle_t i2c_bus, LcdDisplay* di
     InitializeGimbal();
 #endif
     
-    // 初始化LED灯带和CAN
-#if ENABLE_CAN_FEATURE || ENABLE_LED_STRIP_FEATURE
-    InitializeWs2812();
+    // 初始化CAN总线
+#if ENABLE_CAN_FEATURE
     InitializeCan();
 #endif
     
+    InitializeWs2812();
+
     // 初始化传感器
     InitializeQMA6100P();
     

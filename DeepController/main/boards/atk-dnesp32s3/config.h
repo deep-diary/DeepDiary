@@ -73,17 +73,21 @@
 #define WS2812_LED_COUNT 24
 
 // 功能使能配置 - 相机功能与CAN总线、灯带功能存在GPIO冲突
-#define ENABLE_CAMERA_FEATURE 1          // 1:启用相机功能, 0:禁用相机功能
-#define ENABLE_CAN_FEATURE 0             // 1:启用CAN总线功能, 0:禁用CAN总线功能  
+#define ENABLE_CAMERA_FEATURE 1          // 1:启用相机功能, 0:禁用相机功能 
 #define ENABLE_LED_STRIP_FEATURE 1       // 1:启用2812灯带功能, 0:禁用2812灯带功能
 #define ENABLE_QMA6100P_FEATURE 1        // 1:启用QMA6100P加速度计, 0:禁用QMA6100P加速度计
 
+//--------------------------------------------------
 // 网络流媒体模式配置 - MJPEG服务器模式与TCP客户端模式互斥
 #define ENABLE_TCP_CLIENT_MODE 1         // 1:启用TCP客户端模式, 0:禁用TCP客户端模式
 #define ENABLE_MJPEG_FEATURE 0           // 1:启用MJPEG流媒体服务器, 0:禁用(计划迁移到RTSP)
+//--------------------------------------------------
 
-// 云台舵机
+//--------------------------------------------------
+// // CAN总线功能与云台舵机功能存在GPIO冲突
 #define ENABLE_SERVO_FEATURE 1          // 1:启用云台舵机功能, 0:禁用云台舵机功能
+#define ENABLE_CAN_FEATURE 0             // 1:启用CAN总线功能, 0:禁用CAN总线功能 
+//--------------------------------------------------
 
 // TCP客户端模式配置参数
 #if ENABLE_TCP_CLIENT_MODE
@@ -95,13 +99,6 @@
     #define ENABLE_MJPEG_FEATURE 0
 #endif
 
-// 当启用相机功能时，自动禁用冲突的功能
-// #if ENABLE_CAMERA_FEATURE
-//     #undef ENABLE_CAN_FEATURE
-//     #undef ENABLE_LED_STRIP_FEATURE
-//     #define ENABLE_CAN_FEATURE 1
-//     #define ENABLE_LED_STRIP_FEATURE 1
-// #endif
 
 #endif // _BOARD_CONFIG_H_
 
