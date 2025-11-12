@@ -16,7 +16,9 @@
 #include <memory>
 #include "i2c_device.h"
 #include "config.h"  // 必须在前面包含，以便使用功能开关宏
+#if ENABLE_SERVO_FEATURE
 #include "gimbal/Gimbal.h"  // Gimbal_t 是 C 结构体，需要完整定义
+#endif
 
 // ==================== 时间周期宏定义 ====================
 // 主循环基础延时（单位：毫秒）
@@ -61,6 +63,9 @@ class DeepMotor;
 class DeepArm;
 class LedStripControl;
 class DeepMotorControl;
+#if ENABLE_SERVO_FEATURE
+class GimbalControl;
+#endif
 class Esp32Camera;
 class Camera;
 class LcdDisplay;
@@ -129,10 +134,12 @@ public:
      */
     Camera* InitializeCamera();
     
+#if ENABLE_SERVO_FEATURE
     /**
      * @brief 初始化云台舵机
      */
     void InitializeGimbal();
+#endif
     
     /**
      * @brief 初始化WS2812 LED灯带
@@ -211,10 +218,12 @@ public:
      */
     Camera* GetCamera() { return camera_; }
     
+#if ENABLE_SERVO_FEATURE
     /**
      * @brief 获取云台对象
      */
     Gimbal_t* GetGimbal() { return gimbal_; }
+#endif
     
     /**
      * @brief 获取电机管理器
@@ -253,7 +262,9 @@ private:
     
     // ========== 外设对象 ==========
     Camera* camera_;                        // 摄像头（实际类型：Esp32Camera*，通过基类指针管理）
+#if ENABLE_SERVO_FEATURE
     Gimbal_t* gimbal_;                      // 云台
+#endif
     CircularStrip* led_strip_;              // WS2812灯带
     
     // ========== 电机系统 ==========
@@ -263,7 +274,9 @@ private:
     // ========== 控制接口 ==========
     LedStripControl* led_control_;          // LED控制
     DeepMotorControl* deep_motor_control_;  // 电机控制
-    // GimbalControl* gimbal_control_;      // 云台控制（预留）
+#if ENABLE_SERVO_FEATURE
+    GimbalControl* gimbal_control_;         // 云台控制
+#endif
     // DeepArmControl* deep_arm_control_;   // 机械臂控制（预留）
     
     // ========== 流媒体服务 ==========

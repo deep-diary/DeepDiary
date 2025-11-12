@@ -19,7 +19,9 @@
 #include "arm/deep_arm.h"
 #include "arm/deep_arm_control.h"
 #include "sensor/QMA6100P/qma6100p.h"
+#if ENABLE_SERVO_FEATURE
 #include "gimbal/gimbal_control.h"
+#endif
 
 // MQTT相关头文件
 #include "mqtt/user_mqtt_config.h"
@@ -77,12 +79,17 @@ BoardExtensions::BoardExtensions(i2c_master_bus_handle_t i2c_bus, LcdDisplay* di
     , display_(display)
     , xl9555_(nullptr)
     , camera_(nullptr)
+#if ENABLE_SERVO_FEATURE
     , gimbal_(nullptr)
+#endif
     , led_strip_(nullptr)
     , deep_motor_(nullptr)
     , deep_arm_(nullptr)
     , led_control_(nullptr)
     , deep_motor_control_(nullptr)
+#if ENABLE_SERVO_FEATURE
+    , gimbal_control_(nullptr)
+#endif
     , qma6100p_initialized_(false)
     , user_mqtt_initialized_(false)
     , can_receive_task_handle_(nullptr)
@@ -98,7 +105,9 @@ BoardExtensions::BoardExtensions(i2c_master_bus_handle_t i2c_bus, LcdDisplay* di
     camera_ = InitializeCamera();
     
     // 初始化云台
+#if ENABLE_SERVO_FEATURE
     InitializeGimbal();
+#endif
     
     // 初始化LED灯带和CAN
 #if ENABLE_CAN_FEATURE || ENABLE_LED_STRIP_FEATURE
@@ -138,6 +147,9 @@ BoardExtensions::~BoardExtensions() {
     // 删除控制类
     delete led_control_;
     delete deep_motor_control_;
+#if ENABLE_SERVO_FEATURE
+    delete gimbal_control_;
+#endif
     
     // 删除硬件对象
     delete deep_arm_;
@@ -145,10 +157,12 @@ BoardExtensions::~BoardExtensions() {
     delete led_strip_;
     
     // 清理云台
+#if ENABLE_SERVO_FEATURE
     if (gimbal_) {
         Gimbal_deinit(gimbal_);
         free(gimbal_);
     }
+#endif
     
     delete camera_;
     delete xl9555_;
@@ -235,6 +249,7 @@ Camera* BoardExtensions::InitializeCamera() {
 #endif
 }
 
+#if ENABLE_SERVO_FEATURE
 void BoardExtensions::InitializeGimbal() {
     ESP_LOGI(TAG, "初始化云台...");
     
@@ -250,6 +265,7 @@ void BoardExtensions::InitializeGimbal() {
     ESP_LOGI(TAG, "云台初始化完成 - PAN: GPIO%d, TILT: GPIO%d", 
              SERVO_PAN_GPIO, SERVO_TILT_GPIO);
 }
+#endif
 
 void BoardExtensions::InitializeWs2812() {
 #if ENABLE_LED_STRIP_FEATURE
@@ -306,7 +322,7 @@ void BoardExtensions::InitializeQMA6100P() {
 }
 
 void BoardExtensions::InitializeControls() {
-#if ENABLE_LED_STRIP_FEATURE || ENABLE_CAN_FEATURE
+#if ENABLE_LED_STRIP_FEATURE || ENABLE_CAN_FEATURE || ENABLE_SERVO_FEATURE
     auto& mcp_server = McpServer::GetInstance();
 #endif
     
@@ -318,6 +334,15 @@ void BoardExtensions::InitializeControls() {
 #if ENABLE_CAN_FEATURE
     deep_motor_control_ = new DeepMotorControl(deep_motor_, mcp_server);
     ESP_LOGI(TAG, "电机控制类初始化完成");
+#endif
+
+#if ENABLE_SERVO_FEATURE
+    if (gimbal_) {
+        gimbal_control_ = new GimbalControl(gimbal_, mcp_server);
+        ESP_LOGI(TAG, "云台控制类初始化完成");
+    } else {
+        ESP_LOGW(TAG, "云台未初始化，跳过云台控制类初始化");
+    }
 #endif
 
 #if ENABLE_MJPEG_FEATURE && ENABLE_CAMERA_FEATURE
@@ -437,13 +462,17 @@ void BoardExtensions::can_receive_task(void* pvParameters) {
     
     while (1) {
         if (ESP32Can.readFrame(rxFrame, 1000)) {
+            ESP_LOGI(TAG, "收到CAN帧: ID=0x%08lX, 长度=%d", rxFrame.identifier, rxFrame.data_length_code);
             if (ext->deep_motor_ && ext->deep_motor_->processCanFrame(rxFrame)) {
                 // 电机反馈帧已处理
-            } else if (rxFrame.identifier == CAN_CMD_SERVO_CONTROL) {
+            }
+#if ENABLE_SERVO_FEATURE
+            else if (rxFrame.identifier == CAN_CMD_SERVO_CONTROL) {
                 if (ext->gimbal_) {
                     Gimbal_handleCanCommand(ext->gimbal_, &rxFrame);
                 }
             }
+#endif
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -613,7 +642,9 @@ void BoardExtensions::InitializeUserMqtt() {
         if (remote_control_handler_) {
             remote_control_handler_->SetDeepMotor(deep_motor_);
             remote_control_handler_->SetDeepArm(deep_arm_);
+#if ENABLE_SERVO_FEATURE
             remote_control_handler_->SetGimbal(gimbal_);
+#endif
             remote_control_handler_->SetLedStrip(led_strip_);
             remote_control_handler_->SetCamera(static_cast<Esp32Camera*>(camera_));
         }
@@ -621,7 +652,9 @@ void BoardExtensions::InitializeUserMqtt() {
         if (device_info_collector_) {
             device_info_collector_->SetDeepMotor(deep_motor_);
             device_info_collector_->SetDeepArm(deep_arm_);
+#if ENABLE_SERVO_FEATURE
             device_info_collector_->SetGimbal(gimbal_);
+#endif
             device_info_collector_->SetLedStrip(led_strip_);
             device_info_collector_->SetCamera(static_cast<Esp32Camera*>(camera_));
         }
