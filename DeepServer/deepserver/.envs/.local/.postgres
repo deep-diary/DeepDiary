@@ -1,0 +1,7 @@
+# PostgreSQL
+# ------------------------------------------------------------------------------
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=deepserver
+POSTGRES_USER=DSMNFzomSxqVLQxGxVoOEzNtGEzXgdvv
+POSTGRES_PASSWORD=wJb1Eba8EYNz1aqw7JqrtZLyxWFYLtfJ8VWsM2L53cDrAfuAPcjrqe2BXbsfrBA2
