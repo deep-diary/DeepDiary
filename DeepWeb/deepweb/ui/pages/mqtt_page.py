@@ -1,189 +1,177 @@
 import gradio as gr
-from typing import Any, Tuple, Optional, List
+from typing import Any, Optional, List, Tuple
 from queue import Empty, Queue
-import sys
-from pathlib import Path
-from typing import Dict
-
-# 导入配置
-try:
-    project_root = Path(__file__).parent.parent.parent
-    sys.path.insert(0, str(project_root))
-    from deepweb.services.device_communication.mqtt_config import (
-        CONTROL_TYPES,
-        ACTION_TYPES,
-        TARGET_DEVICES
-    )
-except ImportError:
-    # 如果导入失败，使用默认值
-    CONTROL_TYPES = {
-        "led": "led",
-        "motor": "motor",
-        "arm": "arm",
-        "gimbal": "gimbal",
-        "camera": "camera",
-        "system": "system"
-    }
-    ACTION_TYPES = {
-        "start": "start",
-        "stop": "stop",
-        "restart": "restart",
-        "reboot": "reboot",
-        "factory_reset": "factory_reset",
-        "update": "update",
-        "config": "config"
-    }
+import json
+from deepweb.services.device_communication.mqtt_config_loader import MQTTConfigLoader
 
 
 class MqttPage:
     """
-    使用类来管理 MQTT 页面构建与交互，要求外部传入日志管理器。
-
-    依赖：ui_manager 提供 coordinator、_mqtt_queue、_recent_messages、update_time()
+    MQTT 测试页面 - 用于测试发送和接收原始 MQTT 消息
+    
+    功能：
+    1. 显示收到的任何主题的 MQTT 消息（保留100条）
+    2. 从配置文件读取所有主题，支持发送命令和状态主题
+    3. 使用 gr.Interface 提供便捷的示例功能
     """
 
     def __init__(self, mqtt_manager: Optional[object], logger):
         self.mqtt_manager = mqtt_manager
         self.logger = logger
-        # 子页面自管消息通道与缓存
+        # 消息队列和缓存
         self._mqtt_queue: Queue = Queue(maxsize=1000)
-        self.active_device_id: str = "ATK-DNESP32S3-9888e000ae28"
         self._recent_messages: List[Any] = []
-        self._sensor_data: Dict[str, Any] = {
-            "acc_x": 0.0,
-            "acc_y": 0.0,
-            "acc_z": 0.0,
-            "acc_g": 0.0,
-            "pitch": 0.0,
-            "roll": 0.0,
-            "sensor_status": "normal",
-        }
+        
+        # 默认设备列表（可以从 ThumblerPage 获取或通过API获取）
+        self.device_list = [
+            "ATK-DNESP32S3-9888e000ae28",
+            "ATK-DNESP32S3-9888e000ae29"
+        ]
+        
+        # 从 mqtt_manager 获取配置加载器（如果可用），否则创建新实例
+        if mqtt_manager and hasattr(mqtt_manager, 'config_loader'):
+            self.config_loader = mqtt_manager.config_loader
+            self.logger.debug("使用 mqtt_manager 的 config_loader")
+        else:
+            self.config_loader = MQTTConfigLoader()
+            self.logger.debug("创建新的 config_loader 实例")
+        
+        # 从配置文件读取主题配置
+        self._load_topic_configs()
 
-    def _send_control(self, client_id: str, cmd_type: str, params_text: str) -> Tuple[str, dict]:
+    def _load_topic_configs(self):
+        """从配置文件加载主题配置，按方向分类"""
+        # 使用配置加载器的方法获取主题
+        self.cmd_topics = self.config_loader.get_topics_by_direction("sub")  # Web发布（命令主题）
+        self.status_topics = self.config_loader.get_topics_by_direction("pub")  # 设备发布（状态主题）
+        
+        self.logger.info(f"加载主题配置: {len(self.cmd_topics)} 个命令主题, {len(self.status_topics)} 个状态主题")
+    
+    def _get_topic_choices(self, topic_type: str) -> List[Tuple[str, str]]:
+        """
+        获取主题选择列表（用于UI下拉菜单）
+        
+        Args:
+            topic_type: "cmd" 或 "status"
+            
+        Returns:
+            List[Tuple[str, str]]: [(显示名称, topic_key), ...]
+        """
+        direction = "sub" if topic_type == "cmd" else "pub"
+        return self.config_loader.get_topic_choices_for_ui(direction)
+    
+    def _send_json_message(self, device_id: str, topic_key: str, json_content: str) -> Tuple[str, dict]:
+        """
+        发送 JSON 消息到指定主题
+        
+        Args:
+            device_id: 设备ID
+            topic_key: 主题配置键名
+            json_content: JSON 字符串内容
+            
+        Returns:
+            (状态消息, 发送的payload字典)
+        """
         if not self.mqtt_manager:
-            return ("未找到协调器，无法发送", {})
-        if not client_id or not client_id.strip():
-            return ("Client ID 不能为空", {})
+            return ("❌ MQTT 管理器未初始化", {})
+        
+        if not device_id or not device_id.strip():
+            return ("❌ 设备ID不能为空", {})
+        
+        if not topic_key or not topic_key.strip():
+            return ("❌ 主题不能为空", {})
+        
+        if not json_content or not json_content.strip():
+            return ("❌ JSON 内容不能为空", {})
+        
         try:
-            import json
-            parameters: Any = {}
-            if params_text.strip():
-                try:
-                    parameters = json.loads(params_text)
-                except Exception:
-                    parameters = {"text": params_text}
-
-            payload = {
-                "type": cmd_type or "",
-                "parameters": parameters,
-            }
-
-            # 优先使用配置加载器构建主题（根据 mqtt_config.py 中的配置）
-            topic = ""
+            # 解析 JSON
             try:
-                loader = getattr(self.mqtt_manager, "config_loader", None)
-                if loader:
-                    topic = loader.format_topic_from_config("control", client_id)
-                    if topic:
-                        self.logger.debug(f"使用配置加载器生成主题: {topic}")
-            except Exception as e:
-                self.logger.warning(f"配置加载器失败: {e}")
+                payload = json.loads(json_content)
+            except json.JSONDecodeError as e:
+                return (f"❌ JSON 格式错误: {e}", {})
             
-            # 如果配置加载器失败或返回空，使用默认格式
+            # 格式化主题名称
+            topic = self.config_loader.format_topic_from_config(topic_key, device_id=device_id)
             if not topic:
-                topic = f"device/{client_id}/control"
-                self.logger.debug(f"使用默认主题格式: {topic}")
+                return (f"❌ 主题格式化失败: {topic_key}", {})
             
-            # 验证主题不为空
-            if not topic or not topic.strip():
-                error_msg = f"主题构建失败: client_id={client_id}"
-                self.logger.error(error_msg)
-                return (f"❌ {error_msg}", {})
-
-            try:
-                self.logger.warning(f"<<<<STP0:UI_SEND_CONTROL: topic={topic} payload={payload}")
-            except Exception:
-                pass
-            ok = self.mqtt_manager.publish(topic, payload, qos=1, retain=False)
-            try:
-                self.logger.warning(f"<<<<STP0:UI_SEND_CONTROL_RESULT: ok={ok}")
-            except Exception:
-                pass
-            status = "发送成功" if ok else "发送失败"
-            return (f"{status}: {topic}", payload)
+            # 获取 QoS
+            qos = self.config_loader.get_topic_qos(topic_key)
+            
+            # 发送消息
+            ok = self.mqtt_manager.publish(topic, payload, qos=qos, retain=False)
+            
+            if ok:
+                self.logger.info(f"发送消息成功: {topic} (QoS: {qos}) -> {payload}")
+                return (f"✅ 发送成功: {topic} (QoS: {qos})", payload)
+            else:
+                self.logger.warning(f"发送消息失败: {topic}")
+                return (f"❌ 发送失败: {topic}", payload)
+                
         except Exception as e:
-            try:
-                self.logger.warning(f"<<<<STP0:UI_SEND_CONTROL_ERROR: {e}")
-            except Exception:
-                pass
-            return (f"发送异常: {e}", {})
+            self.logger.error(f"发送消息异常: {e}", exc_info=True)
+            return (f"❌ 发送异常: {e}", {})
 
-    def _drain_mqtt_messages(self) -> Tuple[Any, Any, Any, Any, Any, Any, Any]:
+    def _drain_mqtt_messages(self) -> List[Any]:
         """
         定时器回调函数：从队列中取出消息并更新显示
         注意：这个方法会被 Gradio Timer 周期性调用
-        Args:
-            mqtt_json: MQTT消息
-            g_acc_x: X轴加速度
-            g_acc_y: Y轴加速度
-            g_acc_z: Z轴加速度
-            g_acc_g: 总加速度
-            g_pitch: 俯仰角
-            g_roll: 翻滚角
+        
         Returns:
-            (MQTT消息, X轴加速度, Y轴加速度, Z轴加速度, 总加速度, 俯仰角, 翻滚角)
+            最近100条消息列表
         """
-        mqtt_json = {}
         try:
-            drained = False
-            drained_count = 0
+            # 从队列中取出所有消息
             while True:
                 try:
                     item = self._mqtt_queue.get_nowait()
                     # 将最新消息插入到列表最前面
                     self._recent_messages.insert(0, item)
-                    drained = True
-                    drained_count += 1
-                    self.logger.warning(f"<<<<STP5:UI_DRAIN_TICK: item={item},drained={drained},drained_count={drained_count},queue_size={self._mqtt_queue.qsize()},messages_size={len(self._recent_messages)}")
                 except Empty:
                     break
-            if drained and len(self._recent_messages) > 100:
-                # 保留前100条消息（最新的100条）
+            
+            # 保留最新100条消息
+            if len(self._recent_messages) > 100:
                 self._recent_messages = self._recent_messages[:100]
+                
         except Exception as e:
-            self.logger.error(f"<<<<STP5:UI_DRAIN_TICK_ERROR: {e}", exc_info=True)
+            self.logger.error(f"处理 MQTT 消息时出错: {e}", exc_info=True)
 
-        if self._recent_messages:
-            # 最新消息现在在最前面（索引0）
-            mqtt_json = self._recent_messages[0]
-
-        # 如果mqtt_json 的topic 包含sensor 字段，则进行解析，否则返回0.0
-        if "sensor" in mqtt_json.get("topic", ""):
-            payload = mqtt_json.get("payload", {})
-
-            self._sensor_data["acc_x"] = payload.get("acc_x", 0.0)
-            self._sensor_data["acc_y"] = payload.get("acc_y", 0.0)
-            self._sensor_data["acc_z"] = payload.get("acc_z", 0.0)
-            self._sensor_data["acc_g"] = payload.get("acc_g", 0.0)
-            self._sensor_data["pitch"] = payload.get("pitch", 0.0)
-            self._sensor_data["roll"] = payload.get("roll", 0.0)
-
-            # self.logger.warning(f"<<<<STP6:UI_DRAIN_TICK_SENSOR_DATA: {self._sensor_data}")
-
-        # 明确返回6个传感器数值，保证顺序与UI组件一致
-        return (
-            self._recent_messages,
-            self._sensor_data["acc_x"],
-            self._sensor_data["acc_y"],
-            self._sensor_data["acc_z"],
-            self._sensor_data["acc_g"],
-            self._sensor_data["pitch"],
-            self._sensor_data["roll"],
-        )
+        return self._recent_messages
+    
+    def _clear_messages(self) -> List[Any]:
+        """
+        清空消息列表和队列
         
+        Returns:
+            空列表（用于更新UI）
+        """
+        try:
+            # 清空消息列表
+            self._recent_messages.clear()
+            
+            # 清空队列
+            while True:
+                try:
+                    self._mqtt_queue.get_nowait()
+                except Empty:
+                    break
+            
+            self.logger.info("消息列表和队列已清空")
+        except Exception as e:
+            self.logger.error(f"清空消息时出错: {e}", exc_info=True)
+        
+        return []
 
     def push_mqtt_message(self, topic: str, payload: Any) -> None:
-        """供外部设备消息处理器调用，写入本页面队列。"""
+        """
+        供外部设备消息处理器调用，写入本页面队列
+        
+        Args:
+            topic: MQTT 主题
+            payload: MQTT 消息负载
+        """
         try:
             if self._mqtt_queue.full():
                 try:
@@ -191,79 +179,193 @@ class MqttPage:
                 except Empty:
                     pass
             self._mqtt_queue.put_nowait({"topic": topic, "payload": payload})
-            self.logger.warning(f"<<<<STP4:UI_QUEUE_RESULT: alreadt push the message to the queue")
         except Exception as e:
-            self.logger.warning(f"<<<<STP4:UI_QUEUE_ERROR: {e}")
+            self.logger.warning(f"MQTT 消息入队失败: {e}")
 
+    def _get_cmd_examples(self) -> List[List[str]]:
+        """获取命令主题的示例"""
+        examples = []
+        default_device = self.device_list[0] if self.device_list else ""
+        
+        # 基础控制示例
+        examples.append([
+            default_device,
+            "thumbler_cmd",
+            json.dumps({
+                "tar_cam_switch": True,
+                "tar_pitch": 10.0,
+                "tar_roll": -5.0,
+                "tar_tumbler_mode": 1,
+                "timestamp": 1704067200
+            }, ensure_ascii=False, indent=2)
+        ])
+        
+        # LED 静态颜色示例
+        examples.append([
+            default_device,
+            "thumbler_cmd",
+            json.dumps({
+                "tar_led_mode": 1,
+                "tar_led_brightness": 128,
+                "tar_led_color_red": 255,
+                "tar_led_color_green": 0,
+                "tar_led_color_blue": 0,
+                "timestamp": 1704067200
+            }, ensure_ascii=False, indent=2)
+        ])
+        
+        return examples
+    
+    def _get_status_examples(self) -> List[List[str]]:
+        """获取状态主题的示例（测试用）"""
+        examples = []
+        default_device = self.device_list[0] if self.device_list else ""
+        
+        # 状态消息示例
+        examples.append([
+            default_device,
+            "thumbler_status",
+            json.dumps({
+                "cur_cam_switch": True,
+                "g_acc_x": 0.12,
+                "g_acc_y": -0.05,
+                "g_acc_z": 9.81,
+                "g_acc_g": 9.82,
+                "g_pitch": 2.5,
+                "g_roll": -1.2,
+                "cur_led_mode": 2,
+                "cur_led_brightness": 128,
+                "cur_tumbler_mode": 1,
+                "is_has_people": True,
+                "power_percent": 85,
+                "timestamp": 1704067200
+            }, ensure_ascii=False, indent=2)
+        ])
+        
+        return examples
+    
     def build(self):
-        """构建页面，返回右侧消息展示组件，以便外部绑定/引用。"""
+        """
+        构建 MQTT 测试页面
+        
+        Returns:
+            mqtt_json: 消息展示组件
+        """
+        gr.Markdown("## MQTT 测试页面")
+        gr.Markdown("用于测试发送和接收原始 MQTT 消息。Thumbler 页面用于具体解析命令和状态内容。")
+        
         with gr.Row():
+            # 左侧：命令主题发送区域
             with gr.Column(scale=1):
-                # 使用 Interface 类创建控制命令界面
-                # 根据 Gradio 文档：https://www.gradio.app/guides/the-interface-class#example-inputs
-                mqtt_control_interface = gr.Interface(
-                    fn=self._send_control,
-                    inputs=[
-                        gr.Textbox(
-                            label="设备ID (Client ID)",
-                            placeholder=f"例如: {self.active_device_id}",
-                            value=self.active_device_id,
-                            info="目标设备的唯一标识符"
-                        ),
-                        gr.Dropdown(
-                            choices=list(CONTROL_TYPES.values()),
-                            value="led",  # 使用有效的默认值
-                            label="命令类型 (Type)",
-                            info="选择要发送的命令类型"
-                        ),
-                        gr.Textbox(
-                            label="参数 (Parameters)",
-                            placeholder='JSON格式，例如: {"enable": true}',
-                            lines=5,
-                            info="命令参数，支持JSON格式或纯文本"
+                gr.Markdown("### 📤 发送命令主题")
+                if self.cmd_topics:
+                    cmd_topic_choices = self._get_topic_choices("cmd")
+                    if cmd_topic_choices:
+                        cmd_interface = gr.Interface(
+                            fn=self._send_json_message,
+                            inputs=[
+                                gr.Dropdown(
+                                    label="设备ID",
+                                    choices=self.device_list,
+                                    value=self.device_list[0] if self.device_list else "",
+                                    info="选择目标设备"
+                                ),
+                                gr.Dropdown(
+                                    label="主题",
+                                    choices=cmd_topic_choices,
+                                    value=cmd_topic_choices[0][1] if cmd_topic_choices else "",
+                                    info="选择要发送的命令主题"
+                                ),
+                                gr.Textbox(
+                                    label="JSON 内容",
+                                    placeholder='{"tar_cam_switch": true, "tar_pitch": 10.0, ...}',
+                                    lines=10,
+                                    info="输入要发送的 JSON 内容"
+                                )
+                            ],
+                            outputs=[
+                                gr.Textbox(label="发送状态", lines=2),
+                                gr.JSON(label="发送的 Payload")
+                            ],
+                            title="📤 发送命令",
+                            description="发送控制命令到设备",
+                            examples=self._get_cmd_examples(),
+                            examples_per_page=2
                         )
-                    ],
-                    outputs=[
-                        gr.Textbox(
-                            label="发送结果",
-                            lines=2
-                        ),
-                        gr.JSON(
-                            label="实际发送的Payload"
+                    else:
+                        gr.Markdown("⚠️ 未找到可用的命令主题配置")
+                else:
+                    gr.Markdown("⚠️ 未找到可用的命令主题配置")
+            
+            # 中间：状态主题发送区域
+            with gr.Column(scale=1):
+                gr.Markdown("### 📤 发送状态主题（测试用）")
+                if self.status_topics:
+                    status_topic_choices = self._get_topic_choices("status")
+                    if status_topic_choices:
+                        status_interface = gr.Interface(
+                            fn=self._send_json_message,
+                            inputs=[
+                                gr.Dropdown(
+                                    label="设备ID",
+                                    choices=self.device_list,
+                                    value=self.device_list[0] if self.device_list else "",
+                                    info="选择目标设备"
+                                ),
+                                gr.Dropdown(
+                                    label="主题",
+                                    choices=status_topic_choices,
+                                    value=status_topic_choices[0][1] if status_topic_choices else "",
+                                    info="选择要发送的状态主题（通常由设备发布，这里用于测试）"
+                                ),
+                                gr.Textbox(
+                                    label="JSON 内容",
+                                    placeholder='{"cur_cam_switch": true, "g_acc_x": 0.12, ...}',
+                                    lines=10,
+                                    info="输入要发送的 JSON 内容"
+                                )
+                            ],
+                            outputs=[
+                                gr.Textbox(label="发送状态", lines=2),
+                                gr.JSON(label="发送的 Payload")
+                            ],
+                            title="📤 发送状态（测试）",
+                            description="发送状态消息（通常由设备发布，这里用于测试）",
+                            examples=self._get_status_examples(),
+                            examples_per_page=1
                         )
-                    ],
-                    title="📤 发送控制命令",
-                    description="通过 MQTT 发送控制命令到目标设备。选择命令类型、动作和参数，点击提交发送。",
-                    examples=[
-                        # 示例格式：[client_id, cmd_type, params_text]
-                        [self.active_device_id, "led", '{"color": "red", "brightness": 100, "speed": 1}'],
-                        [self.active_device_id, "motor", '{"mode": "position", "target_position": 100, "target_speed": 100, "target_current": 100}'],
-                        [self.active_device_id, "gimbal", '{"target_pitch": 100, "target_roll": 100, "speed": 100}'],
-                        [self.active_device_id, "camera", '{"enable": true}'],
-                        [self.active_device_id, "system", '{"mode": "normal", "reboot": true, "factory_reset": true, "update": true, "config": "example"}'],
-                    ],
-                    examples_per_page=6,  # 每页显示6个示例
+                    else:
+                        gr.Markdown("⚠️ 未找到可用的状态主题配置")
+                else:
+                    gr.Markdown("⚠️ 未找到可用的状态主题配置")
+            
+            # 右侧：接收消息区域
+            with gr.Column(scale=1):
+                with gr.Row():
+                    gr.Markdown("### 📥 接收消息（自动刷新）")
+                    clear_btn = gr.Button("清空消息", variant="stop", size="sm", scale=0)
+                
+                mqtt_json = gr.JSON(
+                    label="MQTT 消息（最新100条）",
+                    value=[]
                 )
-
-            with gr.Column(scale=2):
-                with gr.Blocks():
-                    gr.Markdown("### 实时消息（自动刷新）")
-                    mqtt_json = gr.JSON(label="MQTT Messages (最新100条)")
-
-                    # 显示传感器反馈消息的UI
-                    g_acc_x = gr.Textbox(label="acc_x", value=0.0)
-                    g_acc_y = gr.Textbox(label="acc_y", value=0.0)
-                    g_acc_z = gr.Textbox(label="acc_z", value=0.0)
-                    g_acc_g = gr.Textbox(label="acc_g", value=0.0)
-                    g_pitch = gr.Textbox(label="pitch", value=0.0)
-                    g_roll = gr.Textbox(label="roll", value=0.0)
-                    
-                    timer = gr.Timer(1, active=True)
-                    timer.tick(fn=self._drain_mqtt_messages, 
-                    inputs=None, 
-                    outputs=[mqtt_json, g_acc_x, g_acc_y, g_acc_z, g_acc_g, g_pitch, g_roll]
-                    )
-                    self.logger.info(f"timer registered: interval=1s, active=True, output_component={mqtt_json}")
+                
+                # 绑定清空按钮
+                clear_btn.click(
+                    fn=self._clear_messages,
+                    inputs=None,
+                    outputs=[mqtt_json]
+                )
+                
+                # 定时器：每秒更新一次消息列表
+                timer = gr.Timer(1.0, active=True)
+                timer.tick(
+                    fn=self._drain_mqtt_messages,
+                    inputs=None,
+                    outputs=[mqtt_json]
+                )
+                
+                self.logger.info("MQTT 测试页面构建完成")
 
         return mqtt_json
 

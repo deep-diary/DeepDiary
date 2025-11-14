@@ -65,11 +65,11 @@ class Coordinator:
 
         # 创建MQTT管理器
         # 注意：client_id="deepweb" 是 MQTT 客户端的标识符（用于标识这个服务器客户端）
-        # 订阅主题时使用通配符 "+" 来接收所有设备的消息，而不是固定为 "deepweb"
-        # 例如：订阅 device/+/info 可以接收 device/device_001/info, device/device_002/info 等
+        # MQTT管理器不再自动订阅通配符主题，改为由页面层（如 ThumblerPage）根据需要订阅具体设备主题
+        # 这样可以只接收特定设备的消息，而不是所有设备的消息
         self.mqtt_manager = MQTTManager(
             log_manager=self.log_manager,
-            server_name="default"
+            server_name="emqx"
         )
         
         # 初始化设备逻辑管理器（如果需要，暂时不初始化，后续用到时再启用）

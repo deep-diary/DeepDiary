@@ -85,42 +85,14 @@ class MQTTManager:
         # 待订阅的主题列表（连接成功后自动订阅）
         self._pending_subscriptions: list = []  # [(topic, qos), ...]
         
-        # 如果 from_config=True，直接从 TOPIC_CONFIGS 列表读取主题配置
+        # 如果 from_config=True，从配置读取主题配置（但不自动订阅）
+        # 注意：不再自动订阅通配符主题，改为由页面层（如 ThumblerPage）根据需要订阅具体设备主题
+        # 这样可以只接收特定设备的消息，而不是所有设备的消息
         if from_config:
             topic_configs = self.config_loader.topic_configs  # 现在是列表
             if topic_configs:
-                self.logger.info(f"从配置读取到 {len(topic_configs)} 个主题配置")
-                for topic_config in topic_configs:
-                    topic_template = topic_config.get("name", "")
-                    if not topic_template:
-                        continue
-                    
-                    # 获取主题方向（pub=设备发布，sub=服务器订阅）
-                    direction = topic_config.get("direction", "pub")
-                    
-                    # 对于订阅主题（direction="sub"），不需要自动订阅（这是设备订阅的）
-                    # 对于发布主题（direction="pub"），服务器需要订阅以接收设备消息
-                    # 格式化主题名称：订阅时使用 '+' 通配符订阅所有设备，而不是使用 MQTT 客户端的 client_id
-                    try:
-                        if "{client_id}" in topic_template:
-                            # 订阅主题时使用通配符，以便接收所有设备的消息
-                            # self.client_id 是 MQTT 客户端标识，不是设备 ID
-                            topic_name = topic_template.format(client_id="+")   # 后续需要改为按实际设备传入
-                        else:
-                            topic_name = topic_template
-                    except Exception as e:
-                        self.logger.error(f"格式化主题失败: {e}")
-                        continue
-                    
-                    qos = topic_config.get("qos", 0)
-                    
-                    # 只订阅设备发布的主题（direction="pub"），不订阅服务器发布的主题（direction="sub"）
-                    # if direction == "pub":
-                    if (topic_name, qos) not in self._pending_subscriptions:
-                        self._pending_subscriptions.append((topic_name, qos))
-                        self.logger.info(f"主题已加入自动订阅队列: {topic_name} (QoS: {qos})")
-                    # else:
-                    #     self.logger.debug(f"跳过订阅方向为主题: {topic_template} (direction={direction})")
+                self.logger.info(f"从配置读取到 {len(topic_configs)} 个主题配置（不自动订阅，由页面层按需订阅）")
+                # 不再自动订阅，改为由页面层根据需要订阅具体设备主题
         
         # 创建MQTT客户端
         self.client = mqtt.Client(

@@ -53,6 +53,7 @@ class UIManager:
         # 子页面实例引用（用于消息桥接）
         self._mqtt_page = None
         self._rtsp_page = None
+        self._thumbler_page = None
 
         # 若由外部传入 Coordinator，可在外部调用 coordinator.attach_ui_manager(self)
 
@@ -91,6 +92,18 @@ class UIManager:
                     # 创建视频流页面实例并构建 UI
                     self._rtsp_page = RtspPage(log_manager=self.log_manager)
                     self._rtsp_page.build()
+                
+                from deepweb.ui.pages.thumbler_page import ThumblerPage
+                with gr.TabItem("不倒翁"):
+                    # 创建不倒翁页面实例并构建 UI
+                    mqtt_manager = getattr(self.coordinator, "mqtt_manager", None) if self.coordinator else None
+                    self._thumbler_page = ThumblerPage(
+                        device_id="ATK-DNESP32S3-9888e000ae28",
+                        host="34.172.161.212",
+                        mqtt_manager=mqtt_manager,
+                        log_manager=self.log_manager
+                    )
+                    self._thumbler_page.build()
 
 
         self._demo = demo
@@ -112,15 +125,23 @@ class UIManager:
         self.logger.info(
             f"UIManager: 启动 UI，host={self.host}, port={self.port}, share={self.share}"
         )
-        # 优化 Gradio 启动配置，禁用外部资源加载以提升加载速度
-        self._demo.launch(
-            server_name=self.host,
-            server_port=self.port,
-            share=self.share,
-            show_error=False,  # 减少错误信息显示
-            enable_queue=True,  # 启用队列以提高性能
-            max_threads=10,  # 限制线程数
-        )  # type: ignore[union-attr]
+        try:
+            # 优化 Gradio 启动配置
+            # 设置 inbrowser=False 以便正确处理中断信号
+            # 添加 server_name="0.0.0.0" 以确保可以访问
+            self._demo.launch(
+                server_name="0.0.0.0" if self.host == "localhost" else self.host,
+                server_port=self.port,
+                share=self.share,
+                show_error=True,  # 显示错误以便调试
+                inbrowser=False,  # 不自动打开浏览器
+            )  # type: ignore[union-attr]
+        except KeyboardInterrupt:
+            self.logger.info("收到键盘中断信号，正在关闭 UI...")
+            raise
+        except Exception as e:
+            self.logger.error(f"启动 UI 时出错: {e}")
+            raise
 
     def get_app(self) -> gr.Blocks:
         """
