@@ -1,4 +1,4 @@
-# 从摄像头获取视频流，以jpeg格式发送给TCP服务器34.172.161.212:8080
+# 从摄像头获取视频流，以jpeg格式发送给TCP服务器35.192.64.247:8080
 
 import cv2
 import socket
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # 默认配置
 DEFAULT_CONFIG = {
     "server": {
-        "host": "34.172.161.212",
+        "host": "35.192.64.247",
         "port": 8080
     },
     "camera": {

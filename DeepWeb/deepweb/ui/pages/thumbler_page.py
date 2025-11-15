@@ -27,7 +27,7 @@ class ThumblerPage:
     def __init__(
         self,
         device_id: str = "ATK-DNESP32S3-9888e000ae28",
-        host: str = "34.172.161.212",
+        host: str = "35.192.64.247",
         mqtt_manager: Optional[object] = None,
         log_manager = None
     ):

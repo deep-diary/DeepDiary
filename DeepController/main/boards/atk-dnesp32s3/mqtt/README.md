@@ -1,391 +1,282 @@
-# ATK-DNESP32S3 用户MQTT通信模块
+# Thumbler 不倒翁 MQTT 通信模块
 
-本模块实现了与用户服务器的MQTT通信功能，与开源项目的MQTT功能独立运行，主要用于设备状态反馈和远程控制指令接收。
+本模块实现了 Thumbler 不倒翁设备与 Web 服务器的 MQTT 通信功能，用于设备状态上报和远程控制。
 
 ## 功能特性
 
-- **独立MQTT客户端**：使用独立的MQTT连接ID，避免与主项目MQTT冲突
-- **设备信息上报**：自动收集并上报设备状态、硬件信息、运行状态等
-- **远程控制**：接收并执行来自服务器的远程控制指令
-- **心跳机制**：定期发送心跳包维持连接
+- **Thumbler 协议支持**：完全符合 Thumbler 不倒翁产品协议规范
+- **设备状态上报**：实时上报传感器数据、LED 状态、不倒翁工作模式等
+- **远程控制**：接收并执行来自 Web 的控制指令（LED、摄像头、不倒翁模式等）
 - **自动重连**：网络断开时自动重连
-- **配置管理**：支持NVS存储配置信息
+- **配置管理**：支持 NVS 存储配置信息
 
 ## 文件结构
 
 ```
 mqtt/
-├── user_mqtt_client.h/cpp      # 主MQTT客户端类
+├── user_mqtt_client.h/cpp      # MQTT 客户端类
 ├── user_mqtt_config.h/cpp      # 配置管理类
 ├── remote_control_handler.h/cpp # 远程控制指令处理器
 ├── device_info_collector.h/cpp  # 设备信息收集器
 └── README.md                   # 本文档
 ```
 
-## 核心类说明
+## MQTT 主题结构
 
-### 1. UserMqttClient
-主要的MQTT客户端类，负责：
-- MQTT连接管理
-- 消息发布和订阅
-- 心跳发送
-- 连接状态监控
+### 订阅主题（设备接收控制命令）
+- **控制命令**：`Thumbler/{device_id}/cmd` (QoS=1)
 
-### 2. UserMqttConfig
-配置管理类，提供：
-- 静态配置方法
-- NVS存储支持
-- 默认配置管理
+### 发布主题（设备发送状态）
+- **设备状态**：`Thumbler/{device_id}/status` (QoS=0)
 
-### 3. RemoteControlHandler
-远程控制指令处理器，支持：
-- LED控制
-- 电机控制
-- 机械臂控制
-- 云台控制
-- 摄像头控制
-- 系统控制
+其中 `{device_id}` 为设备唯一标识符，格式为：`ATK-DNESP32S3-{MAC地址}`
 
-### 4. DeviceInfoCollector
-设备信息收集器，收集：
-- 设备基本信息
-- 硬件状态
-- 运行状态
-- 组件可用性
+## 协议说明
+
+### 1. 设备状态消息（设备 → Web）
+
+设备定期发布状态信息到 `Thumbler/{device_id}/status` 主题，消息格式为 JSON：
+
+```json
+{
+  "cur_cam_switch": true,
+  "g_acc_x": 0.12,
+  "g_acc_y": -0.05,
+  "g_acc_z": 9.81,
+  "g_acc_g": 9.82,
+  "g_pitch": 2.5,
+  "g_roll": -1.2,
+  "cur_led_mode": 2,
+  "cur_led_brightness": 128,
+  "cur_led_low_brightness": 16,
+  "cur_led_color_red": 0,
+  "cur_led_color_green": 255,
+  "cur_led_color_blue": 0,
+  "cur_led_interval_ms": 500,
+  "cur_led_scroll_length": 3,
+  "cur_tumbler_mode": 1,
+  "is_has_people": true,
+  "power_percent": 85,
+  "timestamp": 1704067200
+}
+```
+
+#### 字段说明
+
+| 字段名                   | 类型    | 说明                          | 单位/取值范围                                                         |
+| ------------------------ | ------- | ----------------------------- | --------------------------------------------------------------------- |
+| `cur_cam_switch`         | boolean | 摄像头开关状态                | true/false                                                            |
+| `g_acc_x`                | float   | X 轴加速度                    | m/s²                                                                  |
+| `g_acc_y`                | float   | Y 轴加速度                    | m/s²                                                                  |
+| `g_acc_z`                | float   | Z 轴加速度                    | m/s²                                                                  |
+| `g_acc_g`                | float   | 总加速度                      | m/s²                                                                  |
+| `g_pitch`                | float   | 俯仰角                        | 度 (°)                                                                |
+| `g_roll`                 | float   | 翻滚角                        | 度 (°)                                                                |
+| `cur_led_mode`           | integer | 当前 LED 工作模式             | 0: 关闭, 1: 静态颜色, 2: 闪烁, 3: 呼吸灯, 4: 流水灯/滚动, 5: 系统状态 |
+| `cur_led_brightness`     | integer | 当前 LED 默认亮度             | 0-255                                                                 |
+| `cur_led_low_brightness` | integer | 当前 LED 低亮度               | 0-255                                                                 |
+| `cur_led_color_red`      | integer | 当前 LED 颜色 - 红色分量      | 0-255                                                                 |
+| `cur_led_color_green`    | integer | 当前 LED 颜色 - 绿色分量      | 0-255                                                                 |
+| `cur_led_color_blue`     | integer | 当前 LED 颜色 - 蓝色分量      | 0-255                                                                 |
+| `cur_led_interval_ms`    | integer | 当前 LED 动画间隔时间         | 毫秒                                                                  |
+| `cur_led_scroll_length`  | integer | 当前 LED 滚动模式下的亮灯数量 | 1-最大 LED 数量                                                       |
+| `cur_tumbler_mode`       | integer | 不倒翁工作模式                | 0: 静止, 1: 左右循环晃动, 2: 来回旋转, 3: 充电中                      |
+| `is_has_people`          | boolean | 当前环境是否有人              | true/false                                                            |
+| `power_percent`          | integer | 当前系统电量                  | 0-100 (%)                                                             |
+| `timestamp`              | integer | 时间戳                        | Unix 时间戳（秒）                                                     |
+
+### 2. 控制命令消息（Web → 设备）
+
+Web 发布控制命令到 `Thumbler/{device_id}/cmd` 主题，消息格式为 JSON：
+
+#### 基础控制示例
+
+```json
+{
+  "tar_cam_switch": true,
+  "tar_pitch": 10.0,
+  "tar_roll": -5.0,
+  "tar_tumbler_mode": 1,
+  "timestamp": 1704067200
+}
+```
+
+#### LED 控制示例
+
+**静态颜色（模式 1）：**
+```json
+{
+  "tar_led_mode": 1,
+  "tar_led_brightness": 128,
+  "tar_led_color_red": 255,
+  "tar_led_color_green": 0,
+  "tar_led_color_blue": 0,
+  "timestamp": 1704067200
+}
+```
+
+**闪烁（模式 2）：**
+```json
+{
+  "tar_led_mode": 2,
+  "tar_led_brightness": 128,
+  "tar_led_color_red": 0,
+  "tar_led_color_green": 255,
+  "tar_led_color_blue": 0,
+  "tar_led_interval_ms": 500,
+  "timestamp": 1704067200
+}
+```
+
+**呼吸灯（模式 3）：**
+```json
+{
+  "tar_led_mode": 3,
+  "tar_led_brightness": 128,
+  "tar_led_color_low_red": 0,
+  "tar_led_color_low_green": 0,
+  "tar_led_color_low_blue": 0,
+  "tar_led_color_red": 0,
+  "tar_led_color_green": 255,
+  "tar_led_color_blue": 0,
+  "tar_led_interval_ms": 50,
+  "timestamp": 1704067200
+}
+```
+
+**流水灯/滚动（模式 4）：**
+```json
+{
+  "tar_led_mode": 4,
+  "tar_led_brightness": 128,
+  "tar_led_color_low_red": 0,
+  "tar_led_color_low_green": 0,
+  "tar_led_color_low_blue": 0,
+  "tar_led_color_red": 0,
+  "tar_led_color_green": 0,
+  "tar_led_color_blue": 255,
+  "tar_led_scroll_length": 3,
+  "tar_led_interval_ms": 100,
+  "timestamp": 1704067200
+}
+```
+
+#### 控制字段说明
+
+**基础控制字段：**
+
+| 字段名             | 类型    | 说明               | 单位/取值范围                                    |
+| ------------------ | ------- | ------------------ | ------------------------------------------------ |
+| `tar_cam_switch`   | boolean | 摄像头开关控制指令 | true: 开启, false: 关闭                          |
+| `tar_pitch`        | float   | 目标俯仰角         | 度 (°)，范围待定                                 |
+| `tar_roll`         | float   | 目标翻滚角         | 度 (°)，范围待定                                 |
+| `tar_tumbler_mode` | integer | 目标不倒翁工作模式 | 0: 静止, 1: 左右循环晃动, 2: 来回旋转, 3: 充电中 |
+
+**LED 控制字段：**
+
+| 字段名                    | 类型    | 说明                               | 单位/取值范围                                                         |
+| ------------------------- | ------- | ---------------------------------- | --------------------------------------------------------------------- |
+| `tar_led_mode`            | integer | 目标 LED 工作模式                  | 0: 关闭, 1: 静态颜色, 2: 闪烁, 3: 呼吸灯, 4: 流水灯/滚动, 5: 系统状态 |
+| `tar_led_brightness`      | integer | 目标 LED 默认亮度                  | 0-255                                                                 |
+| `tar_led_low_brightness`  | integer | 目标 LED 低亮度（用于系统状态）    | 0-255                                                                 |
+| `tar_led_color_red`       | integer | LED 颜色 - 红色分量                | 0-255                                                                 |
+| `tar_led_color_green`     | integer | LED 颜色 - 绿色分量                | 0-255                                                                 |
+| `tar_led_color_blue`      | integer | LED 颜色 - 蓝色分量                | 0-255                                                                 |
+| `tar_led_color_low_red`   | integer | LED 低颜色 - 红色分量（呼吸/滚动） | 0-255                                                                 |
+| `tar_led_color_low_green` | integer | LED 低颜色 - 绿色分量（呼吸/滚动） | 0-255                                                                 |
+| `tar_led_color_low_blue`  | integer | LED 低颜色 - 蓝色分量（呼吸/滚动） | 0-255                                                                 |
+| `tar_led_interval_ms`     | integer | LED 动画间隔时间（毫秒）           | > 0，建议范围：50-1000                                                |
+| `tar_led_scroll_length`   | integer | LED 滚动模式下的亮灯数量           | 1-最大 LED 数量，仅用于滚动模式                                       |
 
 ## 使用方法
 
 ### 1. 基本初始化
 
+在 `BoardExtensions` 类中，MQTT 客户端会在初始化时自动创建：
+
 ```cpp
-#include "user_mqtt_client.h"
-#include "user_mqtt_config.h"
-#include "remote_control_handler.h"
-#include "device_info_collector.h"
-
-// 创建MQTT客户端
-UserMqttClient mqtt_client;
-
-// 创建远程控制处理器
-RemoteControlHandler control_handler;
-
-// 创建设备信息收集器
-DeviceInfoCollector info_collector;
-
-// 设置设备组件引用
-control_handler.SetDeepMotor(deep_motor);
-control_handler.SetDeepArm(deep_arm);
-control_handler.SetGimbal(gimbal);
-control_handler.SetLedStrip(led_strip);
-control_handler.SetCamera(camera);
-
-info_collector.SetDeepMotor(deep_motor);
-info_collector.SetDeepArm(deep_arm);
-info_collector.SetGimbal(gimbal);
-info_collector.SetLedStrip(led_strip);
-info_collector.SetCamera(camera);
+// 在 BoardExtensions::InitializeUserMqtt() 中
+user_mqtt_client_ = std::make_unique<UserMqttClient>();
+remote_control_handler_ = std::make_unique<RemoteControlHandler>();
+device_info_collector_ = std::make_unique<DeviceInfoCollector>();
 ```
 
-### 2. 配置MQTT连接
+### 2. 启动 MQTT 客户端
+
+在 WiFi 连接成功后调用 `StartUserMqtt()`：
 
 ```cpp
-// 方法1：使用默认配置
-UserMqttConfig::LoadFromNvs();  // 从NVS加载配置
-
-// 方法2：手动设置配置
-UserMqttConfig::SetBrokerHost("your-mqtt-broker.com");
-UserMqttConfig::SetBrokerPort(1883);
-UserMqttConfig::SetClientId("ATK-DNESP32S3-001");
-UserMqttConfig::SetUsername("your-username");
-UserMqttConfig::SetPassword("your-password");
-UserMqttConfig::SaveToNvs();  // 保存到NVS
-```
-
-### 3. 启动MQTT客户端
-
-```cpp
-// 创建配置对象
-UserMqttClientConfig config;
-config.broker_host = UserMqttConfig::GetBrokerHost();
-config.broker_port = UserMqttConfig::GetBrokerPort();
-config.client_id = UserMqttConfig::GetClientId();
-config.username = UserMqttConfig::GetUsername();
-config.password = UserMqttConfig::GetPassword();
-
-// 初始化客户端
-if (mqtt_client.Initialize(config)) {
-    // 设置回调函数
-    mqtt_client.SetControlCallback([&control_handler](const RemoteControlCommand& cmd) {
-        control_handler.HandleCommand(cmd);
-    });
+void BoardExtensions::StartUserMqtt() {
+    // 从 NVS 加载配置
+    UserMqttConfig::LoadFromNvs();
     
-    mqtt_client.SetConnectionCallback([](bool connected) {
-        if (connected) {
-            ESP_LOGI("MQTT", "Connected to user MQTT broker");
-        } else {
-            ESP_LOGW("MQTT", "Disconnected from user MQTT broker");
-        }
-    });
+    // 创建配置对象（使用 Thumbler 协议主题）
+    UserMqttClientConfig config;
+    config.broker_host = UserMqttConfig::GetBrokerHost();
+    config.broker_port = UserMqttConfig::GetBrokerPort();
+    config.client_id = UserMqttConfig::GetClientId();
     
-    // 连接MQTT服务器
-    if (mqtt_client.Connect()) {
-        ESP_LOGI("MQTT", "Successfully connected to user MQTT broker");
-        
-        // 发送设备信息
-        DeviceInfo info = info_collector.CollectDeviceInfo();
-        mqtt_client.SendDeviceInfo(info);
+    // Thumbler 协议主题格式
+    std::string device_id = config.client_id; // 或从设备信息收集器获取
+    config.status_topic = "Thumbler/" + device_id + "/status";
+    config.control_topic = "Thumbler/" + device_id + "/cmd";
+    
+    // 初始化并连接
+    if (user_mqtt_client_->Initialize(config)) {
+        user_mqtt_client_->Connect();
     }
 }
 ```
 
-### 4. 定期发送设备信息
+### 3. 定期发送状态
+
+在主循环中定期发送设备状态：
 
 ```cpp
-// 在主循环中定期发送设备信息
-void send_device_info_periodically() {
-    static uint32_t last_send_time = 0;
-    uint32_t current_time = esp_timer_get_time() / 1000000; // 转换为秒
-    
-    if (current_time - last_send_time >= 300) { // 每5分钟发送一次
-        DeviceInfo info = info_collector.CollectDeviceInfo();
-        mqtt_client.SendDeviceInfo(info);
-        last_send_time = current_time;
-    }
+// 在主循环中
+if (time_flags.mqtt_sensor_status) {
+    DeviceStatus::SensorData sensor_status = device_info_collector_->CollectSensorStatus();
+    user_mqtt_client_->SendThumblerStatus(sensor_status);
 }
 ```
 
-## MQTT主题结构
+## LED 模式说明
 
-### 发布主题
-- **设备信息**：`device/{client_id}/info`
-- **状态信息**：`device/{client_id}/status`
-- **心跳包**：`device/{client_id}/status` (type: "heartbeat")
+| 模式值 | 名称       | 说明                           | 对应 CircularStrip 方法 |
+| ------ | ---------- | ------------------------------ | ----------------------- |
+| 0      | 关闭       | LED 全部关闭                   | Off()                   |
+| 1      | 静态颜色   | 所有 LED 显示相同颜色          | SetAllColor()           |
+| 2      | 闪烁       | LED 在指定颜色和关闭之间闪烁   | Blink()                 |
+| 3      | 呼吸灯     | LED 在两种颜色之间平滑过渡     | Breathe()               |
+| 4      | 流水灯/滚动 | LED 按顺序点亮，形成滚动效果   | Scroll()                |
+| 5      | 系统状态   | LED 根据系统状态自动变化       | OnStateChanged()        |
 
-### 订阅主题
-- **控制指令**：`device/{client_id}/control`
+## 不倒翁工作模式说明
 
-## 协议说明
-
-### 1. 设备信息协议
-
-设备信息以JSON格式发布到 `device/{client_id}/info` 主题：
-
-```json
-{
-  "device_id": "ATK-DNESP32S3-ESP32S3-12345678",
-  "device_type": "ATK-DNESP32S3",
-  "firmware_version": "1.0.0",
-  "wifi_ssid": "YourWiFi",
-  "ip_address": "192.168.1.100",
-  "free_heap": 245760,
-  "uptime_seconds": 3600,
-  "cpu_temperature": 0.0,
-  "camera_available": true,
-  "can_bus_available": true,
-  "led_strip_available": true,
-  "gimbal_available": true,
-  "arm": {
-    "connected": true,
-    "motor_count": 6,
-    "status": "connected"
-  },
-  "motor": {
-    "connected": true,
-    "motor_count": 6,
-    "status": "connected"
-  }
-}
-```
-
-### 2. 状态信息协议
-
-状态信息以JSON格式发布到 `device/{client_id}/status` 主题：
-
-```json
-{
-  "type": "status",
-  "status": "connected",
-  "message": "Successfully connected to user MQTT broker",
-  "timestamp": 1703123456,
-  "device_id": "ATK-DNESP32S3-ESP32S3-12345678"
-}
-```
-
-### 3. 心跳协议
-
-心跳包以JSON格式发布到 `device/{client_id}/status` 主题：
-
-```json
-{
-  "type": "heartbeat",
-  "timestamp": 1703123456,
-  "device_id": "ATK-DNESP32S3-ESP32S3-12345678"
-}
-```
-
-### 4. 远程控制协议
-
-控制指令以JSON格式发送到 `device/{client_id}/control` 主题：
-
-#### LED控制
-```json
-{
-  "type": "led",
-  "target": "strip",
-  "action": "on"
-}
-```
-
-```json
-{
-  "type": "led",
-  "target": "strip", 
-  "action": "color",
-  "parameters": {
-    "r": 255,
-    "g": 0,
-    "b": 0
-  }
-}
-```
-
-#### 电机控制
-```json
-{
-  "type": "motor",
-  "target": "motor_1",
-  "action": "start",
-  "parameters": {
-    "motor_id": 1
-  }
-}
-```
-
-```json
-{
-  "type": "motor",
-  "target": "motor_1",
-  "action": "set_speed",
-  "parameters": {
-    "motor_id": 1,
-    "speed": 100
-  }
-}
-```
-
-#### 机械臂控制
-```json
-{
-  "type": "arm",
-  "target": "arm",
-  "action": "home"
-}
-```
-
-```json
-{
-  "type": "arm",
-  "target": "arm",
-  "action": "move",
-  "parameters": {
-    "x": 100.0,
-    "y": 200.0,
-    "z": 50.0
-  }
-}
-```
-
-#### 云台控制
-```json
-{
-  "type": "gimbal",
-  "target": "gimbal",
-  "action": "pan",
-  "parameters": {
-    "angle": 45.0
-  }
-}
-```
-
-#### 摄像头控制
-```json
-{
-  "type": "camera",
-  "target": "camera",
-  "action": "capture"
-}
-```
-
-#### 系统控制
-```json
-{
-  "type": "system",
-  "target": "system",
-  "action": "restart"
-}
-```
-
-```json
-{
-  "type": "system",
-  "target": "system",
-  "action": "status"
-}
-```
-
-## 支持的远程控制命令
-
-### LED控制
-- `on` - 开启LED
-- `off` - 关闭LED
-- `color` - 设置颜色 (参数: r, g, b)
-- `brightness` - 设置亮度 (参数: brightness)
-- `effect` - 设置效果 (参数: effect_type)
-
-### 电机控制
-- `start` - 启动电机 (参数: motor_id)
-- `stop` - 停止电机 (参数: motor_id)
-- `set_speed` - 设置速度 (参数: motor_id, speed)
-- `set_position` - 设置位置 (参数: motor_id, position)
-
-### 机械臂控制
-- `home` - 回零位
-- `move` - 移动到指定位置 (参数: x, y, z)
-- `grip` - 抓取
-- `release` - 释放
-
-### 云台控制
-- `pan` - 水平旋转 (参数: angle)
-- `tilt` - 垂直旋转 (参数: angle)
-- `reset` - 复位
-
-### 摄像头控制
-- `capture` - 拍照
-- `start_stream` - 开始流媒体
-- `stop_stream` - 停止流媒体
-
-### 系统控制
-- `restart` - 重启系统
-- `status` - 获取状态
-- `info` - 获取设备信息
+| 模式值 | 名称         | 说明                     |
+| ------ | ------------ | ------------------------ |
+| 0      | 静止         | 不倒翁保持静止状态       |
+| 1      | 左右循环晃动 | 不倒翁左右循环摆动       |
+| 2      | 来回旋转     | 不倒翁来回旋转           |
+| 3      | 充电中       | 设备正在充电，限制运动   |
 
 ## 配置参数
 
 ### 默认配置
-- **Broker地址**: `34.172.161.212`
+- **Broker 地址**: `35.192.64.247`
 - **端口**: `1883`
 - **Keepalive**: `60秒`
 - **SSL**: `关闭`
 
 ### 配置存储
-配置信息存储在NVS的 `user_mqtt` 命名空间中：
-- `broker_host` - MQTT服务器地址
-- `broker_port` - MQTT服务器端口
-- `client_id` - 客户端ID
-- `username` - 用户名
-- `password` - 密码
+配置信息存储在 NVS 的 `user_mqtt` 命名空间中：
+- `broker_host` - MQTT 服务器地址
+- `broker_port` - MQTT 服务器端口
+- `client_id` - 客户端 ID（自动生成，格式：`ATK-DNESP32S3-{MAC地址}`）
+- `username` - 用户名（可选）
+- `password` - 密码（可选）
 - `keepalive_interval` - 心跳间隔
-- `use_ssl` - 是否使用SSL
+- `use_ssl` - 是否使用 SSL
 
 ## 错误处理
 
@@ -395,30 +286,27 @@ void send_device_info_periodically() {
 - 重连间隔：30秒
 
 ### 消息错误
-- JSON解析失败时记录错误日志
-- 未知命令类型时返回错误状态
-- 设备组件不可用时返回错误信息
+- JSON 解析失败时记录错误日志
+- 未知命令类型时忽略该字段
+- 设备组件不可用时记录警告
 
 ## 注意事项
 
-1. **连接ID冲突**：使用连接ID 1，避免与主项目MQTT连接冲突
-2. **内存管理**：注意cJSON对象的生命周期管理
-3. **线程安全**：MQTT回调在独立线程中执行，注意线程安全
-4. **资源清理**：程序退出时正确清理MQTT连接和定时器
-5. **配置持久化**：重要配置建议保存到NVS
-
-## 集成到主项目
-
-要将此MQTT模块集成到主项目中，需要在 `BoardExtensions` 类中添加相应的初始化和启动代码。具体集成步骤请参考项目集成文档。
+1. **设备 ID 格式**：设备 ID 必须与 Web 端使用的格式一致，格式为 `ATK-DNESP32S3-{MAC地址}`
+2. **主题格式**：必须严格按照 `Thumbler/{device_id}/status` 和 `Thumbler/{device_id}/cmd` 格式
+3. **QoS 级别**：状态消息使用 QoS=0，控制命令使用 QoS=1
+4. **时间戳**：所有消息必须包含 `timestamp` 字段（Unix 时间戳，秒）
+5. **线程安全**：MQTT 回调在独立线程中执行，注意线程安全
 
 ## 调试和日志
 
 启用相关日志标签：
-- `UserMQTT` - MQTT客户端日志
+- `UserMQTT` - MQTT 客户端日志
 - `UserMqttConfig` - 配置管理日志
 - `RemoteControl` - 远程控制日志
 - `DeviceInfo` - 设备信息日志
 
 ## 版本历史
 
-- **v1.0.0** - 初始版本，支持基本的MQTT通信和远程控制功能
+- **v2.0.0** - 更新为 Thumbler 协议，支持新的主题格式和消息结构
+- **v1.0.0** - 初始版本，支持基本的 MQTT 通信和远程控制功能

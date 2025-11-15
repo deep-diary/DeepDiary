@@ -25,7 +25,7 @@ MediaMTX 流媒体系统由三个核心模块组成：
 from mediamtx_push import MediaMTXPusher
 
 # 创建推流器
-pusher = MediaMTXPusher(server_host='34.172.161.212', server_port=8554)
+pusher = MediaMTXPusher(server_host='35.192.64.247', server_port=8554)
 
 # 设置推流参数
 pusher.set_stream_params(width=640, height=480, fps=30, crf=23)
@@ -62,7 +62,7 @@ pusher.stop_stream()
 from mediamtx_pull import MediaMTXPuller
 
 # 创建拉流器
-puller = MediaMTXPuller(server_host='34.172.161.212', server_port=8554)
+puller = MediaMTXPuller(server_host='35.192.64.247', server_port=8554)
 
 # 设置流名称
 puller.set_stream_name('camera_stream')
@@ -92,7 +92,7 @@ puller.stop_play()
 from mediamtx_manager import MediaMTXManager
 
 # 创建管理器
-manager = MediaMTXManager(server_host='34.172.161.212', server_port=8554)
+manager = MediaMTXManager(server_host='35.192.64.247', server_port=8554)
 
 # 启动推流
 manager.start_push(
@@ -269,7 +269,7 @@ if __name__ == "__main__":
 
    ```python
    from mediamtx_pull import test_rtsp_connection
-   success = test_rtsp_connection('rtsp://34.172.161.212:8554/camera_stream')
+   success = test_rtsp_connection('rtsp://35.192.64.247:8554/camera_stream')
    ```
 
 3. **查看状态**:

@@ -125,7 +125,7 @@ ffplay -rtsp_transport tcp rtsp://192.168.1.100:554/stream
 
 ### 安装MediaMTX
 
-在服务器（34.172.161.212）上执行：
+在服务器（35.192.64.247）上执行：
 
 ```bash
 # 下载最新版本
@@ -158,13 +158,13 @@ paths:
 
 ```bash
 # RTSP
-vlc rtsp://34.172.161.212:8554/esp32cam
+vlc rtsp://35.192.64.247:8554/esp32cam
 
 # HLS（浏览器兼容）
-# http://34.172.161.212:8888/esp32cam
+# http://35.192.64.247:8888/esp32cam
 
 # WebRTC（低延迟）
-# http://34.172.161.212:8889/esp32cam
+# http://35.192.64.247:8889/esp32cam
 ```
 
 ## MCP工具API
@@ -264,7 +264,7 @@ vlc rtsp://34.172.161.212:8554/esp32cam
                                       ▼
                           ┌────────────────────────┐
                           │   MediaMTX Server      │
-                          │   (34.172.161.212)     │
+                          │   (35.192.64.247)     │
                           │                        │
                           │  - RTSP Proxy          │
                           │  - HLS Transcoding     │

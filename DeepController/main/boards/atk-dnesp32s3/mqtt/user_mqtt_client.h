@@ -24,6 +24,7 @@ struct UserMqttClientConfig {
     std::string device_info_topic;    // 设备信息发布主题（静态配置）
     std::string control_topic;        // 远程控制订阅主题
     std::string status_topic;         // 状态发布主题
+    std::string event_topic;          // 事件发布主题（Thumbler协议）
     std::string system_status_topic;  // 系统状态发布主题
     std::string sensor_status_topic;  // 传感器状态发布主题
     std::string actuator_status_topic;// 执行器状态发布主题
@@ -106,9 +107,31 @@ namespace DeviceStatus {
             std::string status;
         } motor;
     };
+    
+    // Thumbler 状态（完整状态消息）
+    struct ThumblerStatus {
+        bool cur_cam_switch = false;           // 摄像头开关状态
+        float g_acc_x = 0.0f;                  // X轴加速度 (m/s²)
+        float g_acc_y = 0.0f;                  // Y轴加速度 (m/s²)
+        float g_acc_z = 0.0f;                  // Z轴加速度 (m/s²)
+        float g_acc_g = 0.0f;                  // 总加速度 (m/s²)
+        float g_pitch = 0.0f;                  // 俯仰角 (度)
+        float g_roll = 0.0f;                   // 翻滚角 (度)
+        int cur_led_mode = 0;                  // 当前LED工作模式
+        int cur_led_brightness = 0;            // 当前LED默认亮度
+        int cur_led_low_brightness = 0;        // 当前LED低亮度
+        int cur_led_color_red = 0;             // 当前LED颜色-红色分量
+        int cur_led_color_green = 0;           // 当前LED颜色-绿色分量
+        int cur_led_color_blue = 0;            // 当前LED颜色-蓝色分量
+        int cur_led_interval_ms = 0;           // 当前LED动画间隔时间
+        int cur_led_scroll_length = 0;         // 当前LED滚动模式下的亮灯数量
+        int cur_tumbler_mode = 0;              // 不倒翁工作模式
+        bool is_has_people = false;            // 当前环境是否有人
+        int power_percent = 0;                 // 当前系统电量 (0-100)
+    };
 }
 
-// 远程控制命令结构体
+// 远程控制命令结构体（旧格式，保留兼容性）
 struct RemoteControlCommand {
     std::string command_type;
     std::string target;
@@ -120,6 +143,56 @@ struct RemoteControlCommand {
             cJSON_Delete(parameters);
         }
     }
+};
+
+// Thumbler 控制命令结构体（新格式）
+struct ThumblerControlCommand {
+    // 基础控制字段
+    bool has_tar_cam_switch = false;
+    bool tar_cam_switch = false;
+    
+    bool has_tar_pitch = false;
+    float tar_pitch = 0.0f;
+    
+    bool has_tar_roll = false;
+    float tar_roll = 0.0f;
+    
+    bool has_tar_tumbler_mode = false;
+    int tar_tumbler_mode = 0;
+    
+    // LED 控制字段
+    bool has_tar_led_mode = false;
+    int tar_led_mode = 0;
+    
+    bool has_tar_led_brightness = false;
+    int tar_led_brightness = 128;
+    
+    bool has_tar_led_low_brightness = false;
+    int tar_led_low_brightness = 16;
+    
+    bool has_tar_led_color_red = false;
+    int tar_led_color_red = 0;
+    
+    bool has_tar_led_color_green = false;
+    int tar_led_color_green = 0;
+    
+    bool has_tar_led_color_blue = false;
+    int tar_led_color_blue = 0;
+    
+    bool has_tar_led_color_low_red = false;
+    int tar_led_color_low_red = 0;
+    
+    bool has_tar_led_color_low_green = false;
+    int tar_led_color_low_green = 0;
+    
+    bool has_tar_led_color_low_blue = false;
+    int tar_led_color_low_blue = 0;
+    
+    bool has_tar_led_interval_ms = false;
+    int tar_led_interval_ms = 500;
+    
+    bool has_tar_led_scroll_length = false;
+    int tar_led_scroll_length = 3;
 };
 
 // 用户MQTT客户端类
@@ -144,8 +217,13 @@ public:
     bool SendSensorStatus(const DeviceStatus::SensorData& sensor_data);
     bool SendActuatorStatus(const DeviceStatus::ActuatorStatus& actuator_status);
     
+    // Thumbler 协议发送方法
+    bool SendThumblerStatus(const DeviceStatus::ThumblerStatus& status);
+    bool SendEvent(const std::string& event_type, const std::string& message, const cJSON* data = nullptr);
+    
     // 远程控制回调设置
     void SetControlCallback(std::function<void(const RemoteControlCommand&)> callback);
+    void SetThumblerControlCallback(std::function<void(const ThumblerControlCommand&)> callback);
     void SetConnectionCallback(std::function<void(bool)> callback);
     
     // 配置管理
@@ -172,6 +250,7 @@ private:
     
     // 回调函数
     std::function<void(const RemoteControlCommand&)> control_callback_;
+    std::function<void(const ThumblerControlCommand&)> thumbler_control_callback_;
     std::function<void(bool)> connection_callback_;
     
     // 内部方法
@@ -179,6 +258,7 @@ private:
     void SetupCallbacks();
     void ParseControlMessage(const std::string& topic, const std::string& payload);
     RemoteControlCommand ParseCommand(const cJSON* json);
+    ThumblerControlCommand ParseThumblerCommand(const cJSON* json);
     std::string StatusToJson(const std::string& status, const std::string& message);
     
     // 定时器回调

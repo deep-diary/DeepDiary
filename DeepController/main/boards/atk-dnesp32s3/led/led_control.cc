@@ -19,11 +19,19 @@ StripColor LedStripControl::RGBToColor(int red, int green, int blue) {
 }
 
 LedStripControl::LedStripControl(CircularStrip* led_strip, McpServer& mcp_server) 
-    : led_strip_(led_strip) {
+    : led_strip_(led_strip)
+    , current_mode_(0)  // 默认关闭
+    , current_color_({0, 0, 0})
+    , low_color_({0, 0, 0})
+    , current_interval_ms_(500)
+    , current_scroll_length_(3)
+    , default_brightness_(LevelToBrightness(4))
+    , low_brightness_(4) {
     // 从设置中读取亮度等级
     Settings settings("led_strip");
     brightness_level_ = settings.GetInt("brightness", 4);  // 默认等级4
-    led_strip_->SetBrightness(LevelToBrightness(brightness_level_), 4);
+    default_brightness_ = LevelToBrightness(brightness_level_);
+    led_strip_->SetBrightness(default_brightness_, low_brightness_);
     mcp_server.AddTool("self.led_strip.get_brightness",
         "Get the brightness of the led strip (0-8)",
         PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
@@ -38,7 +46,8 @@ LedStripControl::LedStripControl(CircularStrip* led_strip, McpServer& mcp_server
             int level = properties["level"].value<int>();
             ESP_LOGI(TAG, "Set LedStrip brightness level to %d", level);
             brightness_level_ = level;
-            led_strip_->SetBrightness(LevelToBrightness(brightness_level_), 4);
+            default_brightness_ = LevelToBrightness(brightness_level_);
+            led_strip_->SetBrightness(default_brightness_, low_brightness_);
 
             // 保存设置
             Settings settings("led_strip", true);
@@ -77,7 +86,10 @@ LedStripControl::LedStripControl(CircularStrip* led_strip, McpServer& mcp_server
             int blue = properties["blue"].value<int>();
             ESP_LOGI(TAG, "Set led strip all color to %d, %d, %d",
                 red, green, blue);
-            led_strip_->SetAllColor(RGBToColor(red, green, blue));
+            StripColor color = RGBToColor(red, green, blue);
+            current_mode_ = (red == 0 && green == 0 && blue == 0) ? 0 : 1;
+            current_color_ = color;
+            led_strip_->SetAllColor(color);
             return true;
         });
 
@@ -95,7 +107,11 @@ LedStripControl::LedStripControl(CircularStrip* led_strip, McpServer& mcp_server
             int interval = properties["interval"].value<int>();
             ESP_LOGI(TAG, "Blink led strip with color %d, %d, %d, interval %dms",
                 red, green, blue, interval);
-            led_strip_->Blink(RGBToColor(red, green, blue), interval);
+            StripColor color = RGBToColor(red, green, blue);
+            current_mode_ = 2;
+            current_color_ = color;
+            current_interval_ms_ = interval;
+            led_strip_->Blink(color, interval);
             return true;
         });
 
@@ -117,6 +133,11 @@ LedStripControl::LedStripControl(CircularStrip* led_strip, McpServer& mcp_server
                 red, green, blue, length, interval);
             StripColor low = RGBToColor(4, 4, 4);
             StripColor high = RGBToColor(red, green, blue);
+            current_mode_ = 4;
+            current_color_ = high;
+            low_color_ = low;
+            current_interval_ms_ = interval;
+            current_scroll_length_ = length;
             led_strip_->Scroll(low, high, length, interval);
             return true;
         });
@@ -144,6 +165,10 @@ LedStripControl::LedStripControl(CircularStrip* led_strip, McpServer& mcp_server
                 low_red, low_green, low_blue, high_red, high_green, high_blue, interval);
             StripColor low = RGBToColor(low_red, low_green, low_blue);
             StripColor high = RGBToColor(high_red, high_green, high_blue);
+            current_mode_ = 3;
+            current_color_ = high;
+            low_color_ = low;
+            current_interval_ms_ = interval;
             led_strip_->Breathe(low, high, interval);
             return true;
         });
@@ -152,8 +177,31 @@ LedStripControl::LedStripControl(CircularStrip* led_strip, McpServer& mcp_server
         "Set led strip to show device state. (显示设备状态)", 
         PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
             ESP_LOGI(TAG, "Set led strip to show device state");
+            current_mode_ = 5;  // 系统状态模式
             led_strip_->OnStateChanged();
             return true;
         });
 
+}
+
+void LedStripControl::UpdateState(int mode, StripColor color, int interval_ms, int scroll_length) {
+    current_mode_ = mode;
+    current_color_ = color;
+    current_interval_ms_ = interval_ms;
+    current_scroll_length_ = scroll_length;
+}
+
+void LedStripControl::UpdateState(int mode, StripColor main_color, StripColor low_color, int interval_ms, int scroll_length) {
+    current_mode_ = mode;
+    current_color_ = main_color;
+    low_color_ = low_color;
+    current_interval_ms_ = interval_ms;
+    current_scroll_length_ = scroll_length;
+}
+
+void LedStripControl::UpdateBrightness(uint8_t default_brightness, uint8_t low_brightness) {
+    default_brightness_ = default_brightness;
+    low_brightness_ = low_brightness;
+    // 注意：这里不更新brightness_level_，因为它需要反向转换
+    // 如果需要，可以添加一个方法来根据brightness值计算level
 }

@@ -11,7 +11,7 @@
 2. **修改文件**（适配推流模式）：
    - `rtsp_stream.h` - 改用 RtspPusher 替代 RtspServer
    - `rtsp_stream.cc` - 更新初始化和推流逻辑
-   - `atk_dnesp32s3.cc` - 修改服务器URL为 `rtsp://34.172.161.212:8554/esp32cam`
+   - `atk_dnesp32s3.cc` - 修改服务器URL为 `rtsp://35.192.64.247:8554/esp32cam`
 
 3. **新增文档**：
    - `RTSP_PUSH_GUIDE.md` - 推流模式完整使用指南
@@ -62,8 +62,8 @@ ESP32作为RTSP客户端
 
 #### 1. URL解析
 ```cpp
-// 解析 rtsp://34.172.161.212:8554/esp32cam
-server_ip_ = "34.172.161.212"
+// 解析 rtsp://35.192.64.247:8554/esp32cam
+server_ip_ = "35.192.64.247"
 server_port_ = 8554
 stream_path_ = "/esp32cam"
 ```
@@ -77,7 +77,7 @@ connect(rtsp_socket_, server_addr, ...)
 #### 3. ANNOUNCE请求
 ```cpp
 // 发送SDP媒体描述
-ANNOUNCE rtsp://34.172.161.212:8554/esp32cam RTSP/1.0
+ANNOUNCE rtsp://35.192.64.247:8554/esp32cam RTSP/1.0
 Content-Type: application/sdp
 
 v=0
@@ -88,7 +88,7 @@ a=rtpmap:26 JPEG/90000
 #### 4. SETUP请求
 ```cpp
 // 建立RTP传输
-SETUP rtsp://34.172.161.212:8554/esp32cam/track0 RTSP/1.0
+SETUP rtsp://35.192.64.247:8554/esp32cam/track0 RTSP/1.0
 Transport: RTP/AVP;unicast;client_port=5000-5001
 
 // 服务器响应
@@ -99,7 +99,7 @@ Session: 12345678
 #### 5. RECORD请求
 ```cpp
 // 开始推流
-RECORD rtsp://34.172.161.212:8554/esp32cam RTSP/1.0
+RECORD rtsp://35.192.64.247:8554/esp32cam RTSP/1.0
 Session: 12345678
 Range: npt=0.000-
 ```
@@ -122,7 +122,7 @@ while (running) {
 ```cpp
 class RtspPusher {
 private:
-    std::string server_url_;    // rtsp://34.172.161.212:8554/esp32cam
+    std::string server_url_;    // rtsp://35.192.64.247:8554/esp32cam
     int rtsp_socket_;           // RTSP控制连接（TCP）
     int rtp_socket_;            // RTP数据连接（UDP）
     uint16_t sequence_;         // RTP序列号
@@ -161,7 +161,7 @@ public:
 // 1. 创建推流对象（指向远程服务器）
 auto stream = std::make_unique<RtspStream>(
     camera, 
-    "rtsp://34.172.161.212:8554/esp32cam"
+    "rtsp://35.192.64.247:8554/esp32cam"
 );
 
 // 2. 设置参数
@@ -218,13 +218,13 @@ bluenviron/mediamtx
 
 ```bash
 # RTSP（VLC）
-vlc rtsp://34.172.161.212:8554/esp32cam
+vlc rtsp://35.192.64.247:8554/esp32cam
 
 # HLS（浏览器）
-http://34.172.161.212:8888/esp32cam
+http://35.192.64.247:8888/esp32cam
 
 # WebRTC（低延迟）
-http://34.172.161.212:8889/esp32cam
+http://35.192.64.247:8889/esp32cam
 ```
 
 ---
@@ -239,8 +239,8 @@ I (5100) wifi_station: WiFi connected, IP: 192.168.x.x
 I (5200) atk_dnesp32s3: RTSP控制功能初始化完成
 
 // 启动推流
-I (10000) RtspPusher: 解析URL - 服务器: 34.172.161.212, 端口: 8554, 路径: /esp32cam
-I (10100) RtspPusher: 正在连接到 34.172.161.212:8554...
+I (10000) RtspPusher: 解析URL - 服务器: 35.192.64.247, 端口: 8554, 路径: /esp32cam
+I (10100) RtspPusher: 正在连接到 35.192.64.247:8554...
 I (10200) RtspPusher: RTSP连接建立成功
 I (10300) RtspPusher: RTP端口分配: 5000-5001
 I (10400) RtspPusher: 发送ANNOUNCE请求...
@@ -296,7 +296,7 @@ E (11000) RtspStream: 获取相机帧失败
 ### 3. 网络要求
 
 - ESP32必须能访问公网（或服务器所在网络）
-- 服务器34.172.161.212端口8554必须开放
+- 服务器35.192.64.247端口8554必须开放
 - 推荐使用TCP传输（已默认配置）
 
 ---
@@ -371,7 +371,7 @@ idf.py flash monitor
 {"tool": "rtsp_start", "arguments": {"fps": 10}}
 
 # 4. 使用VLC观看
-vlc rtsp://34.172.161.212:8554/esp32cam
+vlc rtsp://35.192.64.247:8554/esp32cam
 ```
 
 ### 未来改进

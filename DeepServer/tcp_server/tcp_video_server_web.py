@@ -114,7 +114,7 @@ class VideoStreamHandler:
 class RTSPPusher:
     """RTSP推流器 - 将视频帧推送到MediaMTX服务器"""
     
-    def __init__(self, server_host='34.172.161.212', server_port=8554, stream_name='camera_stream'):
+    def __init__(self, server_host='35.192.64.247', server_port=8554, stream_name='camera_stream'):
         self.server_host = server_host
         self.server_port = server_port
         self.stream_name = stream_name
@@ -347,7 +347,7 @@ def main():
     parser = argparse.ArgumentParser(description='ESP32 摄像头 TCP 视频流服务器（RTSP推流版）')
     parser.add_argument('--tcp-host', default='0.0.0.0', help='TCP 监听地址')
     parser.add_argument('--tcp-port', type=int, default=8080, help='TCP 监听端口')
-    parser.add_argument('--rtsp-host', default='34.172.161.212', help='MediaMTX RTSP 服务器地址')
+    parser.add_argument('--rtsp-host', default='35.192.64.247', help='MediaMTX RTSP 服务器地址')
     parser.add_argument('--rtsp-port', type=int, default=8554, help='MediaMTX RTSP 服务器端口')
     parser.add_argument('--stream-name', default='camera_stream', help='RTSP 流名称')
     

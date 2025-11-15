@@ -35,7 +35,7 @@ extern "C" {
 #endif
 
 /* TCP客户端配置 */
-#define TCP_CLIENT_DEFAULT_IP       "34.172.161.212"    /* 默认远程服务器IP地址 */
+#define TCP_CLIENT_DEFAULT_IP       "35.192.64.247"    /* 默认远程服务器IP地址 */
 #define TCP_CLIENT_DEFAULT_PORT     8080               /* 默认远程服务器端口号 */
 #define TCP_CLIENT_RX_BUFSIZE       128                /* 最大接收数据长度 */
 #define TCP_CLIENT_SEND_PRIO        10                 /* 发送线程优先级 */

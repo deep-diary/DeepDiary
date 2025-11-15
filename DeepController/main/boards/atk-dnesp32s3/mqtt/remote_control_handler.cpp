@@ -1,13 +1,18 @@
 #include "remote_control_handler.h"
+#include "../config.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include <cJSON.h>
+
+#if ENABLE_TCP_CLIENT_MODE
+#include "../streaming/tcp_client.h"
+#endif
 
 #define TAG_REMOTE_CONTROL "RemoteControl"
 
 RemoteControlHandler::RemoteControlHandler() 
     : deep_motor_(nullptr), deep_arm_(nullptr), gimbal_(nullptr), 
-      led_strip_(nullptr), camera_(nullptr) {
+      led_strip_(nullptr), led_control_(nullptr), camera_(nullptr), mqtt_client_(nullptr) {
     ESP_LOGI(TAG_REMOTE_CONTROL, "RemoteControlHandler initialized");
 }
 
@@ -31,291 +36,278 @@ void RemoteControlHandler::SetLedStrip(CircularStrip* led_strip) {
     led_strip_ = led_strip;
 }
 
+void RemoteControlHandler::SetLedControl(LedStripControl* led_control) {
+    led_control_ = led_control;
+    // 如果led_control_存在，也更新led_strip_引用（用于向后兼容）
+    if (led_control_ && !led_strip_) {
+        // 注意：LedStripControl没有提供获取led_strip_的方法，所以这里保持原样
+        // 实际上，led_strip_应该通过SetLedStrip单独设置
+    }
+}
+
 void RemoteControlHandler::SetCamera(Esp32Camera* camera) {
     camera_ = camera;
 }
 
-void RemoteControlHandler::SetStatusCallback(std::function<void(const std::string&, const std::string&)> callback) {
-    status_callback_ = callback;
+void RemoteControlHandler::SetMqttClient(UserMqttClient* mqtt_client) {
+    mqtt_client_ = mqtt_client;
 }
 
-void RemoteControlHandler::HandleCommand(const RemoteControlCommand& command) {
-    ESP_LOGI(TAG_REMOTE_CONTROL, "🎮 HANDLING Remote Command");
-    ESP_LOGI(TAG_REMOTE_CONTROL, "  Type: %s", command.command_type.c_str());
-    ESP_LOGI(TAG_REMOTE_CONTROL, "  Target: %s", command.target.c_str());
-    ESP_LOGI(TAG_REMOTE_CONTROL, "  Action: %s", command.action.c_str());
+// ==================== Thumbler 命令处理 ====================
+
+void RemoteControlHandler::HandleThumblerCommand(const ThumblerControlCommand& command) {
+    ESP_LOGI(TAG_REMOTE_CONTROL, "🎮 HANDLING Thumbler Command");
     
-    if (command.command_type == CMD_LED) {
-        HandleLedCommand(command);
-    } else if (command.command_type == CMD_MOTOR) {
-        HandleMotorCommand(command);
-    } else if (command.command_type == CMD_ARM) {
-        HandleArmCommand(command);
-    } else if (command.command_type == CMD_GIMBAL) {
-        HandleGimbalCommand(command);
-    } else if (command.command_type == CMD_CAMERA) {
-        HandleCameraCommand(command);
-    } else if (command.command_type == CMD_SYSTEM) {
-        HandleSystemCommand(command);
-    } else {
-        ESP_LOGW(TAG_REMOTE_CONTROL, "Unknown command type: %s", command.command_type.c_str());
-        SendStatus("error", "Unknown command type: " + command.command_type);
+    // 发送收到指令的事件反馈
+    cJSON* event_data = cJSON_CreateObject();
+    bool has_any_command = false;
+    
+    // 处理 LED 控制
+    if (command.has_tar_led_mode || command.has_tar_led_brightness || 
+        command.has_tar_led_color_red || command.has_tar_led_color_green || 
+        command.has_tar_led_color_blue) {
+        HandleThumblerLedControl(command);
+        has_any_command = true;
+        cJSON_AddStringToObject(event_data, "led_control", "executed");
     }
+    
+    // 处理摄像头控制
+    if (command.has_tar_cam_switch) {
+        HandleThumblerCameraControl(command);
+        has_any_command = true;
+        cJSON_AddStringToObject(event_data, "camera_control", "executed");
+    }
+    
+    // 处理不倒翁控制（俯仰角和翻滚角）
+    if (command.has_tar_tumbler_mode || command.has_tar_pitch || command.has_tar_roll) {
+        HandleThumblerTumblerControl(command);
+        has_any_command = true;
+        cJSON_AddStringToObject(event_data, "tumbler_control", "executed");
+    }
+    
+    // 发送事件反馈
+    if (has_any_command) {
+        SendEvent("command_received", "Thumbler command received and executed", event_data);
+    }
+    
+    cJSON_Delete(event_data);
 }
 
-std::string RemoteControlHandler::GetSupportedCommands() const {
-    cJSON* root = cJSON_CreateObject();
-    cJSON* commands = cJSON_CreateArray();
-    
-    // LED命令
-    cJSON* led_cmd = cJSON_CreateObject();
-    cJSON_AddStringToObject(led_cmd, "type", CMD_LED);
-    cJSON_AddStringToObject(led_cmd, "actions", "on,off,color,brightness,effect");
-    cJSON_AddItemToArray(commands, led_cmd);
-    
-    // 电机命令
-    cJSON* motor_cmd = cJSON_CreateObject();
-    cJSON_AddStringToObject(motor_cmd, "type", CMD_MOTOR);
-    cJSON_AddStringToObject(motor_cmd, "actions", "start,stop,set_speed,set_position");
-    cJSON_AddItemToArray(commands, motor_cmd);
-    
-    // 机械臂命令
-    cJSON* arm_cmd = cJSON_CreateObject();
-    cJSON_AddStringToObject(arm_cmd, "type", CMD_ARM);
-    cJSON_AddStringToObject(arm_cmd, "actions", "home,move,grip,release");
-    cJSON_AddItemToArray(commands, arm_cmd);
-    
-    // 云台命令
-    cJSON* gimbal_cmd = cJSON_CreateObject();
-    cJSON_AddStringToObject(gimbal_cmd, "type", CMD_GIMBAL);
-    cJSON_AddStringToObject(gimbal_cmd, "actions", "pan,tilt,reset");
-    cJSON_AddItemToArray(commands, gimbal_cmd);
-    
-    // 摄像头命令
-    cJSON* camera_cmd = cJSON_CreateObject();
-    cJSON_AddStringToObject(camera_cmd, "type", CMD_CAMERA);
-    cJSON_AddStringToObject(camera_cmd, "actions", "capture,start_stream,stop_stream");
-    cJSON_AddItemToArray(commands, camera_cmd);
-    
-    // 系统命令
-    cJSON* system_cmd = cJSON_CreateObject();
-    cJSON_AddStringToObject(system_cmd, "type", CMD_SYSTEM);
-    cJSON_AddStringToObject(system_cmd, "actions", "restart,status,info");
-    cJSON_AddItemToArray(commands, system_cmd);
-    
-    cJSON_AddItemToObject(root, "supported_commands", commands);
-    
-    char* json_string = cJSON_PrintUnformatted(root);
-    std::string result(json_string);
-    cJSON_free(json_string);
-    cJSON_Delete(root);
-    
-    return result;
-}
-
-void RemoteControlHandler::HandleLedCommand(const RemoteControlCommand& command) {
-    if (!led_strip_) {
-        SendStatus("error", "LED strip not available");
+void RemoteControlHandler::HandleThumblerLedControl(const ThumblerControlCommand& command) {
+    // 优先使用led_control_，确保状态同步；如果没有则使用led_strip_（向后兼容）
+    CircularStrip* strip = led_control_ ? nullptr : led_strip_;
+    if (!led_control_ && !led_strip_) {
+        ESP_LOGW(TAG_REMOTE_CONTROL, "LED strip not available");
         return;
     }
     
-    if (command.action == ACTION_LED_ON) {
-        // 开启LED
-        // led_strip_->SetAllPixels(255, 255, 255); // 白色
-        SendStatus("success", "LED turned on");
-    } else if (command.action == ACTION_LED_OFF) {
-        // 关闭LED
-        // led_strip_->SetAllPixels(0, 0, 0); // 黑色
-        SendStatus("success", "LED turned off");
-    } else if (command.action == ACTION_LED_COLOR) {
-        int r = 255, g = 255, b = 255;
-        if (command.parameters) {
-            ParseIntParameter(command.parameters, "r", r);
-            ParseIntParameter(command.parameters, "g", g);
-            ParseIntParameter(command.parameters, "b", b);
+    ESP_LOGI(TAG_REMOTE_CONTROL, "🎨 Handling Thumbler LED Control");
+    
+    // 设置亮度
+    if (command.has_tar_led_brightness || command.has_tar_led_low_brightness) {
+        uint8_t default_brightness = command.has_tar_led_brightness ? 
+            (uint8_t)command.tar_led_brightness : 128;
+        uint8_t low_brightness = command.has_tar_led_low_brightness ? 
+            (uint8_t)command.tar_led_low_brightness : 16;
+        if (led_control_ && led_strip_) {
+            // 直接调用led_strip_设置亮度，然后更新led_control_的状态
+            led_strip_->SetBrightness(default_brightness, low_brightness);
+            led_control_->UpdateBrightness(default_brightness, low_brightness);
+        } else if (strip) {
+            strip->SetBrightness(default_brightness, low_brightness);
         }
-        // led_strip_->SetAllPixels(r, g, b);
-        SendStatus("success", "LED color set to RGB(" + std::to_string(r) + "," + std::to_string(g) + "," + std::to_string(b) + ")");
-    } else if (command.action == ACTION_LED_BRIGHTNESS) {
-        int brightness = 255;
-        if (command.parameters) {
-            ParseIntParameter(command.parameters, "brightness", brightness);
-        }
-        // led_strip_->SetBrightness(brightness);
-        SendStatus("success", "LED brightness set to " + std::to_string(brightness));
-    } else {
-        SendStatus("error", "Unknown LED action: " + command.action);
-    }
-}
-
-void RemoteControlHandler::HandleMotorCommand(const RemoteControlCommand& command) {
-    if (!deep_motor_) {
-        SendStatus("error", "Motor controller not available");
-        return;
     }
     
-    if (command.action == ACTION_MOTOR_START) {
-        int motor_id = 0;
-        if (command.parameters) {
-            ParseIntParameter(command.parameters, "motor_id", motor_id);
+    // 根据 LED 模式执行相应操作
+    if (command.has_tar_led_mode) {
+        StripColor main_color = {
+            (uint8_t)(command.has_tar_led_color_red ? command.tar_led_color_red : 0),
+            (uint8_t)(command.has_tar_led_color_green ? command.tar_led_color_green : 0),
+            (uint8_t)(command.has_tar_led_color_blue ? command.tar_led_color_blue : 0)
+        };
+        
+        StripColor low_color = {
+            (uint8_t)(command.has_tar_led_color_low_red ? command.tar_led_color_low_red : 0),
+            (uint8_t)(command.has_tar_led_color_low_green ? command.tar_led_color_low_green : 0),
+            (uint8_t)(command.has_tar_led_color_low_blue ? command.tar_led_color_low_blue : 0)
+        };
+        
+        int interval_ms = command.has_tar_led_interval_ms ? command.tar_led_interval_ms : 500;
+        int scroll_length = command.has_tar_led_scroll_length ? command.tar_led_scroll_length : 3;
+        
+        // 优先使用led_control_的方法（通过MCP工具），确保状态同步
+        // 但由于LedStripControl的方法都是通过MCP工具注册的，我们需要直接调用led_strip_
+        // 并在led_control_中同步状态
+        CircularStrip* target_strip = led_control_ ? led_strip_ : strip;
+        if (!target_strip) {
+            ESP_LOGW(TAG_REMOTE_CONTROL, "LED strip not available");
+            return;
         }
-        // deep_motor_->StartMotor(motor_id);
-        SendStatus("success", "Motor " + std::to_string(motor_id) + " started");
-    } else if (command.action == ACTION_MOTOR_STOP) {
-        int motor_id = 0;
-        if (command.parameters) {
-            ParseIntParameter(command.parameters, "motor_id", motor_id);
+        
+        switch (command.tar_led_mode) {
+            case 0: // 关闭
+                target_strip->SetAllColor({0, 0, 0});
+                if (led_control_) {
+                    led_control_->UpdateState(0, {0, 0, 0});
+                }
+                ESP_LOGI(TAG_REMOTE_CONTROL, "LED mode: OFF");
+                break;
+                
+            case 1: // 静态颜色
+                target_strip->SetAllColor(main_color);
+                if (led_control_) {
+                    led_control_->UpdateState(1, main_color);
+                }
+                ESP_LOGI(TAG_REMOTE_CONTROL, "LED mode: STATIC COLOR (R:%d G:%d B:%d)", 
+                         main_color.red, main_color.green, main_color.blue);
+                break;
+                
+            case 2: // 闪烁
+                target_strip->Blink(main_color, interval_ms);
+                if (led_control_) {
+                    led_control_->UpdateState(2, main_color, interval_ms);
+                }
+                ESP_LOGI(TAG_REMOTE_CONTROL, "LED mode: BLINK (interval: %dms)", interval_ms);
+                break;
+                
+            case 3: // 呼吸灯
+                target_strip->Breathe(low_color, main_color, interval_ms);
+                if (led_control_) {
+                    led_control_->UpdateState(3, main_color, low_color, interval_ms);
+                }
+                ESP_LOGI(TAG_REMOTE_CONTROL, "LED mode: BREATHE (interval: %dms)", interval_ms);
+                break;
+                
+            case 4: // 流水灯/滚动
+                target_strip->Scroll(low_color, main_color, scroll_length, interval_ms);
+                if (led_control_) {
+                    led_control_->UpdateState(4, main_color, low_color, interval_ms, scroll_length);
+                }
+                ESP_LOGI(TAG_REMOTE_CONTROL, "LED mode: SCROLL (length: %d, interval: %dms)", 
+                         scroll_length, interval_ms);
+                break;
+                
+            case 5: // 系统状态
+                target_strip->OnStateChanged();
+                if (led_control_) {
+                    led_control_->UpdateState(5, {0, 0, 0});
+                }
+                ESP_LOGI(TAG_REMOTE_CONTROL, "LED mode: SYSTEM STATE");
+                break;
+                
+            default:
+                ESP_LOGW(TAG_REMOTE_CONTROL, "Unknown LED mode: %d", command.tar_led_mode);
+                break;
         }
-        // deep_motor_->StopMotor(motor_id);
-        SendStatus("success", "Motor " + std::to_string(motor_id) + " stopped");
-    } else if (command.action == ACTION_MOTOR_SET_SPEED) {
-        int motor_id = 0, speed = 0;
-        if (command.parameters) {
-            ParseIntParameter(command.parameters, "motor_id", motor_id);
-            ParseIntParameter(command.parameters, "speed", speed);
-        }
-        // deep_motor_->SetMotorSpeed(motor_id, speed);
-        SendStatus("success", "Motor " + std::to_string(motor_id) + " speed set to " + std::to_string(speed));
-    } else {
-        SendStatus("error", "Unknown motor action: " + command.action);
     }
 }
 
-void RemoteControlHandler::HandleArmCommand(const RemoteControlCommand& command) {
-    if (!deep_arm_) {
-        SendStatus("error", "Arm controller not available");
-        return;
-    }
-    
-    if (command.action == ACTION_ARM_HOME) {
-        // deep_arm_->Home();
-        SendStatus("success", "Arm homed");
-    } else if (command.action == ACTION_ARM_MOVE) {
-        float x = 0, y = 0, z = 0;
-        if (command.parameters) {
-            ParseFloatParameter(command.parameters, "x", x);
-            ParseFloatParameter(command.parameters, "y", y);
-            ParseFloatParameter(command.parameters, "z", z);
-        }
-        // deep_arm_->MoveTo(x, y, z);
-        SendStatus("success", "Arm moved to (" + std::to_string(x) + "," + std::to_string(y) + "," + std::to_string(z) + ")");
-    } else if (command.action == ACTION_ARM_GRIP) {
-        // deep_arm_->Grip();
-        SendStatus("success", "Arm gripped");
-    } else if (command.action == ACTION_ARM_RELEASE) {
-        // deep_arm_->Release();
-        SendStatus("success", "Arm released");
-    } else {
-        SendStatus("error", "Unknown arm action: " + command.action);
-    }
-}
-
-void RemoteControlHandler::HandleGimbalCommand(const RemoteControlCommand& command) {
-    if (!gimbal_) {
-        SendStatus("error", "Gimbal not available");
-        return;
-    }
-    
-    if (command.action == ACTION_GIMBAL_PAN) {
-        float angle = 0;
-        if (command.parameters) {
-            ParseFloatParameter(command.parameters, "angle", angle);
-        }
-        // Gimbal_setPanAngle(gimbal_, angle);
-        SendStatus("success", "Gimbal pan set to " + std::to_string(angle) + " degrees");
-    } else if (command.action == ACTION_GIMBAL_TILT) {
-        float angle = 0;
-        if (command.parameters) {
-            ParseFloatParameter(command.parameters, "angle", angle);
-        }
-        // Gimbal_setTiltAngle(gimbal_, angle);
-        SendStatus("success", "Gimbal tilt set to " + std::to_string(angle) + " degrees");
-    } else if (command.action == ACTION_GIMBAL_RESET) {
-        // Gimbal_reset(gimbal_);
-        SendStatus("success", "Gimbal reset");
-    } else {
-        SendStatus("error", "Unknown gimbal action: " + command.action);
-    }
-}
-
-void RemoteControlHandler::HandleCameraCommand(const RemoteControlCommand& command) {
+void RemoteControlHandler::HandleThumblerCameraControl(const ThumblerControlCommand& command) {
     if (!camera_) {
-        SendStatus("error", "Camera not available");
+        ESP_LOGW(TAG_REMOTE_CONTROL, "Camera not available");
         return;
     }
     
-    if (command.action == ACTION_CAMERA_CAPTURE) {
-        // camera_->Capture();
-        SendStatus("success", "Camera capture initiated");
-    } else if (command.action == ACTION_CAMERA_START_STREAM) {
-        // camera_->StartStream();
-        SendStatus("success", "Camera stream started");
-    } else if (command.action == ACTION_CAMERA_STOP_STREAM) {
-        // camera_->StopStream();
-        SendStatus("success", "Camera stream stopped");
-    } else {
-        SendStatus("error", "Unknown camera action: " + command.action);
-    }
-}
-
-void RemoteControlHandler::HandleSystemCommand(const RemoteControlCommand& command) {
-    if (command.action == ACTION_SYSTEM_RESTART) {
-        SendStatus("success", "System restart initiated");
-        vTaskDelay(pdMS_TO_TICKS(1000)); // 等待1秒
-        esp_restart();
-    } else if (command.action == ACTION_SYSTEM_STATUS) {
-        SendStatus("success", "System is running");
-    } else if (command.action == ACTION_SYSTEM_INFO) {
-        std::string info = GetSupportedCommands();
-        SendStatus("info", info);
-    } else {
-        SendStatus("error", "Unknown system action: " + command.action);
-    }
-}
-
-void RemoteControlHandler::SendStatus(const std::string& status, const std::string& message) {
-    ESP_LOGI(TAG_REMOTE_CONTROL, "📤 SENDING Status Response");
-    ESP_LOGI(TAG_REMOTE_CONTROL, "  Status: %s", status.c_str());
-    ESP_LOGI(TAG_REMOTE_CONTROL, "  Message: %s", message.c_str());
+    ESP_LOGI(TAG_REMOTE_CONTROL, "📷 Handling Thumbler Camera Control: %s", 
+             command.tar_cam_switch ? "ON" : "OFF");
     
-    if (status_callback_) {
-        status_callback_(status, message);
+#if ENABLE_TCP_CLIENT_MODE
+    if (command.tar_cam_switch) {
+        // 启动TCP客户端推流
+        tcp_client_state_t current_state = tcp_client_get_state();
+        if (current_state == TCP_CLIENT_DISCONNECTED || current_state == TCP_CLIENT_ERROR) {
+            ESP_LOGI(TAG_REMOTE_CONTROL, "Starting TCP client for camera streaming...");
+            esp_err_t ret = tcp_client_start();
+            if (ret == ESP_OK) {
+                ESP_LOGI(TAG_REMOTE_CONTROL, "TCP client started successfully");
+            } else {
+                ESP_LOGE(TAG_REMOTE_CONTROL, "Failed to start TCP client");
+            }
+        } else {
+            ESP_LOGI(TAG_REMOTE_CONTROL, "TCP client already running (state: %d)", current_state);
+        }
+    } else {
+        // 停止TCP客户端推流
+        // 无论当前状态如何，都尝试停止TCP客户端
+        // tcp_client_stop() 内部会检查是否在运行，如果未运行会直接返回
+        ESP_LOGI(TAG_REMOTE_CONTROL, "Stopping TCP client...");
+        esp_err_t ret = tcp_client_stop();
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG_REMOTE_CONTROL, "TCP client stopped successfully");
+        } else {
+            ESP_LOGE(TAG_REMOTE_CONTROL, "Failed to stop TCP client");
+        }
+    }
+#else
+    ESP_LOGW(TAG_REMOTE_CONTROL, "TCP client mode not enabled");
+#endif
+    
+    ESP_LOGI(TAG_REMOTE_CONTROL, "Camera switch: %s", command.tar_cam_switch ? "ON" : "OFF");
+}
+
+void RemoteControlHandler::HandleThumblerTumblerControl(const ThumblerControlCommand& command) {
+    ESP_LOGI(TAG_REMOTE_CONTROL, "🎯 Handling Thumbler Control");
+    
+    if (command.has_tar_tumbler_mode) {
+        ESP_LOGI(TAG_REMOTE_CONTROL, "Tumbler mode: %d", command.tar_tumbler_mode);
+        // TODO: 实现不倒翁模式控制
+        // 这里需要根据实际的不倒翁控制 API 来实现
+    }
+    
+    // 处理俯仰角和翻滚角控制（通过云台）
+    if (gimbal_ && Gimbal_isInitialized(gimbal_)) {
+        int current_pan = Gimbal_getPanAngle(gimbal_);
+        int current_tilt = Gimbal_getTiltAngle(gimbal_);
+        bool angle_changed = false;
+        
+        // 俯仰角(pitch)对应垂直舵机(tilt)，范围0-180度
+        if (command.has_tar_pitch) {
+            // tar_pitch 范围是 -90 ~ 90，转换为 tilt_angle 0~180 度
+            float pitch = command.tar_pitch;
+            if (pitch < -90.0f) pitch = -90.0f;
+            if (pitch > 90.0f) pitch = 90.0f;
+            // 线性映射: -90 -> 0, 0 -> 90, 90 -> 180
+            int tilt_angle = (int)((pitch + 90.0f) * 1.0f); // (pitch + 90) = 0~180
+            if (tilt_angle < 0) tilt_angle = 0;
+            if (tilt_angle > 180) tilt_angle = 180;
+
+            current_tilt = tilt_angle;
+            angle_changed = true;
+            ESP_LOGI(TAG_REMOTE_CONTROL, "Setting tilt (pitch) angle: %d° (tar_pitch: %.2f°)", tilt_angle, pitch);
+        }
+        
+        // 翻滚角(roll)对应水平舵机(pan)，范围0-270度
+        if (command.has_tar_roll) {
+            // 将浮点角度转换为整数，并限制在0-270度范围内
+            int pan_angle = (int)command.tar_roll;
+            if (pan_angle < 0) pan_angle = 0;
+            if (pan_angle > 270) pan_angle = 270;
+            
+            current_pan = pan_angle;
+            angle_changed = true;
+            ESP_LOGI(TAG_REMOTE_CONTROL, "Setting pan (roll) angle: %d°", pan_angle);
+        }
+        
+        // 如果角度有变化，更新云台
+        if (angle_changed) {
+            Gimbal_setAngles(gimbal_, current_pan, current_tilt);
+            ESP_LOGI(TAG_REMOTE_CONTROL, "Gimbal angles updated - Pan: %d°, Tilt: %d°", current_pan, current_tilt);
+        }
+    } else {
+        if (command.has_tar_pitch) {
+            ESP_LOGW(TAG_REMOTE_CONTROL, "Gimbal not available, cannot set pitch: %.2f°", command.tar_pitch);
+        }
+        if (command.has_tar_roll) {
+            ESP_LOGW(TAG_REMOTE_CONTROL, "Gimbal not available, cannot set roll: %.2f°", command.tar_roll);
+        }
     }
 }
 
-bool RemoteControlHandler::ParseIntParameter(const cJSON* params, const std::string& key, int& value) {
-    cJSON* item = cJSON_GetObjectItem(params, key.c_str());
-    if (cJSON_IsNumber(item)) {
-        value = item->valueint;
-        return true;
+void RemoteControlHandler::SendEvent(const std::string& event_type, const std::string& message, const cJSON* data) {
+    if (mqtt_client_) {
+        mqtt_client_->SendEvent(event_type, message, data);
+    } else {
+        ESP_LOGW(TAG_REMOTE_CONTROL, "MQTT client not set, cannot send event: %s", event_type.c_str());
     }
-    return false;
-}
-
-bool RemoteControlHandler::ParseFloatParameter(const cJSON* params, const std::string& key, float& value) {
-    cJSON* item = cJSON_GetObjectItem(params, key.c_str());
-    if (cJSON_IsNumber(item)) {
-        value = (float)item->valuedouble;
-        return true;
-    }
-    return false;
-}
-
-bool RemoteControlHandler::ParseStringParameter(const cJSON* params, const std::string& key, std::string& value) {
-    cJSON* item = cJSON_GetObjectItem(params, key.c_str());
-    if (cJSON_IsString(item)) {
-        value = item->valuestring;
-        return true;
-    }
-    return false;
-}
-
-bool RemoteControlHandler::ParseBoolParameter(const cJSON* params, const std::string& key, bool& value) {
-    cJSON* item = cJSON_GetObjectItem(params, key.c_str());
-    if (cJSON_IsBool(item)) {
-        value = cJSON_IsTrue(item);
-        return true;
-    }
-    return false;
 }
 

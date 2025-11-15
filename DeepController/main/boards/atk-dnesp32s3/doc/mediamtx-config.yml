@@ -108,16 +108,16 @@ paths:
 ###############################################
 
 # 观看流：
-# - RTSP: rtsp://34.172.161.212:8554/esp32cam
-# - HLS:  http://34.172.161.212:8888/esp32cam
-# - WebRTC: http://34.172.161.212:8889/esp32cam
+# - RTSP: rtsp://35.192.64.247:8554/esp32cam
+# - HLS:  http://35.192.64.247:8888/esp32cam
+# - WebRTC: http://35.192.64.247:8889/esp32cam
 
 # 使用VLC观看：
-# vlc rtsp://34.172.161.212:8554/esp32cam
+# vlc rtsp://35.192.64.247:8554/esp32cam
 
 # 使用ffplay观看：
-# ffplay rtsp://34.172.161.212:8554/esp32cam
+# ffplay rtsp://35.192.64.247:8554/esp32cam
 
 # 录制流：
-# ffmpeg -i rtsp://34.172.161.212:8554/esp32cam -c copy output.mp4
+# ffmpeg -i rtsp://35.192.64.247:8554/esp32cam -c copy output.mp4
 

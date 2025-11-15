@@ -110,10 +110,10 @@ bool UserMqttClient::Connect() {
         // 等待 MQTT 客户端完全就绪
         vTaskDelay(pdMS_TO_TICKS(500));
         
-        // 订阅控制主题
+        // 订阅控制主题（Thumbler 协议使用 QoS=1）
         if (!config_.control_topic.empty()) {
             ESP_LOGI(TAG_USER_MQTT, "📡 SUBSCRIBING to Control Topic");
-            ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.control_topic.c_str());
+            ESP_LOGI(TAG_USER_MQTT, "  Topic: %s (QoS: 1)", config_.control_topic.c_str());
             
             // 检查客户端是否真的可用
             if (!mqtt_client_) {
@@ -121,6 +121,8 @@ bool UserMqttClient::Connect() {
             } else if (!mqtt_client_->IsConnected()) {
                 ESP_LOGE(TAG_USER_MQTT, "  ❌ MQTT client is not connected");
             } else {
+                // Thumbler 协议控制命令使用 QoS=1
+                // 注意：如果 Subscribe 方法不支持 QoS 参数，请使用默认方法
                 if (mqtt_client_->Subscribe(config_.control_topic)) {
                     ESP_LOGI(TAG_USER_MQTT, "  ✅ Subscription successful");
                 } else {
@@ -379,8 +381,101 @@ bool UserMqttClient::SendActuatorStatus(const DeviceStatus::ActuatorStatus& actu
     return true;
 }
 
+bool UserMqttClient::SendThumblerStatus(const DeviceStatus::ThumblerStatus& status) {
+    if (!IsConnected()) {
+        return false;
+    }
+    
+    cJSON* root = cJSON_CreateObject();
+    
+    // 基础状态
+    cJSON_AddBoolToObject(root, "cur_cam_switch", status.cur_cam_switch);
+    
+    // 传感器数据
+    cJSON_AddNumberToObject(root, "g_acc_x", status.g_acc_x);
+    cJSON_AddNumberToObject(root, "g_acc_y", status.g_acc_y);
+    cJSON_AddNumberToObject(root, "g_acc_z", status.g_acc_z);
+    cJSON_AddNumberToObject(root, "g_acc_g", status.g_acc_g);
+    cJSON_AddNumberToObject(root, "g_pitch", status.g_pitch);
+    cJSON_AddNumberToObject(root, "g_roll", status.g_roll);
+    
+    // LED 状态
+    cJSON_AddNumberToObject(root, "cur_led_mode", status.cur_led_mode);
+    cJSON_AddNumberToObject(root, "cur_led_brightness", status.cur_led_brightness);
+    cJSON_AddNumberToObject(root, "cur_led_low_brightness", status.cur_led_low_brightness);
+    cJSON_AddNumberToObject(root, "cur_led_color_red", status.cur_led_color_red);
+    cJSON_AddNumberToObject(root, "cur_led_color_green", status.cur_led_color_green);
+    cJSON_AddNumberToObject(root, "cur_led_color_blue", status.cur_led_color_blue);
+    cJSON_AddNumberToObject(root, "cur_led_interval_ms", status.cur_led_interval_ms);
+    cJSON_AddNumberToObject(root, "cur_led_scroll_length", status.cur_led_scroll_length);
+    
+    // 不倒翁状态
+    cJSON_AddNumberToObject(root, "cur_tumbler_mode", status.cur_tumbler_mode);
+    cJSON_AddBoolToObject(root, "is_has_people", status.is_has_people);
+    cJSON_AddNumberToObject(root, "power_percent", status.power_percent);
+    
+    // 时间戳
+    cJSON_AddNumberToObject(root, "timestamp", esp_timer_get_time() / 1000000);
+    
+    char* json_string = cJSON_PrintUnformatted(root);
+    std::string json(json_string);
+    cJSON_free(json_string);
+    cJSON_Delete(root);
+    
+    // 使用 status_topic（Thumbler 协议使用统一的状态主题，QoS=0）
+    // 注意：如果 Publish 方法不支持 QoS 参数，请使用默认方法
+    if (!mqtt_client_->Publish(config_.status_topic, json)) {
+        ESP_LOGE(TAG_USER_MQTT, "Failed to publish Thumbler status");
+        return false;
+    }
+    
+    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH Thumbler Status");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.status_topic.c_str());
+    return true;
+}
+
+bool UserMqttClient::SendEvent(const std::string& event_type, const std::string& message, const cJSON* data) {
+    if (!IsConnected() || config_.event_topic.empty()) {
+        return false;
+    }
+    
+    cJSON* root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "event_type", event_type.c_str());
+    cJSON_AddStringToObject(root, "message", message.c_str());
+    cJSON_AddNumberToObject(root, "timestamp", esp_timer_get_time() / 1000000);
+    cJSON_AddStringToObject(root, "device_id", config_.client_id.c_str());
+    
+    // 如果有额外的数据，添加到JSON中
+    if (data) {
+        cJSON* data_copy = cJSON_Duplicate(data, 1);
+        if (data_copy) {
+            cJSON_AddItemToObject(root, "data", data_copy);
+        }
+    }
+    
+    char* json_string = cJSON_PrintUnformatted(root);
+    std::string json(json_string);
+    cJSON_free(json_string);
+    cJSON_Delete(root);
+    
+    if (!mqtt_client_->Publish(config_.event_topic, json)) {
+        ESP_LOGE(TAG_USER_MQTT, "Failed to publish event");
+        return false;
+    }
+    
+    ESP_LOGI(TAG_USER_MQTT, "📤 PUBLISH Event");
+    ESP_LOGI(TAG_USER_MQTT, "  Topic: %s", config_.event_topic.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Event Type: %s", event_type.c_str());
+    ESP_LOGI(TAG_USER_MQTT, "  Message: %s", message.c_str());
+    return true;
+}
+
 void UserMqttClient::SetControlCallback(std::function<void(const RemoteControlCommand&)> callback) {
     control_callback_ = callback;
+}
+
+void UserMqttClient::SetThumblerControlCallback(std::function<void(const ThumblerControlCommand&)> callback) {
+    thumbler_control_callback_ = callback;
 }
 
 void UserMqttClient::SetConnectionCallback(std::function<void(bool)> callback) {
@@ -485,19 +580,29 @@ void UserMqttClient::ParseControlMessage(const std::string& topic, const std::st
         return;
     }
     
-    RemoteControlCommand command = ParseCommand(root);
-    cJSON_Delete(root);
+    // 只解析 Thumbler 协议命令
+    ThumblerControlCommand thumbler_cmd = ParseThumblerCommand(root);
+    bool has_thumbler_fields = false;
     
-    if (!command.command_type.empty() && control_callback_) {
-        ESP_LOGI(TAG_USER_MQTT, "  ✅ Command parsed successfully:");
-        ESP_LOGI(TAG_USER_MQTT, "    Type: %s", command.command_type.c_str());
-        ESP_LOGI(TAG_USER_MQTT, "    Target: %s", command.target.c_str());
-        ESP_LOGI(TAG_USER_MQTT, "    Action: %s", command.action.c_str());
-        ESP_LOGI(TAG_USER_MQTT, "  → Executing control command");
-        control_callback_(command);
-    } else {
-        ESP_LOGW(TAG_USER_MQTT, "  ⚠️ Invalid command or no callback set");
+    // 检查是否包含 Thumbler 协议字段（以 tar_ 开头的字段）
+    cJSON* item = root->child;
+    while (item) {
+        if (item->string && strncmp(item->string, "tar_", 4) == 0) {
+            has_thumbler_fields = true;
+            break;
+        }
+        item = item->next;
     }
+    
+    if (has_thumbler_fields && thumbler_control_callback_) {
+        ESP_LOGI(TAG_USER_MQTT, "  ✅ Thumbler command parsed successfully");
+        ESP_LOGI(TAG_USER_MQTT, "  → Executing Thumbler control command");
+        thumbler_control_callback_(thumbler_cmd);
+    } else {
+        ESP_LOGW(TAG_USER_MQTT, "  ⚠️ Invalid Thumbler command or no callback set");
+    }
+    
+    cJSON_Delete(root);
 }
 
 RemoteControlCommand UserMqttClient::ParseCommand(const cJSON* json) {
@@ -524,6 +629,104 @@ RemoteControlCommand UserMqttClient::ParseCommand(const cJSON* json) {
     }
     
     return command;
+}
+
+ThumblerControlCommand UserMqttClient::ParseThumblerCommand(const cJSON* json) {
+    ThumblerControlCommand cmd;
+    
+    // 基础控制字段
+    cJSON* item = cJSON_GetObjectItem(json, "tar_cam_switch");
+    if (cJSON_IsBool(item)) {
+        cmd.has_tar_cam_switch = true;
+        cmd.tar_cam_switch = cJSON_IsTrue(item);
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_pitch");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_pitch = true;
+        cmd.tar_pitch = (float)item->valuedouble;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_roll");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_roll = true;
+        cmd.tar_roll = (float)item->valuedouble;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_tumbler_mode");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_tumbler_mode = true;
+        cmd.tar_tumbler_mode = item->valueint;
+    }
+    
+    // LED 控制字段
+    item = cJSON_GetObjectItem(json, "tar_led_mode");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_mode = true;
+        cmd.tar_led_mode = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_brightness");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_brightness = true;
+        cmd.tar_led_brightness = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_low_brightness");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_low_brightness = true;
+        cmd.tar_led_low_brightness = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_color_red");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_color_red = true;
+        cmd.tar_led_color_red = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_color_green");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_color_green = true;
+        cmd.tar_led_color_green = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_color_blue");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_color_blue = true;
+        cmd.tar_led_color_blue = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_color_low_red");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_color_low_red = true;
+        cmd.tar_led_color_low_red = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_color_low_green");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_color_low_green = true;
+        cmd.tar_led_color_low_green = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_color_low_blue");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_color_low_blue = true;
+        cmd.tar_led_color_low_blue = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_interval_ms");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_interval_ms = true;
+        cmd.tar_led_interval_ms = item->valueint;
+    }
+    
+    item = cJSON_GetObjectItem(json, "tar_led_scroll_length");
+    if (cJSON_IsNumber(item)) {
+        cmd.has_tar_led_scroll_length = true;
+        cmd.tar_led_scroll_length = item->valueint;
+    }
+    
+    return cmd;
 }
 
 std::string UserMqttClient::StatusToJson(const std::string& status, const std::string& message) {

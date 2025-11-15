@@ -1,4 +1,4 @@
-# 实现从rtsp://34.172.161.212:8554/mystream 拉流，并显示在UI上， 使用类来管理拉流和显示
+# 实现从rtsp://35.192.64.247:8554/mystream 拉流，并显示在UI上， 使用类来管理拉流和显示
 # 支持视频和音频同步播放
 
 import cv2
@@ -20,7 +20,7 @@ class RtspPage:
     
     def __init__(
         self, 
-        rtsp_url: str = "rtsp://34.172.161.212:8554/mystream", 
+        rtsp_url: str = "rtsp://35.192.64.247:8554/mystream", 
         log_manager = None
     ):
         """
@@ -60,11 +60,11 @@ class RtspPage:
     def _parse_urls(self):
         """解析 RTSP URL 并生成 Web URL（使用 HTTPS 代理避免混合内容问题）"""
         # 从 RTSP URL 中提取服务器地址和流名称
-        # 例如: rtsp://34.172.161.212:8554/mystream
+        # 例如: rtsp://35.192.64.247:8554/mystream
         if "rtsp://" in self.rtsp_url:
             # 解析 RTSP URL
             rtsp_parts = self.rtsp_url.replace("rtsp://", "").split("/")
-            host_port = rtsp_parts[0]  # 34.172.161.212:8554
+            host_port = rtsp_parts[0]  # 35.192.64.247:8554
             stream_name = rtsp_parts[-1] if len(rtsp_parts) > 1 else "mystream"
             
             # 提取主机和端口
@@ -326,7 +326,7 @@ class RtspPage:
             rtsp_url_input = gr.Textbox(
                 label="流地址（RTSP 或 HTTP）",
                 value=self.rtsp_url,
-                placeholder="例如: rtsp://34.172.161.212:8554/mystream 或 http://34.172.161.212:8888/mystream",
+                placeholder="例如: rtsp://35.192.64.247:8554/mystream 或 http://35.192.64.247:8888/mystream",
                 info="支持 RTSP 和 HTTP URL，会自动解析为 Web 播放 URL"
             )
             

@@ -21,7 +21,7 @@ additional_hosts = env.list("DJANGO_ADDITIONAL_HOSTS", default=[])
 if env.bool("DJANGO_ALLOW_ALL_HOSTS", default=True):  # 开发环境默认允许所有主机
     ALLOWED_HOSTS = ["*"]  # noqa: S104
 else:
-    ALLOWED_HOSTS = ["localhost", "127.0.0.1", "34.172.161.212", *additional_hosts]  # noqa: S104
+    ALLOWED_HOSTS = ["localhost", "127.0.0.1", "35.192.64.247", *additional_hosts]  # noqa: S104
 
 # CACHES
 # ------------------------------------------------------------------------------

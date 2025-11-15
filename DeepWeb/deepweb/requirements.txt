@@ -1,0 +1,20 @@
+# DeepWeb 项目依赖
+# 只包含直接依赖，传递依赖由 pip 自动处理
+
+# UI 框架
+gradio>=5.49.0
+
+# MQTT 通信
+paho-mqtt>=2.1.0
+
+# 图像处理
+opencv-python-headless>=4.11.0
+
+# 数值计算
+numpy>=1.26.0
+
+# 数据处理（部分设备类使用）
+pandas>=2.3.0
+
+# 其他工具库
+pillow>=11.0.0  # 图像处理支持

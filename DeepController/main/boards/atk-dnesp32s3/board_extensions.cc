@@ -440,16 +440,11 @@ void BoardExtensions::InitializeTcpClient() {
 }
 
 void BoardExtensions::StartTcpClientWhenReady() {
-    ESP_LOGI(TAG, "WiFi已连接，准备启动TCP客户端...");
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    
-    esp_err_t ret = tcp_client_start();
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "TCP客户端启动成功");
-        ESP_LOGI(TAG, "连接目标: %s:%d", TCP_SERVER_IP, TCP_SERVER_PORT);
-    } else {
-        ESP_LOGE(TAG, "TCP客户端启动失败");
-    }
+    // TCP客户端不再自动启动，改为按需启动（通过tar_cam_switch控制）
+    // 这样可以节省流量，只在需要推流时才连接
+    ESP_LOGI(TAG, "TCP客户端已初始化，等待控制指令启动推流");
+    ESP_LOGI(TAG, "连接目标: %s:%d", TCP_SERVER_IP, TCP_SERVER_PORT);
+    ESP_LOGI(TAG, "提示: 通过MQTT发送tar_cam_switch=true来启动推流");
 }
 #endif
 
@@ -493,18 +488,12 @@ void BoardExtensions::user_main_loop_task(void* pvParameters) {
     
     // ==================== 时间标志位 ====================
     struct TimeFlags {
-        bool sensor_update;
-        bool mqtt_config;
-        bool mqtt_system_status;
-        bool mqtt_sensor_status;
-        bool mqtt_actuator_status;
+        bool display_update;
+        bool thumbler_status;
         
         void clear() {
-            sensor_update = false;
-            mqtt_config = false;
-            mqtt_system_status = false;
-            mqtt_sensor_status = false;
-            mqtt_actuator_status = false;
+            display_update = false;
+            thumbler_status = false;
         }
     } time_flags;
     
@@ -531,30 +520,18 @@ void BoardExtensions::user_main_loop_task(void* pvParameters) {
         time_flags.clear();
         
         // 设置各个标志位（使用取模运算判断是否到达指定周期）
-        if ((cycle_counter % SENSOR_UPDATE_CYCLE) == 0) {
-            time_flags.sensor_update = true;
+        if ((cycle_counter % DISPLAY_UPDATE_CYCLE) == 0) {
+            time_flags.display_update = true;
         }
         
-        if ((cycle_counter % MQTT_CONFIG_CYCLE) == 0) {
-            time_flags.mqtt_config = true;
-        }
-        
-        if ((cycle_counter % MQTT_SYSTEM_STATUS_CYCLE) == 0) {
-            time_flags.mqtt_system_status = true;
-        }
-        
-        if ((cycle_counter % MQTT_SENSOR_STATUS_CYCLE) == 0) {
-            time_flags.mqtt_sensor_status = true;
-        }
-        
-        if ((cycle_counter % MQTT_ACTUATOR_STATUS_CYCLE) == 0) {
-            time_flags.mqtt_actuator_status = true;
+        if ((cycle_counter % THUMBLER_STATUS_CYCLE) == 0) {
+            time_flags.thumbler_status = true;
         }
         
         // ==================== 执行任务（根据标志位）====================
         
-        // 传感器更新任务
-        if (time_flags.sensor_update && ext->qma6100p_initialized_) {
+        // 显示更新任务
+        if (time_flags.display_update && ext->qma6100p_initialized_) {
             qma6100p_read_rawdata(&accel_data);
             
             // 格式化加速度计数据（两行显示）
@@ -567,47 +544,16 @@ void BoardExtensions::user_main_loop_task(void* pvParameters) {
             if (ext->display_ != nullptr) {
                 ext->display_->SetChatMessage("system", msg_buffer);
             }
-            
-            // ESP_LOGI(TAG, "ACC[%.2f, %.2f, %.2f] Pitch:%.1f° Roll:%.1f°", 
-            //          accel_data.acc_x, accel_data.acc_y, accel_data.acc_z,
-            //          accel_data.pitch, accel_data.roll);
         }
         
-        // MQTT任务（仅在连接时执行）
+        // MQTT任务（仅在连接时执行）- 只发送不倒翁状态
         if (ext->user_mqtt_client_ && ext->user_mqtt_client_->IsConnected() && ext->device_info_collector_) {
-            // MQTT设备信息发送任务（静态配置）
-            if (time_flags.mqtt_config) {
-                ESP_LOGI(TAG, "📋 SENDING Device Info");
-                DeviceConfigInfo config = ext->device_info_collector_->CollectDeviceConfig();
-                if (ext->user_mqtt_client_->SendDeviceConfig(config)) {
-                    ESP_LOGI(TAG, "✅ Device info sent successfully");
-                }
-            }
-            
-            // MQTT系统状态发送任务
-            if (time_flags.mqtt_system_status) {
-                ESP_LOGI(TAG, "💻 SENDING System Status");
-                DeviceStatus::SystemInfo system_status = ext->device_info_collector_->CollectSystemStatus();
-                if (ext->user_mqtt_client_->SendSystemStatus(system_status)) {
-                    ESP_LOGI(TAG, "✅ System status sent successfully");
-                }
-            }
-            
-            // MQTT传感器状态发送任务
-            if (time_flags.mqtt_sensor_status) {
-                ESP_LOGI(TAG, "📡 SENDING Sensor Status");
-                DeviceStatus::SensorData sensor_status = ext->device_info_collector_->CollectSensorStatus();
-                if (ext->user_mqtt_client_->SendSensorStatus(sensor_status)) {
-                    // ESP_LOGI(TAG, "✅ Sensor status sent successfully");
-                }
-            }
-            
-            // MQTT执行器状态发送任务
-            if (time_flags.mqtt_actuator_status) {
-                ESP_LOGI(TAG, "⚙️ SENDING Actuator Status");
-                DeviceStatus::ActuatorStatus actuator_status = ext->device_info_collector_->CollectActuatorStatus();
-                if (ext->user_mqtt_client_->SendActuatorStatus(actuator_status)) {
-                    ESP_LOGI(TAG, "✅ Actuator status sent successfully");
+            // 不倒翁状态发送任务（使用 Thumbler 协议）
+            if (time_flags.thumbler_status) {
+                ESP_LOGI(TAG, "📡 SENDING Thumbler Status");
+                DeviceStatus::ThumblerStatus thumbler_status = ext->device_info_collector_->CollectThumblerStatus();
+                if (ext->user_mqtt_client_->SendThumblerStatus(thumbler_status)) {
+                    // ESP_LOGI(TAG, "✅ Thumbler status sent successfully");
                 }
             }
         }
@@ -647,6 +593,9 @@ void BoardExtensions::InitializeUserMqtt() {
             remote_control_handler_->SetGimbal(gimbal_);
 #endif
             remote_control_handler_->SetLedStrip(led_strip_);
+#if ENABLE_LED_STRIP_FEATURE
+            remote_control_handler_->SetLedControl(led_control_);
+#endif
             remote_control_handler_->SetCamera(static_cast<Esp32Camera*>(camera_));
         }
         
@@ -657,7 +606,15 @@ void BoardExtensions::InitializeUserMqtt() {
             device_info_collector_->SetGimbal(gimbal_);
 #endif
             device_info_collector_->SetLedStrip(led_strip_);
+#if ENABLE_LED_STRIP_FEATURE
+            device_info_collector_->SetLedControl(led_control_);
+#endif
             device_info_collector_->SetCamera(static_cast<Esp32Camera*>(camera_));
+        }
+        
+        // 设置MQTT客户端引用到远程控制处理器（用于发送事件反馈）
+        if (remote_control_handler_ && user_mqtt_client_) {
+            remote_control_handler_->SetMqttClient(user_mqtt_client_.get());
         }
         
         user_mqtt_initialized_ = true;
@@ -694,30 +651,26 @@ void BoardExtensions::StartUserMqtt() {
     config.keepalive_interval = UserMqttConfig::GetKeepaliveInterval();
     config.use_ssl = UserMqttConfig::GetUseSsl();
     
-    // 设置MQTT主题
-    config.device_info_topic = "device/" + config.client_id + "/info";
-    config.control_topic = "device/" + config.client_id + "/control";
-    config.status_topic = "device/" + config.client_id + "/status";
-    config.system_status_topic = "device/" + config.client_id + "/status/system";
-    config.sensor_status_topic = "device/" + config.client_id + "/status/sensor";
-    config.actuator_status_topic = "device/" + config.client_id + "/status/actuator";
+    // 设置MQTT主题（使用 Thumbler 协议格式）
+    std::string device_id = config.client_id; // 设备ID格式：ATK-DNESP32S3-{MAC地址}
+    config.status_topic = "Thumbler/" + device_id + "/status";
+    config.control_topic = "Thumbler/" + device_id + "/cmd";
+    config.event_topic = "Thumbler/" + device_id + "/event";
     
-    ESP_LOGI(TAG, "🔧 MQTT Configuration:");
+    ESP_LOGI(TAG, "🔧 MQTT Configuration (Thumbler Protocol):");
     ESP_LOGI(TAG, "  Broker: %s:%d", config.broker_host.c_str(), config.broker_port);
     ESP_LOGI(TAG, "  Client ID: %s", config.client_id.c_str());
-    ESP_LOGI(TAG, "  Device Info Topic: %s", config.device_info_topic.c_str());
-    ESP_LOGI(TAG, "  Control Topic: %s", config.control_topic.c_str());
+    ESP_LOGI(TAG, "  Device ID: %s", device_id.c_str());
     ESP_LOGI(TAG, "  Status Topic: %s", config.status_topic.c_str());
-    ESP_LOGI(TAG, "  System Status Topic: %s", config.system_status_topic.c_str());
-    ESP_LOGI(TAG, "  Sensor Status Topic: %s", config.sensor_status_topic.c_str());
-    ESP_LOGI(TAG, "  Actuator Status Topic: %s", config.actuator_status_topic.c_str());
+    ESP_LOGI(TAG, "  Control Topic: %s", config.control_topic.c_str());
+    ESP_LOGI(TAG, "  Event Topic: %s", config.event_topic.c_str());
     
     // 初始化客户端
     if (user_mqtt_client_->Initialize(config)) {
-        // 设置回调函数
-        user_mqtt_client_->SetControlCallback([this](const RemoteControlCommand& cmd) {
+        // 设置 Thumbler 控制回调
+        user_mqtt_client_->SetThumblerControlCallback([this](const ThumblerControlCommand& cmd) {
             if (remote_control_handler_) {
-                remote_control_handler_->HandleCommand(cmd);
+                remote_control_handler_->HandleThumblerCommand(cmd);
             }
         });
         
@@ -729,22 +682,9 @@ void BoardExtensions::StartUserMqtt() {
             }
         });
         
-        // 设置状态回调
-        if (remote_control_handler_) {
-            remote_control_handler_->SetStatusCallback([this](const std::string& status, const std::string& message) {
-                if (user_mqtt_client_) {
-                    user_mqtt_client_->SendStatus(status, message);
-                }
-            });
-        }
-        
         // 连接MQTT服务器
         if (user_mqtt_client_->Connect()) {
             ESP_LOGI(TAG, "✅ 成功连接到用户MQTT服务器");
-            
-            // 发送连接状态通知（通用状态主题）
-            user_mqtt_client_->SendStatus("connected", "Device connected and ready for commands");
-            
         } else {
             ESP_LOGE(TAG, "❌ 连接用户MQTT服务器失败");
         }

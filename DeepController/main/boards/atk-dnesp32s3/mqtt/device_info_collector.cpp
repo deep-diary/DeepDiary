@@ -1,4 +1,5 @@
 #include "device_info_collector.h"
+#include "../config.h"
 #include "wifi_station.h"
 #include "esp_system.h"
 #include "esp_mac.h"
@@ -10,11 +11,15 @@
 #include <sstream>
 #include <iomanip>
 
+#if ENABLE_TCP_CLIENT_MODE
+#include "../streaming/tcp_client.h"
+#endif
+
 #define TAG_DEVICE_INFO "DeviceInfo"
 
 DeviceInfoCollector::DeviceInfoCollector() 
     : deep_motor_(nullptr), deep_arm_(nullptr), gimbal_(nullptr), 
-      led_strip_(nullptr), camera_(nullptr), sensor_data_(nullptr), device_id_cached_(false) {
+      led_strip_(nullptr), led_control_(nullptr), camera_(nullptr), sensor_data_(nullptr), device_id_cached_(false) {
     ESP_LOGI(TAG_DEVICE_INFO, "DeviceInfoCollector initialized");
 }
 
@@ -36,6 +41,10 @@ void DeviceInfoCollector::SetGimbal(Gimbal_t* gimbal) {
 
 void DeviceInfoCollector::SetLedStrip(CircularStrip* led_strip) {
     led_strip_ = led_strip;
+}
+
+void DeviceInfoCollector::SetLedControl(LedStripControl* led_control) {
+    led_control_ = led_control;
 }
 
 void DeviceInfoCollector::SetCamera(Esp32Camera* camera) {
@@ -353,5 +362,64 @@ DeviceStatus::ActuatorStatus DeviceInfoCollector::CollectActuatorStatus() {
     actuator_status.motor.status = GetMotorStatus();
     
     return actuator_status;
+}
+
+DeviceStatus::ThumblerStatus DeviceInfoCollector::CollectThumblerStatus() {
+    DeviceStatus::ThumblerStatus status;
+    
+    // 摄像头状态 - 通过TCP客户端连接状态判断
+#if ENABLE_TCP_CLIENT_MODE
+    tcp_client_state_t tcp_state = tcp_client_get_state();
+    status.cur_cam_switch = (tcp_state == TCP_CLIENT_CONNECTED || tcp_state == TCP_CLIENT_CONNECTING);
+#else
+    status.cur_cam_switch = false;
+#endif
+    
+    // 传感器数据
+    DeviceStatus::SensorData sensor_data = CollectSensorStatus();
+    status.g_acc_x = sensor_data.acc_x;
+    status.g_acc_y = sensor_data.acc_y;
+    status.g_acc_z = sensor_data.acc_z;
+    status.g_acc_g = sensor_data.acc_g;
+    status.g_pitch = sensor_data.pitch;
+    status.g_roll = sensor_data.roll;
+    
+    // LED 状态 - 从 LED 控制类获取当前状态（优先使用led_control_，因为它跟踪了所有状态变化）
+    if (led_control_) {
+        status.cur_led_mode = led_control_->GetCurrentMode();
+        status.cur_led_brightness = led_control_->GetDefaultBrightness();
+        status.cur_led_low_brightness = led_control_->GetLowBrightness();
+        StripColor current_color = led_control_->GetCurrentColor();
+        status.cur_led_color_red = current_color.red;
+        status.cur_led_color_green = current_color.green;
+        status.cur_led_color_blue = current_color.blue;
+        // 注意：ThumblerStatus中没有low_color字段，如果需要可以添加
+        status.cur_led_interval_ms = led_control_->GetCurrentInterval();
+        status.cur_led_scroll_length = led_control_->GetCurrentScrollLength();
+    } else {
+        // LED控制类未初始化，使用默认值
+        status.cur_led_mode = 0;
+        status.cur_led_brightness = 128;
+        status.cur_led_low_brightness = 16;
+        status.cur_led_color_red = 0;
+        status.cur_led_color_green = 0;
+        status.cur_led_color_blue = 0;
+        status.cur_led_interval_ms = 500;
+        status.cur_led_scroll_length = 3;
+    }
+    
+    // 不倒翁状态
+    status.cur_tumbler_mode = 0;  // 默认静止
+    // TODO: 从实际的不倒翁控制模块获取当前模式
+    
+    // 人员检测
+    status.is_has_people = false;  // TODO: 从人员检测模块获取
+    // 这里可能需要从摄像头或其他传感器获取人员检测结果
+    
+    // 电量
+    // TODO: 从电池管理模块获取实际电量
+    status.power_percent = 100;  // 默认100%，实际需要从电池管理模块读取
+    
+    return status;
 }
 

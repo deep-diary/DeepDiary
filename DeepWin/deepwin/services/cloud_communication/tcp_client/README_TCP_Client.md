@@ -32,7 +32,7 @@ python test_tcp_client.py
 ```json
 {
   "server": {
-    "host": "34.172.161.212",
+    "host": "35.192.64.247",
     "port": 8080
   },
   "camera": {

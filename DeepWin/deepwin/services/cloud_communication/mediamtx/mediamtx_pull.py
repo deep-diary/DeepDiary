@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class MediaMTXPuller:
     """MediaMTX拉流器"""
     
-    def __init__(self, server_host: str = '34.172.161.212', server_port: int = 8554):
+    def __init__(self, server_host: str = '35.192.64.247', server_port: int = 8554):
         self.server_host = server_host
         self.server_port = server_port
         self.stream_name = 'camera_stream'

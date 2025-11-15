@@ -10,8 +10,8 @@ INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/st
 INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/status/sensor (QoS: 0)
 INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/status/actuator (QoS: 0)
 INFO - mqtt_manager.py:__init__ - 主题已加入自动订阅队列: device/+/control (QoS: 1)
-INFO - mqtt_manager.py:connect - 连接到MQTT代理: 34.172.161.212:1883
-INFO - mqtt_manager.py:_on_connect - 连接到MQTT代理成功: 34.172.161.212:1883
+INFO - mqtt_manager.py:connect - 连接到MQTT代理: 35.192.64.247:1883
+INFO - mqtt_manager.py:_on_connect - 连接到MQTT代理成功: 35.192.64.247:1883
 INFO - mqtt_manager.py:_on_connect - 开始自动订阅 7 个待订阅主题
 INFO - mqtt_manager.py:_do_subscribe - 订阅主题: test/hello (QoS: 0)
 INFO - mqtt_manager.py:_do_subscribe - 订阅主题: device/+/info (QoS: 1)
@@ -35,9 +35,9 @@ INFO - _client.py:_send_single_request - HTTP Request: GET https://api.gradio.ap
 INFO - _client.py:_send_single_request - HTTP Request: HEAD https://huggingface.co/api/telemetry/https%3A/api.gradio.app/gradio-initiated-analytics "HTTP/1.1 200 OK"
 INFO - mqtt_page.py:build - timer registered: interval=1s, active=True, output_component=<gradio.components.json_component.JSON object at 0x75a9cab082d0>
 INFO - _client.py:_send_single_request - HTTP Request: GET https://api.gradio.app/pkg-version "HTTP/1.1 200 OK"
-INFO - rtsp_page.py:_parse_urls - 解析 URL - 主机: 34.172.161.212, 流名称: mystream
+INFO - rtsp_page.py:_parse_urls - 解析 URL - 主机: 35.192.64.247, 流名称: mystream
 INFO - rtsp_page.py:_parse_urls - Web 播放 URL (HTTPS 代理): https://www.deep-diary.com/mediamtx/mystream
-INFO - rtsp_page.py:_parse_urls - 原始 MediaMTX URL: http://34.172.161.212:8888/mystream
+INFO - rtsp_page.py:_parse_urls - 原始 MediaMTX URL: http://35.192.64.247:8888/mystream
 INFO - rtsp_page.py:build - RTSP 页面已构建，浏览器播放器已就绪
 INFO - ui_manager.py:build - UIManager: UI 构建完成。
 INFO - main.py:main - DeepWeb 应用程序已启动，启动 UI...
@@ -8107,9 +8107,9 @@ WARNING - mqtt_page.py:_drain_mqtt_messages - <<<<STP5:UI_DRAIN_TICK: item={'top
 WARNING - mqtt_page.py:_drain_mqtt_messages - <<<<STP5:UI_DRAIN_TICK: item={'topic': 'device/ATK-DNESP32S3-9888e000ae28/status', 'payload': {'type': 'heartbeat', 'timestamp': 189, 'device_id': 'ATK-DNESP32S3-9888e000ae28'}},drained=True,drained_count=2,queue_size=0,messages_size=102
 INFO - mqtt_manager.py:_on_message - 收到消息: device/ATK-DNESP32S3-9888e000ae28/status/sensor -> {'acc_x': 0.14365209639072418, 'acc_y': -0.07661445438861847, 'acc_z': 10.793061256408691, 'acc_g': 10.794289588928223, 'pitch': -0.762542963027954, 'roll': -0.40667077898979187, 'sensor_status': 'connected', 'timestamp': 192}
 WARNING - mqtt_page.py:push_mqtt_message - <<<<STP4:UI_QUEUE_RESULT: alreadt push the message to the queue
-INFO - rtsp_page.py:_parse_urls - 解析 URL - 主机: 34.172.161.212, 流名称: mycamera
+INFO - rtsp_page.py:_parse_urls - 解析 URL - 主机: 35.192.64.247, 流名称: mycamera
 INFO - rtsp_page.py:_parse_urls - Web 播放 URL (HTTPS 代理): https://www.deep-diary.com/mediamtx/mycamera
-INFO - rtsp_page.py:_parse_urls - 原始 MediaMTX URL: http://34.172.161.212:8888/mycamera
+INFO - rtsp_page.py:_parse_urls - 原始 MediaMTX URL: http://35.192.64.247:8888/mycamera
 WARNING - mqtt_page.py:_drain_mqtt_messages - <<<<STP5:UI_DRAIN_TICK: item={'topic': 'device/ATK-DNESP32S3-9888e000ae28/status/sensor', 'payload': {'acc_x': 0.14365209639072418, 'acc_y': -0.07661445438861847, 'acc_z': 10.793061256408691, 'acc_g': 10.794289588928223, 'pitch': -0.762542963027954, 'roll': -0.40667077898979187, 'sensor_status': 'connected', 'timestamp': 192}},drained=True,drained_count=1,queue_size=0,messages_size=101
 INFO - mqtt_manager.py:_on_message - 收到消息: device/ATK-DNESP32S3-9888e000ae28/status/system -> {'wifi_ssid': 'Blue', 'ip_address': '', 'free_heap': 7825004, 'uptime_seconds': 193, 'cpu_temperature': 0, 'network_status': 'connected', 'timestamp': 193}
 WARNING - mqtt_page.py:push_mqtt_message - <<<<STP4:UI_QUEUE_RESULT: alreadt push the message to the queue

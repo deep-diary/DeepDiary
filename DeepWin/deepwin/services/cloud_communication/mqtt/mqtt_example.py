@@ -16,7 +16,7 @@ def main():
     
     # 方式1: 直接创建MQTT管理器实例
     mqtt_manager = MQTTManager(
-        host="34.172.161.212",  # MQTT服务器地址
+        host="35.192.64.247",  # MQTT服务器地址
         port=1883,              # MQTT服务器端口
         client_id="test_client", # 客户端ID
         debug=True              # 开启调试模式
@@ -216,7 +216,7 @@ def context_manager_example():
     print("\n🔄 上下文管理器示例...")
     
     # 使用上下文管理器自动管理连接
-    with MQTTManager(host="34.172.161.212", port=1883, debug=True) as mqtt:
+    with MQTTManager(host="35.192.64.247", port=1883, debug=True) as mqtt:
         # 添加订阅
         mqtt.add_subscription(
             name="test",

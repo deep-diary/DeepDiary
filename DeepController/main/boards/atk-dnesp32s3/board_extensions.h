@@ -25,24 +25,21 @@
 #define MAIN_LOOP_BASE_DELAY_MS    100
 
 // 基于基础延时的周期倍数定义（实际周期 = 倍数 × MAIN_LOOP_BASE_DELAY_MS）
+// 小于等于1000ms的用毫秒单位，大于1000ms的用秒单位，大于60s的用分钟单位
 #define CYCLE_100MS       1      // 100ms
 #define CYCLE_500MS       5      // 500ms  
-#define CYCLE_1000MS      10     // 1秒
-#define CYCLE_3000MS      30     // 3秒
-#define CYCLE_5000MS      50     // 5秒
-#define CYCLE_10000MS     100    // 10秒
-#define CYCLE_30000MS     300    // 30秒
-#define CYCLE_60000MS     600    // 60秒
-#define CYCLE_300000MS    3000   // 5分钟
-#define CYCLE_1800000MS   18000  // 30分钟
+#define CYCLE_1S          10     // 1秒 (1000ms)
+#define CYCLE_3S          30     // 3秒 (3000ms)
+#define CYCLE_5S          50     // 5秒 (5000ms)
+#define CYCLE_10S         100    // 10秒 (10000ms)
+#define CYCLE_30S         300    // 30秒 (30000ms)
+#define CYCLE_1MIN        600    // 1分钟 (60000ms)
+#define CYCLE_5MIN        3000   // 5分钟 (300000ms)
+#define CYCLE_30MIN       18000  // 30分钟 (1800000ms)
 
 // 任务特定周期
-#define SENSOR_UPDATE_CYCLE       CYCLE_1000MS     // 传感器更新：1秒
 #define DISPLAY_UPDATE_CYCLE       CYCLE_500MS     // 显示更新：500ms
-#define MQTT_CONFIG_CYCLE          CYCLE_60000MS   // MQTT设备信息：60秒
-#define MQTT_SYSTEM_STATUS_CYCLE   CYCLE_10000MS   // MQTT系统状态：10秒
-#define MQTT_SENSOR_STATUS_CYCLE   CYCLE_3000MS    // MQTT传感器状态：3秒
-#define MQTT_ACTUATOR_STATUS_CYCLE CYCLE_5000MS    // MQTT执行器状态：5秒
+#define THUMBLER_STATUS_CYCLE      CYCLE_3S        // 不倒翁状态反馈：3秒
 
 // 计算最大值辅助宏
 #ifndef MAX
@@ -50,12 +47,7 @@
 #endif
 
 // 获取所有任务周期中的最大值（用于计数器重置）
-// 当前最大周期是60秒(600)，如果添加更长周期的任务，需要更新此值
-#define MAX_TASK_CYCLE  MAX(SENSOR_UPDATE_CYCLE, \
-                           MAX(MQTT_CONFIG_CYCLE, \
-                           MAX(MQTT_SYSTEM_STATUS_CYCLE, \
-                               MAX(MQTT_SENSOR_STATUS_CYCLE, \
-                                   MQTT_ACTUATOR_STATUS_CYCLE))))
+#define MAX_TASK_CYCLE  MAX(DISPLAY_UPDATE_CYCLE, THUMBLER_STATUS_CYCLE)
 
 // ==================== 前向声明 ====================
 class CircularStrip;

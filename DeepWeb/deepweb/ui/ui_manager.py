@@ -99,7 +99,7 @@ class UIManager:
                     mqtt_manager = getattr(self.coordinator, "mqtt_manager", None) if self.coordinator else None
                     self._thumbler_page = ThumblerPage(
                         device_id="ATK-DNESP32S3-9888e000ae28",
-                        host="34.172.161.212",
+                        host="35.192.64.247",
                         mqtt_manager=mqtt_manager,
                         log_manager=self.log_manager
                     )

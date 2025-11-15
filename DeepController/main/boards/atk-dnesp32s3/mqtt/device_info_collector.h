@@ -6,6 +6,7 @@
 #include "../arm/deep_arm.h"
 #include "../gimbal/Gimbal.h"
 #include "../../led/circular_strip.h"
+#include "../led/led_control.h"
 #include "../../common/esp32_camera.h"
 #include "../sensor/QMA6100P/qma6100p.h"
 #include <string>
@@ -21,6 +22,7 @@ public:
     void SetDeepArm(DeepArm* arm);
     void SetGimbal(Gimbal_t* gimbal);
     void SetLedStrip(CircularStrip* led_strip);
+    void SetLedControl(LedStripControl* led_control);
     void SetCamera(Esp32Camera* camera);
     void SetSensor(qma6100p_rawdata_t* sensor_data);
     
@@ -31,6 +33,9 @@ public:
     DeviceStatus::SystemInfo CollectSystemStatus();
     DeviceStatus::SensorData CollectSensorStatus();
     DeviceStatus::ActuatorStatus CollectActuatorStatus();
+    
+    // 收集 Thumbler 完整状态
+    DeviceStatus::ThumblerStatus CollectThumblerStatus();
     
     // 获取特定组件状态
     std::string GetArmStatus() const;
@@ -58,6 +63,7 @@ private:
     DeepArm* deep_arm_;
     Gimbal_t* gimbal_;
     CircularStrip* led_strip_;
+    LedStripControl* led_control_;  // LED控制类（用于获取状态）
     Esp32Camera* camera_;
     qma6100p_rawdata_t* sensor_data_;
     

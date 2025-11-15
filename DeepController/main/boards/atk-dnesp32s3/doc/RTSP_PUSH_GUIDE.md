@@ -2,12 +2,12 @@
 
 ## 🎯 功能说明
 
-本实现是**RTSP推流客户端**模式，ESP32主动推送视频流到远程MediaMTX服务器（34.172.161.212:8554）。
+本实现是**RTSP推流客户端**模式，ESP32主动推送视频流到远程MediaMTX服务器（35.192.64.247:8554）。
 
 ###网络拓扑
 
 ```
-ESP32-CAM (本地内网)  ──推流──>  MediaMTX服务器 (34.172.161.212)  <──拉流── 观看端
+ESP32-CAM (本地内网)  ──推流──>  MediaMTX服务器 (35.192.64.247)  <──拉流── 观看端
     192.168.x.x                        公网可访问                    VLC/Browser
 ```
 
@@ -91,8 +91,8 @@ I (5200) atk_dnesp32s3: RTSP控制功能初始化完成
 {
   "success": true,
   "message": "RTSP推流启动成功，正在推送到远程服务器",
-  "server": "rtsp://34.172.161.212:8554/esp32cam",
-  "view_url": "rtsp://34.172.161.212:8554/esp32cam"
+  "server": "rtsp://35.192.64.247:8554/esp32cam",
+  "view_url": "rtsp://35.192.64.247:8554/esp32cam"
 }
 ```
 
@@ -113,26 +113,26 @@ if (rtsp_stream_->Start()) {
 
 ```
 打开VLC → 媒体 → 打开网络串流
-输入: rtsp://34.172.161.212:8554/esp32cam
+输入: rtsp://35.192.64.247:8554/esp32cam
 点击播放
 ```
 
 #### 方法2：ffplay命令行
 
 ```bash
-ffplay -rtsp_transport tcp rtsp://34.172.161.212:8554/esp32cam
+ffplay -rtsp_transport tcp rtsp://35.192.64.247:8554/esp32cam
 ```
 
 #### 方法3：浏览器观看（HLS）
 
 ```
-http://34.172.161.212:8888/esp32cam
+http://35.192.64.247:8888/esp32cam
 ```
 
 #### 方法4：低延迟WebRTC
 
 ```
-http://34.172.161.212:8889/esp32cam
+http://35.192.64.247:8889/esp32cam
 ```
 
 ---
@@ -155,15 +155,15 @@ http://34.172.161.212:8889/esp32cam
 {
   "success": true,
   "message": "RTSP推流启动成功，正在推送到远程服务器",
-  "server": "rtsp://34.172.161.212:8554/esp32cam",
-  "view_url": "rtsp://34.172.161.212:8554/esp32cam"
+  "server": "rtsp://35.192.64.247:8554/esp32cam",
+  "view_url": "rtsp://35.192.64.247:8554/esp32cam"
 }
 ```
 
 **串口日志**：
 ```
-I (10000) RtspPusher: 解析URL - 服务器: 34.172.161.212, 端口: 8554, 路径: /esp32cam
-I (10100) RtspPusher: 正在连接到 34.172.161.212:8554...
+I (10000) RtspPusher: 解析URL - 服务器: 35.192.64.247, 端口: 8554, 路径: /esp32cam
+I (10100) RtspPusher: 正在连接到 35.192.64.247:8554...
 I (10200) RtspPusher: RTSP连接建立成功
 I (10300) RtspPusher: RTP端口分配: 5000-5001
 I (10400) RtspPusher: 发送ANNOUNCE请求...
@@ -197,8 +197,8 @@ I (11000) RtspStream: RTSP推流启动成功
   "success": true,
   "running": true,
   "connected": true,
-  "server": "rtsp://34.172.161.212:8554/esp32cam",
-  "view_url": "rtsp://34.172.161.212:8554/esp32cam"
+  "server": "rtsp://35.192.64.247:8554/esp32cam",
+  "view_url": "rtsp://35.192.64.247:8554/esp32cam"
 }
 ```
 
@@ -227,7 +227,7 @@ I (11000) RtspStream: RTSP推流启动成功
 ## 📊 RTSP推流协议流程
 
 ```
-ESP32                              MediaMTX (34.172.161.212:8554)
+ESP32                              MediaMTX (35.192.64.247:8554)
   |                                              |
   |--- TCP连接 --------------------------------->|
   |                                              |
@@ -252,7 +252,7 @@ ESP32                              MediaMTX (34.172.161.212:8554)
 
 1. **ANNOUNCE** - 告诉服务器我要推送什么类型的流
    ```
-   ANNOUNCE rtsp://34.172.161.212:8554/esp32cam RTSP/1.0
+   ANNOUNCE rtsp://35.192.64.247:8554/esp32cam RTSP/1.0
    Content-Type: application/sdp
    
    v=0
@@ -262,7 +262,7 @@ ESP32                              MediaMTX (34.172.161.212:8554)
 
 2. **SETUP** - 协商RTP传输参数
    ```
-   SETUP rtsp://34.172.161.212:8554/esp32cam/track0 RTSP/1.0
+   SETUP rtsp://35.192.64.247:8554/esp32cam/track0 RTSP/1.0
    Transport: RTP/AVP;unicast;client_port=5000-5001
    
    Response:
@@ -271,7 +271,7 @@ ESP32                              MediaMTX (34.172.161.212:8554)
 
 3. **RECORD** - 开始推流
    ```
-   RECORD rtsp://34.172.161.212:8554/esp32cam RTSP/1.0
+   RECORD rtsp://35.192.64.247:8554/esp32cam RTSP/1.0
    Range: npt=0.000-
    ```
 
@@ -298,10 +298,10 @@ E (10000) RtspPusher: 连接到服务器失败: 113
 **解决方案：**
 ```bash
 # 在ESP32所在网络测试服务器连通性
-ping 34.172.161.212
+ping 35.192.64.247
 
 # 测试RTSP端口
-nc -zv 34.172.161.212 8554
+nc -zv 35.192.64.247 8554
 
 # 检查MediaMTX是否运行
 docker ps | grep mediamtx

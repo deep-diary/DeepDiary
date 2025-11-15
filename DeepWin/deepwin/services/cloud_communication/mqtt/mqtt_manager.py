@@ -655,7 +655,7 @@ class MQTTManager:
 if __name__ == "__main__":
     # 创建MQTT管理器
     mqtt_manager = MQTTManager(
-        host="34.172.161.212",
+        host="35.192.64.247",
         port=1883,
         debug=True
     )

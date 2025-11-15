@@ -7,7 +7,7 @@
 ## 系统架构
 
 ```
-ESP32-CAM (atk-dnesp32s3) <---> MediaMTX服务器 (34.172.161.212) <---> 观看端
+ESP32-CAM (atk-dnesp32s3) <---> MediaMTX服务器 (35.192.64.247) <---> 观看端
     ↓                              ↓                                   ↓
 1. 采集视频图像              2. 接收并转发RTSP流                  3. 播放视频
 2. JPEG编码                  3. 支持多客户端                       
@@ -96,7 +96,7 @@ void InitializeRtspControl() {
 
 ### 1. 安装MediaMTX
 
-在服务器 34.172.161.212 上安装MediaMTX：
+在服务器 35.192.64.247 上安装MediaMTX：
 
 ```bash
 # 下载MediaMTX
@@ -137,7 +137,7 @@ paths:
 2. 媒体 -> 打开网络串流
 3. 输入URL：
    - **直接从ESP32观看**：`rtsp://ESP32_IP:554/stream`
-   - **通过MediaMTX观看**：`rtsp://34.172.161.212:8554/esp32cam`
+   - **通过MediaMTX观看**：`rtsp://35.192.64.247:8554/esp32cam`
 
 ### 使用ffplay
 
@@ -146,7 +146,7 @@ paths:
 ffplay rtsp://ESP32_IP:554/stream
 
 # 通过MediaMTX观看
-ffplay rtsp://34.172.161.212:8554/esp32cam
+ffplay rtsp://35.192.64.247:8554/esp32cam
 ```
 
 ### 使用网页播放器
@@ -154,7 +154,7 @@ ffplay rtsp://34.172.161.212:8554/esp32cam
 可以使用基于WebRTC的播放器通过MediaMTX观看（MediaMTX支持RTSP到WebRTC的转换）：
 
 ```
-http://34.172.161.212:8889/esp32cam
+http://35.192.64.247:8889/esp32cam
 ```
 
 ## 技术参数

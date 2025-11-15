@@ -7,7 +7,7 @@
 class UserMqttConfig {
 public:
     // 默认配置
-    static constexpr const char* DEFAULT_BROKER_HOST = "34.172.161.212";
+    static constexpr const char* DEFAULT_BROKER_HOST = "broker.emqx.io"; //个人服务器：35.192.64.247， 公有云：broker.emqx.io
     static constexpr int DEFAULT_BROKER_PORT = 1883;
     static constexpr int DEFAULT_KEEPALIVE_INTERVAL = 60;
     static constexpr bool DEFAULT_USE_SSL = false;
