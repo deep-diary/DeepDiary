@@ -20,7 +20,7 @@ class RtspPage:
     
     def __init__(
         self, 
-        rtsp_url: str = "rtsp://35.192.64.247:8554/mystream", 
+        rtsp_url: str = "rtsp://35.192.64.247:8554/camera_stream", 
         log_manager = None
     ):
         """
@@ -58,42 +58,39 @@ class RtspPage:
         # 将在第一次调用 get_frame() 时再连接
     
     def _parse_urls(self):
-        """解析 RTSP URL 并生成 Web URL（使用 HTTPS 代理避免混合内容问题）"""
+        """解析 RTSP URL 并生成 Web URL（使用 HTTPS 代理路径）"""
         # 从 RTSP URL 中提取服务器地址和流名称
-        # 例如: rtsp://35.192.64.247:8554/mystream
+        # 例如: rtsp://35.192.64.247:8554/camera_stream
         if "rtsp://" in self.rtsp_url:
             # 解析 RTSP URL
             rtsp_parts = self.rtsp_url.replace("rtsp://", "").split("/")
-            host_port = rtsp_parts[0]  # 35.192.64.247:8554
-            stream_name = rtsp_parts[-1] if len(rtsp_parts) > 1 else "mystream"
+            stream_name = rtsp_parts[-1] if len(rtsp_parts) > 1 else "camera_stream"
             
-            # 提取主机和端口
-            if ":" in host_port:
-                host, rtsp_port = host_port.split(":")
-            else:
-                host = host_port
-                rtsp_port = "8554"
+            # 使用 HTTPS 代理路径（通过 Nginx 代理到 MediaMTX，解决混合内容问题）
+            self.web_stream_url = f"https://www.deep-diary.com/stream/{stream_name}"
             
-            # 使用 HTTPS 代理 URL（通过 Nginx 代理 MediaMTX 的 HTTP 服务）
-            # 这样可以避免混合内容问题（HTTPS 页面加载 HTTP iframe）
-            # Nginx 配置了 /mediamtx/ 路径来代理 MediaMTX 的 8888 端口
-            self.web_base_url = f"https://www.deep-diary.com/mediamtx"
-            self.web_stream_url = f"{self.web_base_url}/{stream_name}"
-            
-            self.logger.info(f"解析 URL - 主机: {host}, 流名称: {stream_name}")
-            self.logger.info(f"Web 播放 URL (HTTPS 代理): {self.web_stream_url}")
-            self.logger.info(f"原始 MediaMTX URL: http://{host}:8888/{stream_name}")
-        else:
-            # 如果不是 RTSP URL，检查是否是 HTTP URL，如果是则转换为 HTTPS 代理
-            if self.rtsp_url.startswith("http://"):
+            self.logger.info(f"解析 URL - 流名称: {stream_name}")
+            self.logger.info(f"Web 播放 URL: {self.web_stream_url}")
+        elif self.rtsp_url.startswith("http://"):
+            # 如果已经是 HTTP URL，检查是否是 stream.deep-diary.com，转换为 HTTPS 代理路径
+            url = self.rtsp_url.rstrip("/")
+            if "stream.deep-diary.com" in url:
                 # 提取流名称
-                url_parts = self.rtsp_url.rstrip("/").split("/")
-                stream_name = url_parts[-1] if url_parts else "mystream"
-                self.web_stream_url = f"https://www.deep-diary.com/mediamtx/{stream_name}"
+                stream_name = url.split("/")[-1]
+                self.web_stream_url = f"https://www.deep-diary.com/stream/{stream_name}"
                 self.logger.info(f"HTTP URL 已转换为 HTTPS 代理: {self.web_stream_url}")
             else:
-                # 假设已经是 HTTPS URL 或相对路径
-                self.web_stream_url = self.rtsp_url.rstrip("/")
+                # 其他 HTTP URL，直接使用
+                self.web_stream_url = url
+                self.logger.info(f"使用 HTTP URL: {self.web_stream_url}")
+        elif self.rtsp_url.startswith("https://"):
+            # 如果已经是 HTTPS URL，直接使用
+            self.web_stream_url = self.rtsp_url.rstrip("/")
+            self.logger.info(f"使用 HTTPS URL: {self.web_stream_url}")
+        else:
+            # 其他情况，直接使用（可能是相对路径或其他格式）
+            self.web_stream_url = self.rtsp_url.rstrip("/")
+            self.logger.info(f"使用原始 URL: {self.web_stream_url}")
     
     def _init_capture(self) -> bool:
         """
@@ -237,8 +234,12 @@ class RtspPage:
                 src="{self.web_stream_url}/"
                 style="width: 100%; height: 720px; border: none; background: #000;"
                 allowfullscreen
-                allow="autoplay; encrypted-media"
+                allow="autoplay; encrypted-media; microphone; camera"
             ></iframe>
+            <p style="color: #666; font-size: 12px; margin-top: 5px;">
+                提示：如果视频无法显示，请检查浏览器是否阻止了混合内容（HTTP iframe 嵌入 HTTPS 页面）。
+                某些浏览器可能需要手动允许混合内容。视频流地址：<a href="{self.web_stream_url}/" target="_blank">{self.web_stream_url}/</a>
+            </p>
         </div>
         """
         return html
