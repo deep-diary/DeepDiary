@@ -20,7 +20,7 @@ class RtspPage:
     
     def __init__(
         self, 
-        rtsp_url: str = "rtsp://35.192.64.247:8554/camera_stream", 
+        rtsp_url: str = "rtsp://35.192.64.247:8554/ATK-DNESP32S3-9888e000ae28", 
         log_manager = None
     ):
         """
@@ -60,11 +60,11 @@ class RtspPage:
     def _parse_urls(self):
         """解析 RTSP URL 并生成 Web URL（使用 HTTPS 代理路径）"""
         # 从 RTSP URL 中提取服务器地址和流名称
-        # 例如: rtsp://35.192.64.247:8554/camera_stream
+        # 例如: rtsp://35.192.64.247:8554/ATK-DNESP32S3-9888e000ae28
         if "rtsp://" in self.rtsp_url:
             # 解析 RTSP URL
             rtsp_parts = self.rtsp_url.replace("rtsp://", "").split("/")
-            stream_name = rtsp_parts[-1] if len(rtsp_parts) > 1 else "camera_stream"
+            stream_name = rtsp_parts[-1] if len(rtsp_parts) > 1 else "ATK-DNESP32S3-9888e000ae28"
             
             # 使用 HTTPS 代理路径（通过 Nginx 代理到 MediaMTX，解决混合内容问题）
             self.web_stream_url = f"https://www.deep-diary.com/stream/{stream_name}"

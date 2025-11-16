@@ -64,8 +64,8 @@ class ThumblerPage:
         self._device_statuses: Dict[str, Dict[str, Any]] = {}
         
         # 初始化所有设备的状态数据
-        for device_id in self.get_device_id():
-            self._device_statuses[device_id] = {
+        for dev_id in self.get_device_id():
+            self._device_statuses[dev_id] = {
                 "cur_cam_switch": False,
                 "g_acc_x": 0.0,
                 "g_acc_y": 0.0,
@@ -87,9 +87,9 @@ class ThumblerPage:
                 "last_update_time": None,  # 最后收到消息的时间戳
             }
         
-        # 视频流 URL
-        self.rtsp_url = f"rtsp://{host}:8554/{device_id}"
-        self.web_stream_url = f"https://www.deep-diary.com/mediamtx/{device_id}"
+        # 视频流 URL（使用 self.device_id，避免被循环变量覆盖）
+        self.rtsp_url = f"rtsp://{host}:8554/{self.device_id}"
+        self.web_stream_url = f"https://www.deep-diary.com/stream/{self.device_id}"
         
         # 订阅所有设备的 status 主题（只订阅具体设备，不订阅通配符）
         # 注意：MQTT 管理器不再自动订阅通配符主题，改为由页面层根据需要订阅具体设备主题
@@ -495,7 +495,7 @@ class ThumblerPage:
                                 ("流水灯/滚动", 4),
                                 ("系统状态", 5)
                             ],
-                            value=0,
+                            value=3,
                             type="value"
                         )
                         control_led_brightness = gr.Slider(
@@ -532,7 +532,7 @@ class ThumblerPage:
                             label="蓝色",
                             minimum=0,
                             maximum=255,
-                            value=0,
+                            value=255,
                             step=1
                         )
                         
@@ -541,32 +541,32 @@ class ThumblerPage:
                             label="低红色",
                             minimum=0,
                             maximum=255,
-                            value=0,
+                            value=5,
                             step=1
                         )
                         control_led_color_low_green = gr.Slider(
                             label="低绿色",
                             minimum=0,
                             maximum=255,
-                            value=0,
+                            value=10,
                             step=1
                         )
                         control_led_color_low_blue = gr.Slider(
                             label="低蓝色",
                             minimum=0,
                             maximum=255,
-                            value=0,
+                            value=10,
                             step=1
                         )
                         
-                        control_led_interval_ms = gr.Number(
+                        control_led_interval_ms = gr.Slider(
                             label="动画间隔时间 (毫秒)",
-                            value=500,
-                            minimum=50,
+                            value=50,
+                            minimum=10,
                             maximum=1000,
                             step=10
                         )
-                        control_led_scroll_length = gr.Number(
+                        control_led_scroll_length = gr.Slider(
                             label="滚动长度 (仅流水灯模式)",
                             value=3,
                             minimum=1,
@@ -660,7 +660,7 @@ class ThumblerPage:
                     self.device_id = selected_device_id
                     # 更新视频流URL
                     self.rtsp_url = f"rtsp://{self.host}:8554/{selected_device_id}"
-                    self.web_stream_url = f"https://www.deep-diary.com/mediamtx/{selected_device_id}"
+                    self.web_stream_url = f"https://www.deep-diary.com/stream/{selected_device_id}"
                     
                     # 订阅新设备的 status 主题（只订阅具体设备，不订阅通配符）
                     self._subscribe_device_status(selected_device_id)

@@ -35,16 +35,20 @@ class VideoStreamHandler:
     JPEG_START = b'\xff\xd8'
     JPEG_END = b'\xff\xd9'
     
-    def __init__(self, frame_queue_size=10):
+    def __init__(self, frame_queue_size=5):
         self.frame_lock = threading.Lock()
         self.frame_count = 0
         self.client_info = None
         self.last_update = None
-        # 帧队列用于推流
+        # 帧队列用于推流（减小队列大小以降低延时）
         self.frame_queue = Queue(maxsize=frame_queue_size)
         # 图像尺寸（首次接收到帧时确定）
         self.frame_width = None
         self.frame_height = None
+        # RTSP推流器引用（用于自动重启）
+        self.rtsp_pusher = None
+        # 客户端连接状态
+        self.has_active_client = False
     
     def process_data(self, buffer):
         """
@@ -89,15 +93,29 @@ class VideoStreamHandler:
                     if self.frame_width is None or self.frame_height is None:
                         self.frame_height, self.frame_width = frame.shape[:2]
                         logger.info(f"检测到图像尺寸: {self.frame_width}x{self.frame_height}")
+                    
+                    # 标记有活跃客户端
+                    if not self.has_active_client:
+                        self.has_active_client = True
+                        logger.info("检测到活跃客户端，准备推流")
                 
-                # 将帧添加到队列（非阻塞，如果队列满则丢弃旧帧）
+                # 检查推流状态，如果已停止则尝试重启
+                if self.rtsp_pusher and not self.rtsp_pusher.is_streaming:
+                    logger.info("检测到推流已停止，尝试自动重启...")
+                    self.rtsp_pusher.start(self)
+                
+                # 将帧添加到队列（非阻塞，如果队列满则丢弃旧帧，保持最新帧）
+                # 这种方式可以降低延时，因为总是使用最新的帧
                 if not self.frame_queue.full():
-                    self.frame_queue.put(frame.copy())
+                    try:
+                        self.frame_queue.put_nowait(frame.copy())
+                    except:
+                        pass
                 else:
                     # 队列满时，丢弃最旧的帧，添加新帧
                     try:
                         self.frame_queue.get_nowait()
-                        self.frame_queue.put(frame.copy())
+                        self.frame_queue.put_nowait(frame.copy())
                     except:
                         pass
         
@@ -109,6 +127,12 @@ class VideoStreamHandler:
             return self.frame_queue.get(timeout=timeout)
         except:
             return None
+    
+    def on_client_disconnected(self):
+        """客户端断开连接时的回调"""
+        with self.frame_lock:
+            self.has_active_client = False
+            logger.info("客户端已断开，标记为无活跃客户端")
 
 
 class RTSPPusher:
@@ -124,19 +148,57 @@ class RTSPPusher:
         self.is_initialized = False
         self.process: Optional[subprocess.Popen] = None
         self.push_thread = None
+        self.stderr_thread = None
         self.frame_width = None
         self.frame_height = None
         self.fps = 30
         self.stream_handler = None
+        self.process_error = None  # 存储进程错误信息
     
     def start(self, stream_handler):
         """启动推流器（后台等待第一帧后自动开始推流）"""
+        # 如果已经在推流，先停止旧的推流
         if self.is_streaming:
-            logger.warning("推流已在进行中")
-            return False
+            logger.info("检测到已有推流在运行，先停止旧推流...")
+            self.is_streaming = False  # 先设置标志，让线程自然退出
+            
+            # 等待旧线程结束
+            if self.push_thread and self.push_thread.is_alive():
+                self.push_thread.join(timeout=3)
+            
+            # 清理FFmpeg进程
+            if self.process:
+                try:
+                    if self.process.stdin:
+                        self.process.stdin.close()
+                    self.process.terminate()
+                    try:
+                        self.process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+                        self.process.wait()
+                except Exception as e:
+                    logger.warning(f"清理旧FFmpeg进程时出错: {e}")
+                    try:
+                        if self.process:
+                            self.process.kill()
+                    except:
+                        pass
+                self.process = None
+            
+            # 清理stderr线程
+            if self.stderr_thread and self.stderr_thread.is_alive():
+                time.sleep(0.2)
+            
+            self.is_initialized = False
+            self.process_error = None
+            logger.info("旧推流已清理完成")
         
         self.stream_handler = stream_handler
+        # 设置stream_handler的rtsp_pusher引用
+        stream_handler.rtsp_pusher = self
         self.is_streaming = True
+        self.is_initialized = False  # 重置初始化状态
         # 启动后台线程，等待第一帧后自动开始推流
         self.push_thread = threading.Thread(target=self._wait_and_push, daemon=True)
         self.push_thread.start()
@@ -165,9 +227,32 @@ class RTSPPusher:
             # 开始推流
             self._push_frames()
     
+    def _monitor_stderr(self):
+        """监控FFmpeg stderr输出，捕获错误信息"""
+        if not self.process:
+            return
+        
+        try:
+            # 读取stderr输出
+            for line in iter(self.process.stderr.readline, b''):
+                if not self.is_streaming:
+                    break
+                
+                line_str = line.decode('utf-8', errors='ignore').strip()
+                if line_str:
+                    # 检查是否是错误信息
+                    if any(keyword in line_str.lower() for keyword in ['error', 'failed', 'connection refused', 'timeout']):
+                        logger.warning(f"FFmpeg警告: {line_str}")
+                        self.process_error = line_str
+                    # 记录关键信息
+                    elif 'rtsp' in line_str.lower() or 'stream' in line_str.lower():
+                        logger.debug(f"FFmpeg: {line_str}")
+        except Exception as e:
+            logger.debug(f"stderr监控线程结束: {e}")
+    
     def _push_frames(self):
         """推流线程 - 从队列获取帧并推送到RTSP服务器"""
-        # 构建FFmpeg命令
+        # 构建FFmpeg命令（优化延时参数）
         ffmpeg_cmd = [
             'ffmpeg',
             '-f', 'rawvideo',
@@ -176,14 +261,20 @@ class RTSPPusher:
             '-r', str(self.fps),
             '-i', 'pipe:',
             '-c:v', 'libx264',
-            '-preset', 'ultrafast',
-            '-tune', 'zerolatency',
+            '-preset', 'ultrafast',  # 最快编码速度
+            '-tune', 'zerolatency',  # 零延时调优
             '-crf', '23',
             '-pix_fmt', 'yuv420p',
-            '-g', str(self.fps),
+            '-g', str(self.fps),  # GOP大小
             '-keyint_min', str(self.fps // 2),
+            '-bf', '0',  # 禁用B帧以减少延时
+            '-profile:v', 'baseline',  # 使用baseline profile降低复杂度
+            '-level', '3.0',
             '-f', 'rtsp',
             '-rtsp_transport', 'tcp',
+            '-muxdelay', '0.1',  # 减少mux延时
+            '-fflags', 'nobuffer',  # 禁用缓冲
+            '-flags', 'low_delay',  # 低延时标志
             self.rtsp_url
         ]
         
@@ -193,30 +284,83 @@ class RTSPPusher:
                 ffmpeg_cmd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stderr=subprocess.PIPE,
+                bufsize=0  # 无缓冲，立即输出
             )
+            
+            # 启动stderr监控线程
+            self.process_error = None
+            self.stderr_thread = threading.Thread(target=self._monitor_stderr, daemon=True)
+            self.stderr_thread.start()
             
             push_count = 0
             last_stats_time = time.time()
+            last_health_check = time.time()
+            consecutive_failures = 0
+            max_consecutive_failures = 3
             
             while self.is_streaming:
+                # 定期检查FFmpeg进程状态（每2秒检查一次）
+                current_time = time.time()
+                if current_time - last_health_check >= 2.0:
+                    last_health_check = current_time
+                    if self.process.poll() is not None:
+                        # 进程已退出
+                        stdout, stderr = self.process.communicate()
+                        logger.error(f"FFmpeg进程意外退出，退出码: {self.process.returncode}")
+                        if stderr:
+                            error_msg = stderr.decode('utf-8', errors='ignore')
+                            logger.error(f"FFmpeg错误输出:\n{error_msg}")
+                        if self.process_error:
+                            logger.error(f"FFmpeg错误信息: {self.process_error}")
+                        # 不直接break，而是标记为停止，等待客户端重连时自动重启
+                        logger.info("推流已停止，等待客户端重新连接后自动重启...")
+                        break
+                
+                # 检查是否有错误信息
+                if self.process_error and 'connection refused' in self.process_error.lower():
+                    logger.error(f"检测到FFmpeg连接错误: {self.process_error}")
+                    logger.info("推流已停止，等待客户端重新连接后自动重启...")
+                    break
+                
+                # 检查客户端连接状态，如果长时间无活跃客户端，停止推流
+                if self.stream_handler:
+                    with self.stream_handler.frame_lock:
+                        has_client = self.stream_handler.has_active_client
+                        last_update = self.stream_handler.last_update
+                    
+                    # 如果超过10秒没有收到新帧，认为客户端已断开
+                    if not has_client or (last_update and current_time - last_update > 10.0):
+                        if not has_client:
+                            logger.info("检测到无活跃客户端，停止推流")
+                        else:
+                            logger.info(f"超过10秒未收到新帧（最后更新: {current_time - last_update:.1f}秒前），停止推流")
+                        break
+                
                 # 从队列获取帧
                 frame = self.stream_handler.get_frame(timeout=1.0)
                 if frame is None:
+                    # 检查是否长时间没有帧（可能是队列问题）
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.warning(f"连续{consecutive_failures}次未能获取帧，检查队列状态")
+                        consecutive_failures = 0
                     continue
+                
+                consecutive_failures = 0  # 重置失败计数
                 
                 # 确保帧尺寸匹配
                 if frame.shape[:2] != (self.frame_height, self.frame_width):
                     frame = cv2.resize(frame, (self.frame_width, self.frame_height))
                 
                 try:
-                    # 发送帧到FFmpeg
-                    self.process.stdin.write(frame.tobytes())
+                    # 发送帧到FFmpeg（使用非阻塞方式）
+                    frame_bytes = frame.tobytes()
+                    self.process.stdin.write(frame_bytes)
                     self.process.stdin.flush()
                     push_count += 1
                     
                     # 每5秒显示一次统计
-                    current_time = time.time()
                     if current_time - last_stats_time >= 5.0:
                         logger.info(f"已推送 {push_count} 帧到RTSP服务器")
                         last_stats_time = current_time
@@ -228,22 +372,56 @@ class RTSPPusher:
                         logger.error(f"FFmpeg进程退出，退出码: {self.process.returncode}")
                         if stderr:
                             logger.error(f"FFmpeg错误: {stderr.decode('utf-8', errors='ignore')}")
+                    if self.process_error:
+                        logger.error(f"FFmpeg错误信息: {self.process_error}")
+                    break
+                except OSError as e:
+                    # 处理其他OS错误（如管道关闭、进程终止等）
+                    logger.error(f"写入FFmpeg管道失败: {e}")
+                    if self.process.poll() is not None:
+                        stdout, stderr = self.process.communicate()
+                        logger.error(f"FFmpeg进程退出，退出码: {self.process.returncode}")
+                        if stderr:
+                            logger.error(f"FFmpeg错误: {stderr.decode('utf-8', errors='ignore')}")
                     break
                 except Exception as e:
                     logger.error(f"发送帧失败: {e}")
-                    break
+                    # 检查进程状态
+                    if self.process.poll() is not None:
+                        logger.error("FFmpeg进程已退出")
+                        break
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.error(f"连续{consecutive_failures}次发送失败，停止推流")
+                        break
         
         except Exception as e:
-            logger.error(f"推流线程异常: {e}")
+            logger.error(f"推流线程异常: {e}", exc_info=True)
         finally:
             self.is_streaming = False
             if self.process:
                 try:
-                    self.process.stdin.close()
+                    # 关闭stdin以通知FFmpeg结束
+                    if self.process.stdin:
+                        self.process.stdin.close()
+                    # 等待stderr线程结束
+                    if self.stderr_thread and self.stderr_thread.is_alive():
+                        time.sleep(0.5)  # 给stderr线程一点时间读取最后的数据
+                    # 终止进程
                     self.process.terminate()
-                    self.process.wait(timeout=5)
-                except:
-                    self.process.kill()
+                    try:
+                        self.process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        logger.warning("FFmpeg进程未在5秒内退出，强制终止")
+                        self.process.kill()
+                        self.process.wait()
+                except Exception as e:
+                    logger.error(f"清理FFmpeg进程时出错: {e}")
+                    if self.process:
+                        try:
+                            self.process.kill()
+                        except:
+                            pass
                 self.process = None
             logger.info("推流已停止")
     
@@ -258,13 +436,27 @@ class RTSPPusher:
         if self.push_thread:
             self.push_thread.join(timeout=5)
         
+        # 等待stderr监控线程结束
+        if self.stderr_thread and self.stderr_thread.is_alive():
+            time.sleep(0.5)
+        
         if self.process:
             try:
-                self.process.stdin.close()
+                if self.process.stdin:
+                    self.process.stdin.close()
                 self.process.terminate()
-                self.process.wait(timeout=5)
-            except:
-                self.process.kill()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    logger.warning("FFmpeg进程未在5秒内退出，强制终止")
+                    self.process.kill()
+                    self.process.wait()
+            except Exception as e:
+                logger.error(f"停止FFmpeg进程时出错: {e}")
+                try:
+                    self.process.kill()
+                except:
+                    pass
             self.process = None
 
 
@@ -336,6 +528,8 @@ class TcpVideoReceiver:
         finally:
             client_socket.close()
             logger.info(f"客户端 {client_address} 已断开")
+            # 通知stream_handler客户端已断开
+            self.stream_handler.on_client_disconnected()
     
     def stop(self):
         """停止接收服务"""
