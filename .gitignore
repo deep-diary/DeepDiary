@@ -83,6 +83,7 @@ DeepMotor/**/*.app
 *.swo
 .DS_Store
 start.ps1
+build/
 
 # 环境变量文件（根目录）
 .env
