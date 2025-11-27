@@ -48,6 +48,7 @@ Git Submodule（子模块）允许你将一个 Git 仓库作为另一个 Git 仓
 ### 工作原理
 
 1. 主项目**不保存子模块的代码**，只保存：
+
    - 子模块的 commit SHA（在 `.git/modules/` 中记录）
    - 子模块的路径和 URL（在 `.gitmodules` 中记录）
 
@@ -60,13 +61,13 @@ Git Submodule（子模块）允许你将一个 Git 仓库作为另一个 Git 仓
 
 ### 3.1 克隆包含子模块的项目
 
-#### 方式1：克隆时自动初始化子模块（推荐）
+#### 方式 1：克隆时自动初始化子模块（推荐）
 
 ```bash
 git clone --recurse-submodules git@github.com:deep-diary/DeepDiary.git
 ```
 
-#### 方式2：先克隆，再初始化子模块
+#### 方式 2：先克隆，再初始化子模块
 
 ```bash
 # 克隆主项目
@@ -89,6 +90,7 @@ git submodule status
 ```
 
 **状态前缀说明**：
+
 - 无前缀：子模块已初始化且指向正确的 commit
 - `-`：子模块未初始化
 - `+`：子模块的 commit 与主项目记录的不同
@@ -239,7 +241,8 @@ cd xiaozhi-esp32
 git remote -v
 
 # 如果没有 upstream，添加它（示例）
-# git remote add upstream git@github.com:original/xiaozhi-esp32.git
+# git remote add upstream git@github.com:78/xiaozhi-esp32.git
+# git remote add upstream git@github.com:78/xiaozhi-esp32.git
 
 # 获取上游更新
 git fetch upstream
@@ -400,7 +403,8 @@ git submodule update --init --recursive
 
 ```bash
 cd xiaozhi-esp32
-git checkout -b dev
+# 创建本地分支并跟踪远程分支
+git checkout -b dev origin/dev
 # 进行修改...
 git commit -m "修改"
 git push origin dev
@@ -433,6 +437,7 @@ git push origin main
 ### 7.3 文档记录
 
 在 README 中说明：
+
 - 项目使用了哪些子模块
 - 如何初始化和更新子模块
 - 子模块的用途和版本要求
@@ -440,6 +445,7 @@ git push origin main
 ### 7.4 团队协作
 
 确保团队成员了解：
+
 - 克隆项目时使用 `--recurse-submodules`
 - 拉取更新后需要执行 `git submodule update`
 - 修改子模块后需要推送到子模块的远程仓库
@@ -449,6 +455,7 @@ git push origin main
 ### Q1: 为什么克隆后子模块目录是空的？
 
 **A**: 需要初始化子模块：
+
 ```bash
 git submodule update --init --recursive
 ```
@@ -462,6 +469,7 @@ git submodule status
 ### Q3: 子模块可以指向不同的分支吗？
 
 **A**: 可以，在 `.gitmodules` 中配置：
+
 ```ini
 [submodule "xiaozhi-esp32"]
     path = xiaozhi-esp32
@@ -470,6 +478,7 @@ git submodule status
 ```
 
 然后使用：
+
 ```bash
 git submodule update --remote
 ```
@@ -481,6 +490,7 @@ git submodule foreach git pull origin main
 ```
 
 或者：
+
 ```bash
 git submodule update --remote
 ```
@@ -488,6 +498,7 @@ git submodule update --remote
 ### Q5: 子模块的修改会推送到原始仓库吗？
 
 **A**: 不会，除非你：
+
 1. 进入子模块目录
 2. 有原始仓库的推送权限
 3. 主动执行 `git push`
@@ -556,6 +567,28 @@ git fetch upstream  # 如果配置了 upstream
 # 或
 git fetch origin
 
+
+# 1. 进入子模块目录
+cd DeepServer/xiaozhi-esp32-server
+
+# 2. 确保在正确的分支（比如 dev）
+git checkout main
+
+# 3. 获取 upstream 的最新更新
+git fetch upstream
+
+# 4. 查看是否有新提交
+git log HEAD..upstream/main --oneline
+
+# 5. 如果有新提交，查看具体变化
+git diff --stat HEAD..upstream/main
+
+# 6. 查看详细的代码差异（可选）
+git diff HEAD..upstream/main
+
+# 7. 如果决定合并，执行合并
+git merge upstream/main
+
 # 3. 合并更新
 git merge upstream/main
 # 或
@@ -580,14 +613,17 @@ git push origin main
 ### 核心要点
 
 1. **子模块是独立的 Git 仓库**
+
    - 有自己的 `.git` 目录
    - 可以独立进行 Git 操作
 
 2. **主项目只保存引用**
+
    - 不保存子模块的实际代码
    - 只保存 commit SHA
 
 3. **修改必须推送到远程**
+
    - 子模块的修改需要推送到子模块的远程仓库
    - 否则团队成员无法获取
 
@@ -609,4 +645,3 @@ git push origin main
 ---
 
 **提示**：如果遇到问题，先检查子模块状态 `git submodule status`，确保子模块已正确初始化和更新。
-
