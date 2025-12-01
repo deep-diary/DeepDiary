@@ -9,6 +9,11 @@
 #include "display/lcd_display.h"
 #include "led/circular_strip.h"
 #include "mcp_server.h"
+#include "btn/key.h"
+#include "application.h"
+#include <time.h>
+#include <sys/time.h>
+#include <esp_sleep.h>
 
 // 模块头文件
 #include "can/ESP32-TWAI-CAN.hpp"
@@ -482,6 +487,10 @@ void BoardExtensions::user_main_loop_task(void* pvParameters) {
     qma6100p_rawdata_t accel_data;
     char msg_buffer[256];
     
+    // ==================== 按键和唤醒/休眠初始化 ====================
+    key_init();  // 初始化按键
+    static bool is_sleep_mode = false;  // 休眠状态标志
+    
     // ==================== 计数器初始化 ====================
     static uint32_t cycle_counter = 0;
     static bool first_run = true;
@@ -501,6 +510,73 @@ void BoardExtensions::user_main_loop_task(void* pvParameters) {
     
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_BASE_DELAY_MS));
+        
+        // ==================== 按键检测和唤醒/休眠控制 ====================
+        uint8_t key_val = key_scan(0);  // 不支持连续按
+        if (key_val == BOOT_PRES) {  // 使用 KEY0 按键进行唤醒/休眠控制
+            auto& app = Application::GetInstance();
+            
+            if (is_sleep_mode) {
+                // 从休眠中唤醒并询问时间
+                ESP_LOGI(TAG, "按键按下：从休眠中唤醒并询问时间");
+                is_sleep_mode = false;
+                
+                app.Schedule([&app]() {
+                    // 唤醒xiaozhi
+                    app.WakeWordInvoke("你好小智");
+                    
+                    // 等待唤醒完成并进入监听状态
+                    vTaskDelay(pdMS_TO_TICKS(2000));
+                });
+            } else {
+                // 检查是否可以进入休眠
+                if (app.CanEnterSleepMode()) {
+                    ESP_LOGI(TAG, "按键按下：进入休眠模式");
+                    is_sleep_mode = true;
+                    
+                    app.Schedule([&app]() {
+                        // 关闭音频输入和唤醒词检测
+                        auto& audio_service = app.GetAudioService();
+                        bool was_wake_word_running = audio_service.IsWakeWordRunning();
+                        if (was_wake_word_running) {
+                            audio_service.EnableWakeWordDetection(false);
+                            vTaskDelay(pdMS_TO_TICKS(100));
+                        }
+                        
+                        // 关闭音频编解码器输入
+                        auto& board = Board::GetInstance();
+                        auto codec = board.GetAudioCodec();
+                        if (codec) {
+                            codec->EnableInput(false);
+                        }
+                        
+                        // 配置GPIO唤醒源（KEY0按键，低电平触发）
+                        esp_sleep_enable_ext0_wakeup(BOOT_GPIO_PIN, 0);
+                        
+                        ESP_LOGI(TAG, "进入浅睡眠模式，按BOOT键唤醒");
+                        vTaskDelay(pdMS_TO_TICKS(100));
+                        
+                        // 进入浅睡眠
+                        esp_light_sleep_start();
+                        
+                        // 唤醒后恢复
+                        ESP_LOGI(TAG, "从浅睡眠中唤醒");
+                        auto wakeup_reason = esp_sleep_get_wakeup_cause();
+                        ESP_LOGI(TAG, "唤醒原因: %d", wakeup_reason);
+                        
+                        // 恢复音频输入和唤醒词检测
+                        if (codec) {
+                            codec->EnableInput(true);
+                        }
+                        if (was_wake_word_running) {
+                            audio_service.EnableWakeWordDetection(true);
+                        }
+                    });
+                } else {
+                    ESP_LOGI(TAG, "设备正在使用中，无法进入休眠");
+                }
+            }
+        }
         
         // 首次运行后增加计数器，避免cycle_counter=0时立即触发所有任务
         if (!first_run) {
