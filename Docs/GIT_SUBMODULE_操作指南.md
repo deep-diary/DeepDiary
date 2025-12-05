@@ -241,7 +241,7 @@ cd xiaozhi-esp32
 git remote -v
 
 # 如果没有 upstream，添加它（示例）
-# git remote add upstream git@github.com:78/xiaozhi-esp32.git
+# git remote add upstream git@github.com:xinnan-tech/xiaozhi-esp32-server.git
 # git remote add upstream git@github.com:78/xiaozhi-esp32.git
 
 # 获取上游更新
