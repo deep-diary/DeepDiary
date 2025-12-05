@@ -4,3 +4,9 @@
 [submodule "DeepServer/xiaozhi-esp32-server"]
 	path = DeepServer/xiaozhi-esp32-server
 	url = git@github.com:deep-diary/xiaozhi-esp32-server.git
+[submodule "DeepServer/mcp-endpoint-server"]
+	path = DeepServer/mcp-endpoint-server
+	url = git@github.com:deep-diary/mcp-endpoint-server.git
+[submodule "DeepServer/voiceprint-api"]
+	path = DeepServer/voiceprint-api
+	url = git@github.com:deep-diary/voiceprint-api.git
