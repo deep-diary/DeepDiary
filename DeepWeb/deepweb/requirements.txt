@@ -7,6 +7,9 @@ gradio>=5.49.0
 # MQTT 通信
 paho-mqtt>=2.1.0
 
+# HTTP 客户端（用于 Immich API）
+aiohttp>=3.9.0
+
 # 图像处理
 opencv-python-headless>=4.11.0
 

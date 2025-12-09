@@ -14,9 +14,16 @@ try:
 except ImportError:
     MQTTManager = None
 
+# 导入Immich客户端
+try:
+    from .immich_client import ImmichClient
+except ImportError:
+    ImmichClient = None
+
 # Export main classes
 __all__ = [
     'MQTTManager',
+    'ImmichClient',
 ]
 
 __version__ = "1.0.0"

@@ -54,6 +54,7 @@ class UIManager:
         self._mqtt_page = None
         self._rtsp_page = None
         self._thumbler_page = None
+        self._chat_page = None
 
         # 若由外部传入 Coordinator，可在外部调用 coordinator.attach_ui_manager(self)
 
@@ -104,6 +105,17 @@ class UIManager:
                         log_manager=self.log_manager
                     )
                     self._thumbler_page.build()
+
+                from deepweb.ui.pages.chat_page import ChatPage
+                with gr.TabItem("💬 小智聊天"):
+                    # 创建聊天页面实例并构建 UI
+                    # 传递 config_manager 以便获取 Immich 配置
+                    config_manager = self.coordinator.config_manager if self.coordinator else None
+                    self._chat_page = ChatPage(
+                        logger=self.logger,
+                        config_manager=config_manager
+                    )
+                    self._chat_page.build()
 
 
         self._demo = demo

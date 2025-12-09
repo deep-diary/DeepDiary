@@ -72,6 +72,13 @@ class ConfigManager:
                     "firmware_version": "1.0.0",
                     "ip_address": "192.168.1.100"
                 }
+            },
+            "immich": {
+                "api_url": "http://127.0.0.1:2283/api",
+                "api_key": "",
+                "email": "",
+                "password": "",
+                "timeout": 30
             }
         }
     
