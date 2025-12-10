@@ -20,10 +20,17 @@ try:
 except ImportError:
     ImmichClient = None
 
+# 导入WebSocket客户端
+try:
+    from .websocket_client import WebSocketClient
+except ImportError:
+    WebSocketClient = None
+
 # Export main classes
 __all__ = [
     'MQTTManager',
     'ImmichClient',
+    'WebSocketClient',
 ]
 
 __version__ = "1.0.0"
