@@ -234,8 +234,8 @@ async def main():
     print("="*60)
     
     # 测试数据
-    test_person_name = "Alex"
-    test_person_id = "9bf2d16c-2364-43ec-be4c-ebbe9d520051"
+    test_person_name = "Blue"
+    test_person_id = "94777e17-bd75-4615-ac41-6f041b661af0"
     
     # 1. 初始化客户端
     immich_client = await test_initialization()
@@ -251,24 +251,24 @@ async def main():
     else:
         person_id = person.get("id")
     
-    # # 3. 测试获取时间桶列表
-    # time_buckets = await test_get_timeline_buckets(immich_client, person_id)
+    # 3. 测试获取时间桶列表
+    time_buckets = await test_get_timeline_buckets(immich_client, person_id)
     
-    # # 4. 测试获取人物资产
-    # asset_ids = await test_get_person_assets_by_timeline(immich_client, person_id)
+    # 4. 测试获取人物资产
+    asset_ids = await test_get_person_assets_by_timeline(immich_client, person_id)
     
-    # # 5. 测试获取单个资产缩略图（如果有资产）
-    # if asset_ids:
-    #     await test_get_asset_thumbnail(immich_client, asset_ids[0])
+    # 5. 测试获取单个资产缩略图（如果有资产）
+    if asset_ids:
+        await test_get_asset_thumbnail(immich_client, asset_ids[0])
     
-    # # 6. 测试通过 ID 获取人物所有缩略图
-    # await test_get_person_thumbnails_by_id(immich_client, person_id, limit=3)
+    # 6. 测试通过 ID 获取人物所有缩略图
+    await test_get_person_thumbnails_by_id(immich_client, person_id, limit=3)
     
-    # # 7. 测试通过名称获取人物所有缩略图
-    # await test_get_person_thumbnails_by_name(immich_client, test_person_name, limit=3)
+    # 7. 测试通过名称获取人物所有缩略图
+    await test_get_person_thumbnails_by_name(immich_client, test_person_name, limit=3)
     
-    # # 8. 测试搜索人物资产
-    # await test_search_person_assets(immich_client, test_person_name)
+    # 8. 测试搜索人物资产
+    await test_search_person_assets(immich_client, test_person_name)
     
     print("\n" + "="*60)
     print("测试完成")

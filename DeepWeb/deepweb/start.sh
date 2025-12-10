@@ -32,7 +32,7 @@ echo "=========================================="
 
 
 # 杀掉原来进程
-pkill -f "python -u main.py"
+lsof -i :7860 | awk 'NR>1 {print $2}' | xargs -r kill -9
 
 # 启动web界面应用
 nohup python -u main.py > output.log 2>&1 &

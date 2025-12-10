@@ -76,8 +76,36 @@ class UIManager:
         if self._demo is not None:
             return
 
-        with gr.Blocks() as demo:
-            gr.Markdown("# DeepWeb UI")
+        # 添加CSS样式，去掉左右留白
+        custom_css = """
+        .gradio-container {
+            max-width: 100% !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+        }
+        .container {
+            max-width: 100% !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+        }
+        #root {
+            max-width: 100% !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+        }
+        .main {
+            max-width: 100% !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+        }
+        """
+        
+        with gr.Blocks(css=custom_css, fill_width=True) as demo:
+            gr.Markdown("# 🤖 DeepDiary UI")
 
             with gr.Tabs():
                 from deepweb.ui.pages.mqtt_page import MqttPage
@@ -107,7 +135,7 @@ class UIManager:
                     self._thumbler_page.build()
 
                 from deepweb.ui.pages.chat_page import ChatPage
-                with gr.TabItem("💬 小智聊天"):
+                with gr.TabItem("💬 聊天"):
                     # 创建聊天页面实例并构建 UI
                     # 传递 config_manager 以便获取 Immich 配置
                     config_manager = self.coordinator.config_manager if self.coordinator else None

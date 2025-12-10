@@ -43,10 +43,7 @@ class ChatUI:
         self.msg_input: Optional[gr.Textbox] = None
         self.send_btn: Optional[gr.Button] = None
         self.clear_btn: Optional[gr.Button] = None
-        self.memory_display: Optional[gr.Markdown] = None
         self.person_gallery: Optional[gr.Gallery] = None
-        self.refresh_memory_btn: Optional[gr.Button] = None
-        self.clear_memory_btn: Optional[gr.Button] = None
         self.timer: Optional[gr.Timer] = None
     
     def build(
@@ -73,9 +70,8 @@ class ChatUI:
         if chat_history is None:
             chat_history = []
         
-        with gr.Column() as chat_interface:
-            # 标题
-            gr.Markdown("# 🤖 小智智能聊天助手")
+        with gr.Column(elem_classes=["chat-interface"]) as chat_interface:
+
             
             # 连接配置区域
             with gr.Accordion("连接配置", open=False):
@@ -108,17 +104,17 @@ class ChatUI:
                         interactive=False
                     )
             
-            # 主要聊天区域 - 左右布局
+            # 主要聊天区域 - 左右布局（1:1比例）
             with gr.Row():
                 # 左侧：聊天界面
-                with gr.Column(scale=2):
+                with gr.Column(scale=1):
                     gr.Markdown("### 💬 聊天记录")
                     
                     # 聊天历史显示
                     self.chatbot = gr.Chatbot(
                         label="对话历史",
                         value=chat_history,
-                        height=500,
+                        height=800,
                         show_label=False,
                         bubble_full_width=False,
                         type="messages",
@@ -128,49 +124,35 @@ class ChatUI:
                     # 消息输入区域
                     with gr.Row():
                         self.msg_input = gr.Textbox(
-                            label="输入消息",
-                            placeholder="输入消息与小智对话...",
+                            # label="输入消息",
+                            placeholder="输入消息与深记对话...",
                             scale=4,
                             interactive=True
                         )
                         self.send_btn = gr.Button("发送", scale=1, variant="primary")
                     
-                    # 清除聊天记录按钮
-                    self.clear_btn = gr.Button("🗑️ 清除聊天记录", size="sm")
-                
-                # 右侧：记忆显示区
-                with gr.Column(scale=1):
-                    gr.Markdown("### 📚 记忆显示区")
-                    
-                    # 使用 Tabs 分离记忆内容和人物相册
-                    with gr.Tabs():
-                        with gr.TabItem("记忆内容"):
-                            self.memory_display = gr.Markdown(
-                                value=memory_markdown,
-                                label="记忆内容",
-                                height=400,
-                                show_label=False
-                            )
-                        
-                        with gr.TabItem("人物相册"):
-                            self.person_gallery = gr.Gallery(
-                                label="人物照片",
-                                show_label=False,
-                                height=400,
-                                columns=3,
-                                rows=2,
-                                value=[],
-                                allow_preview=True
-                            )
-                            gr.Markdown(
-                                value="*识别到人物后，会自动加载该人物的照片相册*",
-                                show_label=False
-                            )
-                    
-                    # 记忆操作按钮
+                    # 清除聊天记录按钮（与发送按钮同一行）
                     with gr.Row():
-                        self.refresh_memory_btn = gr.Button("🔄 刷新记忆", size="sm")
-                        self.clear_memory_btn = gr.Button("🗑️ 清除记忆", size="sm")
+                        self.clear_btn = gr.Button("🗑️ 清除聊天记录", size="sm")
+                
+                # 右侧：人物相册
+                with gr.Column(scale=1):
+                    # 标题
+                    gr.Markdown("### 🎥 人物相册")
+                    # 人物相册（直接显示，无标题和Tab）
+                    self.person_gallery = gr.Gallery(
+                        label="人物照片",
+                        show_label=False,
+                        height=800,
+                        columns=3,
+                        rows=2,
+                        value=[],
+                        allow_preview=True
+                    )
+                    gr.Markdown(
+                        value="*识别到人物后，会自动加载该人物的照片相册*",
+                        show_label=False
+                    )
             
             # 定时更新聊天记录和记忆显示（每秒更新一次）
             self.timer = gr.Timer(1.0)
@@ -183,9 +165,9 @@ class ChatUI:
         on_disconnect,
         on_send_message,
         on_clear_chat,
-        on_refresh_memory,
-        on_clear_memory,
-        on_update_ui
+        on_update_ui,
+        on_refresh_memory=None,  # 保留参数以保持兼容性，但不再使用
+        on_clear_memory=None     # 保留参数以保持兼容性，但不再使用
     ):
         """
         绑定事件处理函数
@@ -195,9 +177,9 @@ class ChatUI:
             on_disconnect: 断开连接按钮点击处理函数
             on_send_message: 发送消息处理函数
             on_clear_chat: 清除聊天记录处理函数
-            on_refresh_memory: 刷新记忆处理函数
-            on_clear_memory: 清除记忆处理函数
             on_update_ui: UI 更新处理函数（定时调用）
+            on_refresh_memory: 刷新记忆处理函数（已废弃，不再使用）
+            on_clear_memory: 清除记忆处理函数（已废弃，不再使用）
         """
         # 连接配置相关
         self.connect_btn.click(
@@ -256,23 +238,24 @@ class ChatUI:
             outputs=[self.chatbot]
         )
         
-        # 记忆操作
-        self.refresh_memory_btn.click(
-            fn=on_refresh_memory,
-            inputs=[],
-            outputs=[self.memory_display]
-        )
+        # 记忆操作（按钮已隐藏，不绑定事件）
+        # 由于 memory_display 已删除，这些按钮的事件绑定已移除
+        # self.refresh_memory_btn.click(
+        #     fn=on_refresh_memory,
+        #     inputs=[],
+        #     outputs=[self.memory_display]
+        # )
+        # 
+        # self.clear_memory_btn.click(
+        #     fn=on_clear_memory,
+        #     inputs=[],
+        #     outputs=[self.memory_display]
+        # )
         
-        self.clear_memory_btn.click(
-            fn=on_clear_memory,
-            inputs=[],
-            outputs=[self.memory_display]
-        )
-        
-        # 定时更新
+        # 定时更新（移除memory_display，因为已经删除）
         self.timer.tick(
             fn=on_update_ui,
             inputs=[],
-            outputs=[self.chatbot, self.memory_display, self.person_gallery, self.status_text]
+            outputs=[self.chatbot, self.person_gallery, self.status_text]
         )
 
