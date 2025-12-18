@@ -304,6 +304,9 @@ class ChatPage:
             
         elif result_type == "immich_search_result_message":
             # Immich 搜索结果消息（需要批量下载缩略图）
+            import time
+            start_time = time.time()  # 记录开始时间
+            
             # 先添加文本消息
             current_index = len(self.chat_service.chat_history)
             self.chat_service.add_chat_message({
@@ -312,6 +315,8 @@ class ChatPage:
                 "session_id": data["session_id"]
             })
             
+            self.logger.info(f"[性能统计] 收到 Immich 搜索结果，开始下载: asset_ids={data['asset_ids']}, 开始时间={start_time:.3f}")
+            
             # 异步批量下载缩略图并更新消息
             self._download_and_update_thumbnails(
                 asset_ids=data["asset_ids"],
@@ -319,7 +324,8 @@ class ChatPage:
                 expected_index=current_index,
                 person_name=data.get("person_name"),
                 query=data.get("query"),
-                count=data.get("count", 0)
+                count=data.get("count", 0),
+                start_time=start_time  # 传递开始时间
             )
             
         elif result_type == "ignored":
@@ -430,7 +436,8 @@ class ChatPage:
         expected_index: int,
         person_name: Optional[str] = None,
         query: Optional[str] = None,
-        count: int = 0
+        count: int = 0,
+        start_time: Optional[float] = None
     ):
         """
         异步批量下载缩略图并更新消息
@@ -445,23 +452,36 @@ class ChatPage:
         """
         def download_and_update():
             """在后台线程中批量下载缩略图并更新消息"""
-            self.logger.info(f"后台线程开始批量下载缩略图: 共 {len(asset_ids)} 个资产")
+            import time
+            
+            # 记录各个阶段的时间
+            thread_start_time = time.time()
+            download_start_time = None
+            download_end_time = None
+            gallery_set_time = None
+            
+            self.logger.info(f"[性能统计] 后台线程开始批量下载缩略图: 共 {len(asset_ids)} 个资产, 线程启动耗时: {(thread_start_time - start_time) * 1000:.2f}ms")
+            
             try:
                 # 创建新的事件循环（因为在线程中）
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
-                # 批量下载缩略图
-                self.logger.info(f"准备调用 download_immich_thumbnails_batch: asset_ids={asset_ids}")
-                thumbnail_paths = loop.run_until_complete(
-                    self.chat_service.download_immich_thumbnails_batch(asset_ids)
-                )
-                self.logger.info(f"download_immich_thumbnails_batch 返回: {len(thumbnail_paths)} 个路径")
+                # 批量下载缩略图（返回 PIL Image 对象，性能最优）
+                download_start_time = time.time()
+                self.logger.info(f"[性能统计] 开始调用 download_immich_thumbnails_batch (return_pil=True), 耗时: {(download_start_time - start_time) * 1000:.2f}ms")
                 
-                if thumbnail_paths:
-                    self.logger.info(f"缩略图下载成功: 共 {len(thumbnail_paths)} 张")
-                    
-                    # 将缩略图设置到 person_gallery 中
+                thumbnail_images = loop.run_until_complete(
+                    self.chat_service.download_immich_thumbnails_batch(asset_ids, return_pil=True)
+                )
+                
+                download_end_time = time.time()
+                download_duration = (download_end_time - download_start_time) * 1000
+                total_duration = (download_end_time - start_time) * 1000
+                self.logger.info(f"[性能统计] download_immich_thumbnails_batch 完成: 返回 {len(thumbnail_images)} 个 PIL Image 对象, 下载耗时: {download_duration:.2f}ms, 总耗时: {total_duration:.2f}ms")
+                
+                if thumbnail_images:
+                    # 将缩略图设置到 person_gallery 中（直接使用 PIL Image 对象，性能最优）
                     # 如果有 person_name，使用 person_name；否则使用 "搜索结果" 作为 key
                     gallery_key = person_name if person_name else "搜索结果"
                     
@@ -470,13 +490,25 @@ class ChatPage:
                     
                     # 合并新下载的照片（去重）
                     all_photos = list(existing_photos) if existing_photos else []
-                    for photo_path in thumbnail_paths:
-                        if photo_path and photo_path not in all_photos:
-                            all_photos.append(photo_path)
+                    for photo_image in thumbnail_images:
+                        if photo_image and photo_image not in all_photos:
+                            all_photos.append(photo_image)
                     
-                    # 设置到 person_gallery
+                    # 设置到 person_gallery（直接使用 PIL Image 对象）
+                    gallery_set_time = time.time()
                     self.chat_service.set_person_gallery(gallery_key, all_photos)
-                    self.logger.info(f"已将 {len(thumbnail_paths)} 张缩略图设置到 gallery: {gallery_key}, 总计 {len(all_photos)} 张")
+                    
+                    gallery_set_end_time = time.time()
+                    gallery_set_duration = (gallery_set_end_time - gallery_set_time) * 1000
+                    total_duration_final = (gallery_set_end_time - start_time) * 1000
+                    
+                    self.logger.info(f"[性能统计] 已将 {len(thumbnail_images)} 张缩略图设置到 gallery: {gallery_key}, 总计 {len(all_photos)} 张（使用 PIL Image 对象，性能最优：内存占用最小，无需编码/解码）")
+                    self.logger.info(f"[性能统计] 完整流程耗时统计:")
+                    self.logger.info(f"  - 收到消息到线程启动: {(thread_start_time - start_time) * 1000:.2f}ms")
+                    self.logger.info(f"  - 线程启动到开始下载: {(download_start_time - thread_start_time) * 1000:.2f}ms")
+                    self.logger.info(f"  - 下载耗时: {download_duration:.2f}ms (平均每张: {download_duration / len(thumbnail_images):.2f}ms)")
+                    self.logger.info(f"  - 设置 gallery 耗时: {gallery_set_duration:.2f}ms")
+                    self.logger.info(f"  - 总耗时: {total_duration_final:.2f}ms (从收到消息到显示到相册，使用 PIL Image 对象，性能最优）")
                 else:
                     self.logger.warning("没有成功下载任何缩略图")
             except Exception as e:

@@ -375,8 +375,10 @@ class ImmichLogic:
         self,
         asset_id: str,
         asset_info: Optional[Dict],
-        save_dir: Path,
-        thumbnail_size: AssetMediaSize
+        save_dir: Optional[Path],
+        thumbnail_size: AssetMediaSize,
+        return_base64: bool = True,
+        return_pil: bool = False
     ) -> Dict[str, any]:
         """
         下载单个资产的缩略图（内部辅助方法）
@@ -384,23 +386,40 @@ class ImmichLogic:
         Args:
             asset_id: 资产ID
             asset_info: 资产信息字典（可选，用于获取文件名等信息）
-            save_dir: 保存目录
+            save_dir: 保存目录（可选，如果 return_base64=True 或 return_pil=True 则不需要）
             thumbnail_size: 缩略图尺寸
+            return_base64: 是否返回 base64 data URI（True）或文件路径（False）
+            return_pil: 是否返回 PIL Image 对象（优先级高于 return_base64）
         
         Returns:
-            包含 success、file_path、error 的字典
+            包含 success、file_path/base64_data_uri/pil_image、error 的字典
+        
+        性能对比：
+        - PIL Image 对象：内存占用最小，无需编码/解码，Gradio 直接使用，性能最优
+        - base64 data URI：内存占用增加约 33%，需要编码，Gradio 需要解析，性能中等
+        - 文件路径：需要文件 I/O，性能最差
         """
+        import time
+        import base64
+        task_start_time = time.time()
+        
         try:
             # 使用 view_asset_with_info 获取图片数据和 Content-Type
+            api_start_time = time.time()
             response_info = await self.api.view_asset_with_info(
                 asset_id=asset_id,
                 size=thumbnail_size
             )
+            api_end_time = time.time()
+            api_duration = (api_end_time - api_start_time) * 1000
             
             if not response_info or not response_info.get('data'):
+                logger.warning(f"[性能] {asset_id} API 调用耗时: {api_duration:.2f}ms, 但返回空数据")
                 return {
                     "success": False,
                     "file_path": None,
+                    "base64_data_uri": None,
+                    "pil_image": None,
                     "error": f"下载失败: {asset_id}"
                 }
             
@@ -410,52 +429,159 @@ class ImmichLogic:
             # 根据 Content-Type 或文件内容检测文件格式
             file_extension = _detect_image_format(thumbnail_data, content_type)
             
-            # 生成保存文件名（asset_info 是可选的，主要用于日志）
-            size_suffix = thumbnail_size.value if thumbnail_size else "default"
-            save_filename = f"{asset_id}_{size_suffix}{file_extension}"
-            save_path = save_dir / save_filename
+            task_end_time = time.time()
+            total_duration = (task_end_time - task_start_time) * 1000
             
-            # 保存文件
-            with open(save_path, 'wb') as f:
-                f.write(thumbnail_data)
+            if return_pil:
+                # 返回 PIL Image 对象（性能最优：内存占用最小，无需编码/解码）
+                pil_start_time = time.time()
+                try:
+                    from PIL import Image
+                    from io import BytesIO
+                    
+                    # 将字节流转换为 PIL Image 对象
+                    pil_image = Image.open(BytesIO(thumbnail_data))
+                    
+                    pil_end_time = time.time()
+                    pil_duration = (pil_end_time - pil_start_time) * 1000
+                    
+                    logger.info(
+                        f"[性能] {asset_id}: API耗时={api_duration:.2f}ms, PIL转换耗时={pil_duration:.2f}ms, 总耗时={total_duration:.2f}ms, 图片大小={len(thumbnail_data)} bytes"
+                    )
+                    
+                    return {
+                        "success": True,
+                        "pil_image": pil_image,
+                        "base64_data_uri": None,
+                        "file_path": None,
+                        "asset_id": asset_id,
+                        "file_size": len(thumbnail_data),
+                        "file_format": file_extension,
+                        "content_type": content_type
+                    }
+                except Exception as e:
+                    logger.error(f"[性能] 转换为 PIL Image 失败 {asset_id}: {e}")
+                    # 降级到 base64
+                    return_pil = False
+                    return_base64 = True
             
-            logger.debug(
-                f"成功下载缩略图: {asset_id} -> {save_path} (格式: {file_extension}, Content-Type: {content_type})"
-            )
-            
-            return {
-                "success": True,
-                "file_path": str(save_path),
-                "asset_id": asset_id,
-                "file_size": len(thumbnail_data),
-                "file_format": file_extension,
-                "content_type": content_type
-            }
+            if return_base64:
+                # 直接转换为 base64 data URI，不保存文件
+                base64_start_time = time.time()
+                # 确定 MIME 类型
+                mime_type_map = {
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.png': 'image/png',
+                    '.gif': 'image/gif',
+                    '.webp': 'image/webp',
+                    '.bmp': 'image/bmp'
+                }
+                mime_type = mime_type_map.get(file_extension.lower(), content_type or 'image/jpeg')
+                
+                # 转换为 base64
+                base64_encoded = base64.b64encode(thumbnail_data).decode('utf-8')
+                base64_data_uri = f"data:{mime_type};base64,{base64_encoded}"
+                
+                base64_end_time = time.time()
+                base64_duration = (base64_end_time - base64_start_time) * 1000
+                
+                logger.debug(
+                    f"[性能] {asset_id}: API耗时={api_duration:.2f}ms, base64编码耗时={base64_duration:.2f}ms, 总耗时={total_duration:.2f}ms"
+                )
+                
+                return {
+                    "success": True,
+                    "base64_data_uri": base64_data_uri,
+                    "pil_image": None,
+                    "file_path": None,  # 不保存文件
+                    "asset_id": asset_id,
+                    "file_size": len(thumbnail_data),
+                    "file_format": file_extension,
+                    "content_type": content_type
+                }
+            else:
+                # 保存文件（降级方案）
+                if not save_dir:
+                    return {
+                        "success": False,
+                        "file_path": None,
+                        "base64_data_uri": None,
+                        "error": f"save_dir 未提供，无法保存文件"
+                    }
+                
+                size_suffix = thumbnail_size.value if thumbnail_size else "default"
+                save_filename = f"{asset_id}_{size_suffix}{file_extension}"
+                save_path = save_dir / save_filename
+                
+                # 保存文件（同步操作，但在并行任务中执行）
+                save_start_time = time.time()
+                with open(save_path, 'wb') as f:
+                    f.write(thumbnail_data)
+                save_end_time = time.time()
+                save_duration = (save_end_time - save_start_time) * 1000
+                
+                total_duration_with_save = (save_end_time - task_start_time) * 1000
+                
+                logger.debug(
+                    f"[性能] {asset_id}: API耗时={api_duration:.2f}ms, 保存耗时={save_duration:.2f}ms, 总耗时={total_duration_with_save:.2f}ms"
+                )
+                
+                return {
+                    "success": True,
+                    "file_path": str(save_path),
+                    "base64_data_uri": None,
+                    "pil_image": None,
+                    "asset_id": asset_id,
+                    "file_size": len(thumbnail_data),
+                    "file_format": file_extension,
+                    "content_type": content_type
+                }
             
         except Exception as e:
-            logger.error(f"下载缩略图失败 {asset_id}: {e}")
+            task_end_time = time.time()
+            total_duration = (task_end_time - task_start_time) * 1000
+            logger.error(f"[性能] 下载缩略图失败 {asset_id}: {e}, 耗时: {total_duration:.2f}ms")
             return {
                 "success": False,
                 "file_path": None,
+                "base64_data_uri": None,
+                "pil_image": None,
                 "error": f"{asset_id}: {str(e)}"
             }
     
     async def batch_download_thumbnails(
         self,
         asset_ids: List[str],
-        save_dir: Union[str, Path],
-        thumbnail_size: AssetMediaSize = AssetMediaSize.THUMBNAIL
+        save_dir: Union[str, Path] = None,
+        thumbnail_size: AssetMediaSize = AssetMediaSize.THUMBNAIL,
+        return_base64: bool = True,
+        return_pil: bool = False
     ) -> Dict[str, any]:
         """
         批量下载指定资产的缩略图
         
         Args:
             asset_ids: 资产ID列表
-            save_dir: 保存目录路径
+            save_dir: 保存目录路径（可选，如果 return_base64=True 或 return_pil=True 则不需要）
             thumbnail_size: 缩略图尺寸
+            return_base64: 是否返回 base64 data URI（True）或文件路径（False）
+            return_pil: 是否返回 PIL Image 对象（优先级高于 return_base64，性能最优）
         
         Returns:
-            包含下载结果的字典
+            包含下载结果的字典：
+            - success: 是否成功
+            - downloaded: 成功下载数量
+            - failed: 失败数量
+            - saved_files: 文件路径列表（return_base64=False 且 return_pil=False 时）
+            - base64_data_uris: base64 data URI 列表（return_base64=True 且 return_pil=False 时）
+            - pil_images: PIL Image 对象列表（return_pil=True 时）
+            - errors: 错误列表
+        
+        性能对比（推荐使用 return_pil=True）：
+        - PIL Image 对象：内存占用最小（原始大小），无需编码/解码，Gradio 直接使用，性能最优 ⭐⭐⭐⭐⭐
+        - base64 data URI：内存占用增加约 33%，需要编码，Gradio 需要解析，性能中等 ⭐⭐⭐
+        - 文件路径：需要文件 I/O，性能最差 ⭐⭐
         """
         if not self.api.enabled:
             return {
@@ -463,11 +589,15 @@ class ImmichLogic:
                 "downloaded": 0,
                 "failed": 0,
                 "saved_files": [],
+                "base64_data_uris": [],
+                "pil_images": [],
                 "errors": ["Immich API未启用"]
             }
         
-        save_path = Path(save_dir)
-        save_path.mkdir(parents=True, exist_ok=True)
+        # 如果不需要保存文件，save_dir 可以为 None
+        save_path = Path(save_dir) if save_dir else None
+        if save_path:
+            save_path.mkdir(parents=True, exist_ok=True)
         
         logger.info(f"[immich_logic] 开始批量下载缩略图: 共 {len(asset_ids)} 个资产, asset_ids={asset_ids}")
         
@@ -476,28 +606,44 @@ class ImmichLogic:
             "downloaded": 0,
             "failed": 0,
             "saved_files": [],
+            "base64_data_uris": [],
+            "pil_images": [],
             "errors": []
         }
         
         # 直接并行下载缩略图（不需要先获取资产信息，view_asset_with_info 会直接下载）
         # 这样可以最大化并行度，减少等待时间
-        logger.info(f"[immich_logic] 创建 {len(asset_ids)} 个下载任务...")
+        # 如果 return_pil=True，返回 PIL Image 对象（性能最优，推荐）
+        # 如果 return_base64=True，不保存文件，直接返回 base64 data URI，避免文件 I/O 操作
+        import time
+        batch_start_time = time.time()
+        
+        logger.info(f"[immich_logic] 创建 {len(asset_ids)} 个下载任务... (return_pil={return_pil}, return_base64={return_base64})")
+        task_creation_time = time.time()
+        
         download_tasks = [
             self._download_single_thumbnail(
                 asset_id=asset_id,
                 asset_info=None,  # 不需要资产信息，直接下载
                 save_dir=save_path,
-                thumbnail_size=thumbnail_size
+                thumbnail_size=thumbnail_size,
+                return_base64=return_base64,
+                return_pil=return_pil
             )
             for asset_id in asset_ids
         ]
         
         # 并行执行所有下载任务
-        logger.info(f"[immich_logic] 开始并行执行下载任务...")
+        download_start_time = time.time()
+        logger.info(f"[immich_logic] 开始并行执行下载任务... (任务创建耗时: {(download_start_time - task_creation_time) * 1000:.2f}ms)")
+        
         try:
             download_results = await asyncio.gather(*download_tasks, return_exceptions=True)
-            logger.info(f"[immich_logic] 所有下载任务完成，共 {len(download_results)} 个结果")
+            download_end_time = time.time()
+            download_duration = (download_end_time - download_start_time) * 1000
+            logger.info(f"[immich_logic] 所有下载任务完成，共 {len(download_results)} 个结果, 并行下载耗时: {download_duration:.2f}ms (平均每张: {download_duration / len(asset_ids):.2f}ms)")
         except Exception as e:
+            download_end_time = time.time()
             logger.error(f"[immich_logic] 并行下载异常: {e}", exc_info=True)
             download_results = []
         
@@ -511,9 +657,31 @@ class ImmichLogic:
                 logger.error(f"[immich_logic] 下载任务异常 {asset_id}: {download_result}", exc_info=True)
             elif download_result and download_result.get("success"):
                 result["downloaded"] += 1
-                file_path = download_result.get("file_path")
-                result["saved_files"].append(file_path)
-                logger.info(f"[immich_logic] 成功下载 {asset_id} -> {file_path}")
+                if return_pil:
+                    # 优先返回 PIL Image 对象（性能最优）
+                    pil_image = download_result.get("pil_image")
+                    if pil_image:
+                        result["pil_images"].append(pil_image)
+                        logger.debug(f"[immich_logic] 成功下载 {asset_id} -> PIL Image 对象 (大小: {download_result.get('file_size', 0)} bytes)")
+                    else:
+                        result["failed"] += 1
+                        result["errors"].append(f"{asset_id}: pil_image 为空")
+                elif return_base64:
+                    base64_data_uri = download_result.get("base64_data_uri")
+                    if base64_data_uri:
+                        result["base64_data_uris"].append(base64_data_uri)
+                        logger.debug(f"[immich_logic] 成功下载 {asset_id} -> base64 data URI (大小: {download_result.get('file_size', 0)} bytes)")
+                    else:
+                        result["failed"] += 1
+                        result["errors"].append(f"{asset_id}: base64_data_uri 为空")
+                else:
+                    file_path = download_result.get("file_path")
+                    if file_path:
+                        result["saved_files"].append(file_path)
+                        logger.debug(f"[immich_logic] 成功下载 {asset_id} -> {file_path}")
+                    else:
+                        result["failed"] += 1
+                        result["errors"].append(f"{asset_id}: file_path 为空")
             else:
                 result["failed"] += 1
                 error_msg = download_result.get("error", "未知错误") if download_result else "返回空结果"
@@ -521,7 +689,27 @@ class ImmichLogic:
                 logger.warning(f"[immich_logic] 下载失败 {asset_id}: {error_msg}")
         
         result["success"] = result["downloaded"] > 0
-        logger.info(f"[immich_logic] 批量下载完成: 成功 {result['downloaded']}/{len(asset_ids)}, 失败 {result['failed']}")
+        batch_end_time = time.time()
+        total_duration = (batch_end_time - batch_start_time) * 1000
+        
+        # 计算各阶段耗时
+        task_creation_duration = (task_creation_time - batch_start_time) * 1000
+        download_duration = (download_end_time - download_start_time) * 1000
+        result_processing_duration = (batch_end_time - download_end_time) * 1000
+        
+        logger.info(f"[immich_logic] ========== 批量下载性能统计 ==========")
+        logger.info(f"[immich_logic] 任务创建耗时: {task_creation_duration:.2f}ms")
+        logger.info(f"[immich_logic] 并行下载耗时: {download_duration:.2f}ms (平均每张: {download_duration / len(asset_ids):.2f}ms)")
+        logger.info(f"[immich_logic] 结果处理耗时: {result_processing_duration:.2f}ms")
+        logger.info(f"[immich_logic] 总耗时: {total_duration:.2f}ms")
+        logger.info(f"[immich_logic] 成功率: {result['downloaded']}/{len(asset_ids)}, 失败: {result['failed']}")
+        
+        if return_pil:
+            logger.info(f"[immich_logic] 返回 {len(result['pil_images'])} 个 PIL Image 对象（性能最优：内存占用最小，无需编码/解码）")
+        elif return_base64:
+            logger.info(f"[immich_logic] 返回 {len(result['base64_data_uris'])} 个 base64 data URI（未保存文件，避免文件 I/O）")
+        
+        logger.info(f"[immich_logic] =====================================")
         return result
     
     async def _download_with_info(

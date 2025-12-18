@@ -418,17 +418,22 @@ class ChatService:
             self.logger.error(f"从 Immich 下载图片异常: {e}, traceback: {traceback.format_exc()}")
             return None
     
-    async def download_immich_thumbnails_batch(self, asset_ids: List[str]) -> List[str]:
+    async def download_immich_thumbnails_batch(self, asset_ids: List[str], return_base64: bool = True, return_pil: bool = False) -> List:
         """
         批量下载 Immich 缩略图
         
         Args:
             asset_ids: Immich 资产 ID 列表
+            return_base64: 是否返回 base64 data URI（True）或文件路径（False）
+            return_pil: 是否返回 PIL Image 对象（优先级高于 return_base64，性能最优）
             
         Returns:
-            下载成功的缩略图文件路径列表
+            下载成功的缩略图列表：
+            - return_pil=True: PIL Image 对象列表（推荐，性能最优）
+            - return_base64=True: base64 data URI 列表
+            - 否则: 文件路径列表
         """
-        self.logger.info(f"开始批量下载 Immich 缩略图: 共 {len(asset_ids)} 个资产")
+        self.logger.info(f"开始批量下载 Immich 缩略图: 共 {len(asset_ids)} 个资产, return_pil={return_pil}, return_base64={return_base64}")
         
         if not self.immich_logic or not self.immich_logic.api.enabled:
             self.logger.warning("Immich logic 未初始化或未启用")
@@ -443,26 +448,40 @@ class ChatService:
                 self.logger.error("AssetMediaSize 未导入，无法下载缩略图")
                 return []
             
-            self.logger.info(f"调用 immich_logic.batch_download_thumbnails: asset_ids={asset_ids}")
+            self.logger.info(f"调用 immich_logic.batch_download_thumbnails: asset_ids={asset_ids}, return_pil={return_pil}, return_base64={return_base64}")
             result = await self.immich_logic.batch_download_thumbnails(
                 asset_ids=asset_ids,
-                save_dir=self.temp_dir,
-                thumbnail_size=AssetMediaSize.THUMBNAIL
+                save_dir=self.temp_dir if not return_base64 and not return_pil else None,  # 如果返回 base64 或 PIL，不需要保存目录
+                thumbnail_size=AssetMediaSize.THUMBNAIL,
+                return_base64=return_base64,
+                return_pil=return_pil
             )
             
             self.logger.info(f"batch_download_thumbnails 返回结果: success={result.get('success')}, downloaded={result.get('downloaded')}, failed={result.get('failed')}")
             
             if result.get("success"):
-                thumbnail_paths = result.get("saved_files", [])
-                self.logger.info(f"获取到 {len(thumbnail_paths)} 个文件路径: {thumbnail_paths}")
-                
-                # 记录临时文件，用于后续清理
-                for path in thumbnail_paths:
-                    if path and path not in self.temp_files:
-                        self.temp_files.append(path)
-                
-                self.logger.info(f"批量下载完成: 成功 {len(thumbnail_paths)}/{len(asset_ids)} 张缩略图")
-                return thumbnail_paths
+                if return_pil:
+                    # 返回 PIL Image 对象列表（性能最优）
+                    pil_images = result.get("pil_images", [])
+                    self.logger.info(f"获取到 {len(pil_images)} 个 PIL Image 对象（性能最优：内存占用最小，无需编码/解码）")
+                    return pil_images
+                elif return_base64:
+                    # 返回 base64 data URI 列表
+                    base64_data_uris = result.get("base64_data_uris", [])
+                    self.logger.info(f"获取到 {len(base64_data_uris)} 个 base64 data URI（未保存文件，避免文件 I/O）")
+                    return base64_data_uris
+                else:
+                    # 返回文件路径列表
+                    thumbnail_paths = result.get("saved_files", [])
+                    self.logger.info(f"获取到 {len(thumbnail_paths)} 个文件路径: {thumbnail_paths}")
+                    
+                    # 记录临时文件，用于后续清理
+                    for path in thumbnail_paths:
+                        if path and path not in self.temp_files:
+                            self.temp_files.append(path)
+                    
+                    self.logger.info(f"批量下载完成: 成功 {len(thumbnail_paths)}/{len(asset_ids)} 张缩略图")
+                    return thumbnail_paths
             else:
                 errors = result.get("errors", [])
                 self.logger.warning(f"批量下载缩略图失败: {errors}")
@@ -725,18 +744,18 @@ class ChatService:
         """
         return self.person_galleries.get(person_name, [])
     
-    def set_person_gallery(self, person_name: str, image_paths: List[str]):
+    def set_person_gallery(self, person_name: str, image_data: List[str]):
         """
         设置指定人物的照片列表
         
         Args:
             person_name: 人物名称
-            image_paths: 照片路径列表
+            image_data: 照片数据列表，可以是文件路径或 base64 data URI
         """
-        self.person_galleries[person_name] = image_paths
+        self.person_galleries[person_name] = image_data
         # 更新当前应该显示的人物（最新设置的）
         self.current_gallery_person = person_name
-        self.logger.info(f"已设置人物 '{person_name}' 的照片相册，共 {len(image_paths)} 张照片")
+        self.logger.info(f"已设置人物 '{person_name}' 的照片相册，共 {len(image_data)} 张照片")
     
     def _cleanup_temp_files(self):
         """清理临时文件"""

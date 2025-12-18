@@ -131,7 +131,9 @@ class ImmichAPI:
         self.search_api = SearchApi(self.api_client)
         
         # 创建线程池用于执行同步 SDK 调用
-        self.executor = ThreadPoolExecutor(max_workers=5)
+        # 增加 max_workers 以支持更多并发下载（默认 5 可能不够）
+        # 设置为 20，可以支持同时下载 20 张缩略图
+        self.executor = ThreadPoolExecutor(max_workers=20)
     
     async def _run_sync(self, func: Callable, *args, **kwargs):
         """
@@ -633,6 +635,9 @@ class ImmichAPI:
             return None
         
         try:
+            import time
+            api_call_start = time.time()
+            
             # 使用 SDK 的 view_asset_with_http_info 方法获取响应信息
             from immich_python_sdk.api_response import ApiResponse
             
@@ -643,6 +648,9 @@ class ImmichAPI:
                 key=key
             )
             
+            api_call_end = time.time()
+            api_call_duration = (api_call_end - api_call_start) * 1000
+            
             if api_response and api_response.data:
                 image_data = bytes(api_response.data)
                 headers = api_response.headers or {}
@@ -651,7 +659,7 @@ class ImmichAPI:
                 size_str = size.value if size else "默认"
                 logger.info(
                     f"成功下载资产缩略图: {asset_id}, 尺寸: {size_str}, "
-                    f"大小: {len(image_data)} 字节, Content-Type: {content_type}"
+                    f"大小: {len(image_data)} 字节, Content-Type: {content_type}, API调用耗时: {api_call_duration:.2f}ms"
                 )
                 
                 return {
