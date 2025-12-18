@@ -163,7 +163,7 @@ class ChatPage:
         更新 UI 界面（定时调用）
         
         Returns:
-            (chat_history, memory_markdown, status_text) 的更新
+            (chat_history, person_gallery, status_text) 的更新
         """
         # 处理消息队列
         updated = False
@@ -205,10 +205,9 @@ class ChatPage:
                     current_person_gallery = photos
                     break  # 显示第一个有照片的人物
         
-        # 返回当前状态
+        # 返回当前状态（移除了memory_markdown）
         return (
             self.chat_service.get_chat_history(),
-            self.chat_service.get_memory_markdown(),
             current_person_gallery,
             self.connection_status
         )
@@ -254,9 +253,12 @@ class ChatPage:
         elif result_type == "vision_message":
             # 视觉识别消息（已包含图片）
             self.chat_service.add_chat_message(data)
-            # 如果有识别到人物，加载人物照片
+            # 如果有识别到人物，加载人物照片（优先使用 people_ids）
+            people_ids = data.get("people_ids", [])
             people = data.get("people", [])
-            if people:
+            if people_ids:
+                self._load_people_photos_by_ids(people_ids, people)
+            elif people:
                 self._load_people_photos(people)
             
         elif result_type == "vision_message_with_asset":
@@ -277,9 +279,12 @@ class ChatPage:
                 expected_index=current_index
             )
             
-            # 如果有识别到人物，加载人物照片
+            # 如果有识别到人物，加载人物照片（优先使用 people_ids）
+            people_ids = data.get("people_ids", [])
             people = data.get("people", [])
-            if people:
+            if people_ids:
+                self._load_people_photos_by_ids(people_ids, people)
+            elif people:
                 self._load_people_photos(people)
             
         elif result_type == "memory_update":
@@ -410,7 +415,7 @@ class ChatPage:
     
     def _load_people_photos(self, people: List[str]):
         """
-        异步加载人物照片
+        异步加载人物照片（通过人物名称）
         
         Args:
             people: 人物名称列表
@@ -447,6 +452,74 @@ class ChatPage:
                 except Exception as e:
                     import traceback
                     self.logger.error(f"加载人物 '{person_name}' 照片时出错: {e}, traceback: {traceback.format_exc()}")
+        
+        # 在后台线程中执行加载
+        load_thread = threading.Thread(target=load_photos, daemon=True)
+        load_thread.start()
+    
+    def _load_people_photos_by_ids(self, people_ids: List[str], people_names: List[str] = None):
+        """
+        异步加载人物照片（通过人物 ID，优先使用）
+        
+        Args:
+            people_ids: 人物 ID 列表
+            people_names: 人物名称列表（可选，用于显示和存储）
+        """
+        def load_photos():
+            """在后台线程中加载人物照片"""
+            # 创建新的事件循环（因为在线程中）
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                # 合并所有人物照片
+                all_photo_paths = []
+                
+                for idx, person_id in enumerate(people_ids):
+                    try:
+                        if not person_id:
+                            continue
+                        
+                        # 获取人物名称（如果有）
+                        person_name = people_names[idx] if people_names and idx < len(people_names) else f"Person_{person_id[:8]}"
+                        
+                        # 检查是否已经加载过（通过名称检查）
+                        if person_name in self.chat_service.person_galleries:
+                            self.logger.debug(f"人物 '{person_name}' 的照片已存在，跳过加载")
+                            # 将已存在的照片添加到合并列表
+                            existing_photos = self.chat_service.get_person_gallery(person_name)
+                            all_photo_paths.extend(existing_photos)
+                            continue
+                        
+                        self.logger.info(f"开始加载人物照片: person_id={person_id}, person_name={person_name}")
+                        
+                        # 通过 ID 获取人物照片
+                        photo_paths = loop.run_until_complete(
+                            self.chat_service.get_person_photos_by_id(person_id, limit=50)
+                        )
+                        
+                        if photo_paths:
+                            # 保存到相册（使用人物名称作为 key）
+                            self.chat_service.set_person_gallery(person_name, photo_paths)
+                            all_photo_paths.extend(photo_paths)
+                            self.logger.info(f"成功加载人物 '{person_name}' 的照片，共 {len(photo_paths)} 张")
+                        else:
+                            self.logger.warning(f"未找到人物 ID '{person_id}' 的照片")
+                        
+                    except Exception as e:
+                        import traceback
+                        person_name = people_names[idx] if people_names and idx < len(people_names) else f"Person_{person_id[:8]}"
+                        self.logger.error(f"加载人物 ID '{person_id}' ({person_name}) 照片时出错: {e}, traceback: {traceback.format_exc()}")
+                
+                # 如果有多个人物，将所有照片合并到一个相册中显示
+                if len(people_ids) > 1 and all_photo_paths:
+                    # 使用第一个有名称的人物作为 key，或者使用 "Multiple_People"
+                    display_name = people_names[0] if people_names and people_names[0] else "Multiple_People"
+                    self.chat_service.set_person_gallery(display_name, all_photo_paths)
+                    self.logger.info(f"合并了 {len(people_ids)} 个人物的照片，共 {len(all_photo_paths)} 张")
+                
+            finally:
+                loop.close()
         
         # 在后台线程中执行加载
         load_thread = threading.Thread(target=load_photos, daemon=True)

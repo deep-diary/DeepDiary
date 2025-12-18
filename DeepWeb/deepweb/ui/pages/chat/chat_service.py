@@ -210,6 +210,7 @@ class ChatService:
         """处理视觉识别消息"""
         result = message.get("result", "")
         people = message.get("people", [])
+        people_ids = message.get("people_ids", [])
         session_id = message.get("session_id", "")
         asset_id = message.get("asset_id", None)
         image_data_uri = message.get("image", None)
@@ -229,7 +230,9 @@ class ChatService:
                     "content": text_content,
                     "session_id": session_id,
                     "asset_id": asset_id,
-                    "image_data_uri": image_data_uri  # 降级方案
+                    "image_data_uri": image_data_uri,  # 降级方案
+                    "people": people,  # 包含人物名称列表
+                    "people_ids": people_ids  # 包含人物 ID 列表
                 }
             }
         elif image_data_uri:
@@ -245,7 +248,9 @@ class ChatService:
                 "data": {
                     "role": "assistant",
                     "content": content,
-                    "session_id": session_id
+                    "session_id": session_id,
+                    "people": people,  # 包含人物名称列表
+                    "people_ids": people_ids  # 包含人物 ID 列表
                 }
             }
         else:
@@ -255,7 +260,9 @@ class ChatService:
                 "data": {
                     "role": "assistant",
                     "content": text_content,
-                    "session_id": session_id
+                    "session_id": session_id,
+                    "people": people,  # 包含人物名称列表
+                    "people_ids": people_ids  # 包含人物 ID 列表
                 }
             }
     
@@ -347,6 +354,38 @@ class ChatService:
                     self.temp_files.append(path)
             
             self.logger.info(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_name={person_name}")
+            return thumbnail_paths
+        except Exception as e:
+            import traceback
+            self.logger.error(f"获取人物照片异常: {e}, traceback: {traceback.format_exc()}")
+            return []
+    
+    async def get_person_photos_by_id(self, person_id: str, limit: int = 50) -> List[str]:
+        """
+        根据人物 ID 获取该人物的所有照片缩略图路径列表
+        
+        Args:
+            person_id: 人物 ID
+            limit: 返回的最大数量，默认 50
+            
+        Returns:
+            缩略图文件路径列表
+        """
+        self.logger.info(f"开始获取人物照片: person_id={person_id}, limit={limit}")
+        
+        if not self.immich_client or not self.immich_client.enabled:
+            self.logger.warning("Immich client 未初始化或未启用")
+            return []
+        
+        try:
+            thumbnail_paths = await self.immich_client.get_person_thumbnails_by_id(person_id, limit)
+            
+            # 记录临时文件，用于后续清理
+            for path in thumbnail_paths:
+                if path not in self.temp_files:
+                    self.temp_files.append(path)
+            
+            self.logger.info(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_id={person_id}")
             return thumbnail_paths
         except Exception as e:
             import traceback

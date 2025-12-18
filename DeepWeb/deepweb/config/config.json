@@ -30,7 +30,7 @@
       "ip_address": "192.168.1.100"
     }
   },
-  "immich_bk": {
+  "immich": {
     "api_url": "http://127.0.0.1:2283/api",
     "api_key": "ZbQpVHwESQC4chEUJyVYoIyP6pVUFJvpRh1llIOYbw",
     "user": "Blue",
@@ -38,7 +38,7 @@
     "password": "deep-diary666",
     "timeout": 30
   },
-  "immich": {
+  "immich_bk": {
     "api_url": "https://demo.immich.app/api",
     "api_key": "OmSAHWDe35BJuRhLY8PY7ybEPM176iQBo5HW1SZh5rs",
     "user": "demo",
