@@ -18,11 +18,15 @@ from typing import List, Dict, Any, Optional
 from queue import Queue, Empty
 import logging
 
-# 导入 Immich client
+# 导入 Immich 相关模块
 try:
-    from deepweb.services.cloud_communication.immich_client import ImmichClient
+    from deepweb.services.cloud_communication.immich_api import ImmichAPI
+    from deepweb.app_logic.cloud_com_logical.immich_logic import ImmichLogic
+    from immich_python_sdk.models.asset_media_size import AssetMediaSize
 except ImportError as e:
-    ImmichClient = None
+    ImmichAPI = None
+    ImmichLogic = None
+    AssetMediaSize = None
 
 
 class ChatService:
@@ -37,14 +41,14 @@ class ChatService:
     - 提供业务数据给 UI 层
     """
     
-    def __init__(self, logger: logging.Logger, config_manager=None, immich_client: Optional[ImmichClient] = None):
+    def __init__(self, logger: logging.Logger, config_manager=None, immich_logic: Optional[ImmichLogic] = None):
         """
         初始化聊天服务
         
         Args:
             logger: 日志记录器
             config_manager: 配置管理器（可选）
-            immich_client: Immich 客户端（可选）
+            immich_logic: Immich 业务逻辑处理器（可选）
         """
         self.logger = logger
         self.config_manager = config_manager
@@ -58,6 +62,9 @@ class ChatService:
         # 人物照片相册：存储每个人物的照片列表 {person_name: [image_paths]}
         self.person_galleries: Dict[str, List[str]] = {}
         
+        # 记录当前应该显示的人物相册（最新设置的）
+        self.current_gallery_person: Optional[str] = None
+        
         # LLM流式响应合并：存储当前正在接收的消息
         self.current_llm_message: Dict[str, Any] = {}
         
@@ -65,15 +72,15 @@ class ChatService:
         self.temp_dir = tempfile.mkdtemp(prefix="chat_images_")
         self.temp_files: List[str] = []
         
-        # Immich 客户端
-        self.immich_client = immich_client
-        if not self.immich_client:
-            self._init_immich_client()
+        # Immich 业务逻辑处理器
+        self.immich_logic = immich_logic
+        if not self.immich_logic:
+            self._init_immich_logic()
     
-    def _init_immich_client(self):
-        """初始化 Immich 客户端"""
-        if ImmichClient is None:
-            self.logger.warning("ImmichClient 未导入，图片获取功能将被禁用")
+    def _init_immich_logic(self):
+        """初始化 Immich 业务逻辑处理器"""
+        if ImmichAPI is None or ImmichLogic is None:
+            self.logger.warning("ImmichAPI 或 ImmichLogic 未导入，图片获取功能将被禁用")
             return
         
         try:
@@ -87,28 +94,24 @@ class ChatService:
                 immich_config = {
                     "api_url": os.getenv("IMMICH_API_URL", "http://127.0.0.1:2283/api"),
                     "api_key": os.getenv("IMMICH_API_KEY", ""),
-                    "email": os.getenv("IMMICH_EMAIL", ""),
-                    "password": os.getenv("IMMICH_PASSWORD", ""),
                     "timeout": int(os.getenv("IMMICH_TIMEOUT", "30"))
                 }
                 self.logger.info(f"从环境变量获取 Immich 配置: api_url={immich_config.get('api_url')}")
             
-            # 如果配置了 API key 或 email+password，创建客户端
-            has_api_key = bool(immich_config.get("api_key"))
-            has_email_password = bool(immich_config.get("email") and immich_config.get("password"))
-            
-            if has_api_key or has_email_password:
-                self.immich_client = ImmichClient(immich_config)
-                if self.immich_client.enabled:
-                    self.logger.info(f"Immich 客户端初始化成功: api_url={self.immich_client.api_url}")
+            # 如果配置了 API key，创建 API 客户端和业务逻辑处理器
+            if immich_config.get("api_key"):
+                immich_api = ImmichAPI(immich_config)
+                if immich_api.enabled:
+                    self.immich_logic = ImmichLogic(immich_api)
+                    self.logger.info(f"Immich 业务逻辑处理器初始化成功: api_url={immich_api.api_url}")
                 else:
-                    self.logger.warning("Immich 客户端初始化失败，将使用降级方案")
-                    self.immich_client = None
+                    self.logger.warning("Immich API 初始化失败，将使用降级方案")
+                    self.immich_logic = None
             else:
                 self.logger.info("Immich 配置未设置，将使用降级方案（base64 图片）")
         except Exception as e:
-            self.logger.error(f"初始化 Immich 客户端失败: {e}")
-            self.immich_client = None
+            self.logger.error(f"初始化 Immich 业务逻辑处理器失败: {e}")
+            self.immich_logic = None
     
     def process_websocket_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -144,6 +147,10 @@ class ChatService:
             elif message_type == "memory_images":
                 # 记忆图片
                 return self._process_memory_images_message(message)
+            
+            elif message_type == "immich_search_result":
+                # Immich 搜索结果
+                return self._process_immich_search_result_message(message)
             
             else:
                 # 其他类型的消息（如 llm 流式片段，不处理）
@@ -221,7 +228,7 @@ class ChatService:
             text_content += f"\n\n识别到的人物：{', '.join(people)}"
         
         # 处理图片
-        if asset_id and self.immich_client and self.immich_client.enabled:
+        if asset_id and self.immich_logic and self.immich_logic.api.enabled:
             # 使用 asset_id 下载图片（异步）
             return {
                 "type": "vision_message_with_asset",
@@ -296,6 +303,74 @@ class ChatService:
         else:
             return {"type": "ignored", "data": None}
     
+    def _process_immich_search_result_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        处理 Immich 搜索结果消息
+        
+        从消息中提取 asset_id 列表，准备下载缩略图
+        
+        Args:
+            message: WebSocket 消息字典，格式：
+                {
+                    "type": "immich_search_result",
+                    "data": {
+                        "assets": [
+                            {"id": "asset-id-1", ...},
+                            {"id": "asset-id-2", ...}
+                        ],
+                        "count": 10,
+                        "query": "...",
+                        "person_name": "...",
+                        ...
+                    },
+                    "device_id": "..."
+                }
+        
+        Returns:
+            处理后的业务数据字典
+        """
+        data = message.get("data", {})
+        assets = data.get("assets", [])
+        session_id = message.get("device_id", "")  # 使用 device_id 作为 session_id
+        query = data.get("query", "")
+        person_name = data.get("person_name")
+        count = data.get("count", 0)
+        
+        # 提取所有 asset_id
+        asset_ids = []
+        for asset in assets:
+            asset_id = asset.get("id")
+            if asset_id:
+                asset_ids.append(asset_id)
+        
+        if not asset_ids:
+            self.logger.warning("Immich 搜索结果中没有找到 asset_id")
+            return {"type": "ignored", "data": None}
+        
+        self.logger.info(f"收到 Immich 搜索结果: 共 {len(asset_ids)} 个资产, query={query}, person_name={person_name}")
+        self.logger.info(f"资产ID列表: {asset_ids}")
+        
+        # 构建文本内容（使用空格分隔，避免换行符导致 Gradio 误判为文件路径）
+        text_content = f"找到 {count} 张相关照片"
+        if person_name:
+            text_content += f"（{person_name}）"
+        if query and query != "voiceprint_triggered":
+            text_content += f" | 查询关键词: {query}"
+        
+        # 返回需要下载缩略图的消息类型
+        return {
+            "type": "immich_search_result_message",
+            "data": {
+                "role": "assistant",
+                "content": text_content,
+                "session_id": session_id,
+                "asset_ids": asset_ids,  # 需要下载的 asset_id 列表
+                "person_name": person_name,  # 人物名称（如果有）
+                "query": query,  # 查询关键词
+                "count": count  # 结果数量
+            }
+        }
+    
     async def download_immich_image(self, asset_id: str) -> Optional[str]:
         """
         从 Immich 服务器下载图片
@@ -308,18 +383,33 @@ class ChatService:
         """
         self.logger.info(f"开始下载 Immich 图片: asset_id={asset_id}")
         
-        if not self.immich_client or not self.immich_client.enabled:
-            self.logger.warning("Immich client 未初始化或未启用")
+        if not self.immich_logic or not self.immich_logic.api.enabled:
+            self.logger.warning("Immich logic 未初始化或未启用")
             return None
         
         try:
-            image_path = await self.immich_client.download_asset(asset_id)
+            # 使用 ImmichAPI 的 download_asset 方法
+            image_data = await self.immich_logic.api.download_asset(asset_id)
             
-            if image_path and os.path.exists(image_path):
-                file_size = os.path.getsize(image_path)
-                self.temp_files.append(image_path)
-                self.logger.info(f"成功从 Immich 下载图片: asset_id={asset_id}, path={image_path}, size={file_size} bytes")
-                return image_path
+            if image_data:
+                # 保存为临时文件
+                temp_file = tempfile.NamedTemporaryFile(
+                    dir=self.temp_dir,
+                    suffix=".jpg",
+                    delete=False
+                )
+                temp_file.write(image_data)
+                temp_file.close()
+                
+                image_path = temp_file.name
+                if os.path.exists(image_path):
+                    file_size = os.path.getsize(image_path)
+                    self.temp_files.append(image_path)
+                    self.logger.info(f"成功从 Immich 下载图片: asset_id={asset_id}, path={image_path}, size={file_size} bytes")
+                    return image_path
+                else:
+                    self.logger.warning(f"保存图片文件失败: asset_id={asset_id}")
+                    return None
             else:
                 self.logger.warning(f"从 Immich 下载图片失败: asset_id={asset_id}")
                 return None
@@ -327,6 +417,60 @@ class ChatService:
             import traceback
             self.logger.error(f"从 Immich 下载图片异常: {e}, traceback: {traceback.format_exc()}")
             return None
+    
+    async def download_immich_thumbnails_batch(self, asset_ids: List[str]) -> List[str]:
+        """
+        批量下载 Immich 缩略图
+        
+        Args:
+            asset_ids: Immich 资产 ID 列表
+            
+        Returns:
+            下载成功的缩略图文件路径列表
+        """
+        self.logger.info(f"开始批量下载 Immich 缩略图: 共 {len(asset_ids)} 个资产")
+        
+        if not self.immich_logic or not self.immich_logic.api.enabled:
+            self.logger.warning("Immich logic 未初始化或未启用")
+            return []
+        
+        if not asset_ids:
+            return []
+        
+        try:
+            # 使用 ImmichLogic 的 batch_download_thumbnails 方法
+            if AssetMediaSize is None:
+                self.logger.error("AssetMediaSize 未导入，无法下载缩略图")
+                return []
+            
+            self.logger.info(f"调用 immich_logic.batch_download_thumbnails: asset_ids={asset_ids}")
+            result = await self.immich_logic.batch_download_thumbnails(
+                asset_ids=asset_ids,
+                save_dir=self.temp_dir,
+                thumbnail_size=AssetMediaSize.THUMBNAIL
+            )
+            
+            self.logger.info(f"batch_download_thumbnails 返回结果: success={result.get('success')}, downloaded={result.get('downloaded')}, failed={result.get('failed')}")
+            
+            if result.get("success"):
+                thumbnail_paths = result.get("saved_files", [])
+                self.logger.info(f"获取到 {len(thumbnail_paths)} 个文件路径: {thumbnail_paths}")
+                
+                # 记录临时文件，用于后续清理
+                for path in thumbnail_paths:
+                    if path and path not in self.temp_files:
+                        self.temp_files.append(path)
+                
+                self.logger.info(f"批量下载完成: 成功 {len(thumbnail_paths)}/{len(asset_ids)} 张缩略图")
+                return thumbnail_paths
+            else:
+                errors = result.get("errors", [])
+                self.logger.warning(f"批量下载缩略图失败: {errors}")
+                return []
+        except Exception as e:
+            import traceback
+            self.logger.error(f"批量下载缩略图异常: {e}, traceback: {traceback.format_exc()}")
+            return []
     
     async def get_person_photos(self, person_name: str, limit: int = 50) -> List[str]:
         """
@@ -341,20 +485,48 @@ class ChatService:
         """
         self.logger.info(f"开始获取人物照片: person_name={person_name}, limit={limit}")
         
-        if not self.immich_client or not self.immich_client.enabled:
-            self.logger.warning("Immich client 未初始化或未启用")
+        if not self.immich_logic or not self.immich_logic.api.enabled:
+            self.logger.warning("Immich logic 未初始化或未启用")
             return []
         
         try:
-            thumbnail_paths = await self.immich_client.get_person_thumbnails_by_name(person_name, limit)
+            # 使用 ImmichLogic 的 search_random_by_person 方法获取资产列表
+            assets = await self.immich_logic.search_random_by_person(person_name, size=limit)
             
-            # 记录临时文件，用于后续清理
-            for path in thumbnail_paths:
-                if path not in self.temp_files:
-                    self.temp_files.append(path)
+            if not assets:
+                self.logger.warning(f"未找到人物 '{person_name}' 的照片")
+                return []
             
-            self.logger.info(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_name={person_name}")
-            return thumbnail_paths
+            # 提取 asset_ids
+            asset_ids = [asset.get("id") for asset in assets if asset.get("id")]
+            
+            if not asset_ids:
+                self.logger.warning(f"未找到有效的资产ID")
+                return []
+            
+            # 批量下载缩略图
+            if AssetMediaSize is None:
+                self.logger.error("AssetMediaSize 未导入，无法下载缩略图")
+                return []
+            
+            result = await self.immich_logic.batch_download_thumbnails(
+                asset_ids=asset_ids,
+                save_dir=self.temp_dir,
+                thumbnail_size=AssetMediaSize.THUMBNAIL
+            )
+            
+            if result.get("success"):
+                thumbnail_paths = result.get("saved_files", [])
+                # 记录临时文件，用于后续清理
+                for path in thumbnail_paths:
+                    if path and path not in self.temp_files:
+                        self.temp_files.append(path)
+                
+                self.logger.info(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_name={person_name}")
+                return thumbnail_paths
+            else:
+                self.logger.warning(f"下载人物照片失败: {result.get('errors', [])}")
+                return []
         except Exception as e:
             import traceback
             self.logger.error(f"获取人物照片异常: {e}, traceback: {traceback.format_exc()}")
@@ -373,20 +545,51 @@ class ChatService:
         """
         self.logger.info(f"开始获取人物照片: person_id={person_id}, limit={limit}")
         
-        if not self.immich_client or not self.immich_client.enabled:
-            self.logger.warning("Immich client 未初始化或未启用")
+        if not self.immich_logic or not self.immich_logic.api.enabled:
+            self.logger.warning("Immich logic 未初始化或未启用")
             return []
         
         try:
-            thumbnail_paths = await self.immich_client.get_person_thumbnails_by_id(person_id, limit)
+            # 直接使用 search_random API，传入 person_ids
+            assets = await self.immich_logic.api.search_random(
+                person_ids=[person_id],
+                size=limit
+            )
             
-            # 记录临时文件，用于后续清理
-            for path in thumbnail_paths:
-                if path not in self.temp_files:
-                    self.temp_files.append(path)
+            if not assets:
+                self.logger.warning(f"未找到人物ID '{person_id}' 的照片")
+                return []
             
-            self.logger.info(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_id={person_id}")
-            return thumbnail_paths
+            # 提取 asset_ids
+            asset_ids = [asset.get("id") for asset in assets if asset.get("id")]
+            
+            if not asset_ids:
+                self.logger.warning(f"未找到有效的资产ID")
+                return []
+            
+            # 批量下载缩略图
+            if AssetMediaSize is None:
+                self.logger.error("AssetMediaSize 未导入，无法下载缩略图")
+                return []
+            
+            result = await self.immich_logic.batch_download_thumbnails(
+                asset_ids=asset_ids,
+                save_dir=self.temp_dir,
+                thumbnail_size=AssetMediaSize.THUMBNAIL
+            )
+            
+            if result.get("success"):
+                thumbnail_paths = result.get("saved_files", [])
+                # 记录临时文件，用于后续清理
+                for path in thumbnail_paths:
+                    if path and path not in self.temp_files:
+                        self.temp_files.append(path)
+                
+                self.logger.info(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_id={person_id}")
+                return thumbnail_paths
+            else:
+                self.logger.warning(f"下载人物照片失败: {result.get('errors', [])}")
+                return []
         except Exception as e:
             import traceback
             self.logger.error(f"获取人物照片异常: {e}, traceback: {traceback.format_exc()}")
@@ -492,6 +695,8 @@ class ChatService:
         """清除聊天记录"""
         self.chat_history = []
         self.current_llm_message = {}
+        self.person_galleries = {}
+        self.current_gallery_person = None
         self._cleanup_temp_files()
         self.logger.info("聊天记录已清除")
     
@@ -529,6 +734,8 @@ class ChatService:
             image_paths: 照片路径列表
         """
         self.person_galleries[person_name] = image_paths
+        # 更新当前应该显示的人物（最新设置的）
+        self.current_gallery_person = person_name
         self.logger.info(f"已设置人物 '{person_name}' 的照片相册，共 {len(image_paths)} 张照片")
     
     def _cleanup_temp_files(self):

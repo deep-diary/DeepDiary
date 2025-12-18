@@ -194,16 +194,23 @@ class ChatPage:
             except Empty:
                 break
         
-        # 获取当前显示的人物照片（如果有多个，显示第一个）
+        # 获取当前显示的人物照片（显示最新设置的人物）
         current_person_gallery = []
         person_galleries = getattr(self.chat_service, 'person_galleries', {})
-        if person_galleries:
-            # 显示最近更新的人物相册
-            # 或者可以显示所有人物照片的合并列表
+        current_gallery_person = getattr(self.chat_service, 'current_gallery_person', None)
+        
+        if current_gallery_person and current_gallery_person in person_galleries:
+            # 显示最新设置的人物相册
+            current_person_gallery = person_galleries[current_gallery_person]
+            self.logger.debug(f"显示人物相册: {current_gallery_person}, 共 {len(current_person_gallery)} 张照片")
+        elif person_galleries:
+            # 如果没有记录当前人物，显示最后一个设置的人物（Python 3.7+ 字典保持插入顺序）
+            # 或者显示第一个有照片的人物
             for person_name, photos in person_galleries.items():
                 if photos:
                     current_person_gallery = photos
-                    break  # 显示第一个有照片的人物
+                    self.logger.debug(f"显示第一个找到的人物相册: {person_name}, 共 {len(photos)} 张照片")
+                    break
         
         # 返回当前状态（移除了memory_markdown）
         return (
@@ -294,6 +301,26 @@ class ChatPage:
         elif result_type == "memory_append":
             # 追加记忆
             self.chat_service.append_memory(data["content"])
+            
+        elif result_type == "immich_search_result_message":
+            # Immich 搜索结果消息（需要批量下载缩略图）
+            # 先添加文本消息
+            current_index = len(self.chat_service.chat_history)
+            self.chat_service.add_chat_message({
+                "role": data["role"],
+                "content": data["content"],
+                "session_id": data["session_id"]
+            })
+            
+            # 异步批量下载缩略图并更新消息
+            self._download_and_update_thumbnails(
+                asset_ids=data["asset_ids"],
+                text_content=data["content"],
+                expected_index=current_index,
+                person_name=data.get("person_name"),
+                query=data.get("query"),
+                count=data.get("count", 0)
+            )
             
         elif result_type == "ignored":
             # 忽略的消息
@@ -389,6 +416,72 @@ class ChatPage:
             except Exception as e:
                 import traceback
                 self.logger.error(f"下载图片时出错: {e}, traceback: {traceback.format_exc()}")
+            finally:
+                loop.close()
+        
+        # 在后台线程中执行下载
+        download_thread = threading.Thread(target=download_and_update, daemon=True)
+        download_thread.start()
+    
+    def _download_and_update_thumbnails(
+        self,
+        asset_ids: List[str],
+        text_content: str,
+        expected_index: int,
+        person_name: Optional[str] = None,
+        query: Optional[str] = None,
+        count: int = 0
+    ):
+        """
+        异步批量下载缩略图并更新消息
+        
+        Args:
+            asset_ids: Immich 资产 ID 列表
+            text_content: 文本内容
+            expected_index: 期望的消息索引
+            person_name: 人物名称（可选）
+            query: 查询关键词（可选）
+            count: 结果数量
+        """
+        def download_and_update():
+            """在后台线程中批量下载缩略图并更新消息"""
+            self.logger.info(f"后台线程开始批量下载缩略图: 共 {len(asset_ids)} 个资产")
+            try:
+                # 创建新的事件循环（因为在线程中）
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # 批量下载缩略图
+                self.logger.info(f"准备调用 download_immich_thumbnails_batch: asset_ids={asset_ids}")
+                thumbnail_paths = loop.run_until_complete(
+                    self.chat_service.download_immich_thumbnails_batch(asset_ids)
+                )
+                self.logger.info(f"download_immich_thumbnails_batch 返回: {len(thumbnail_paths)} 个路径")
+                
+                if thumbnail_paths:
+                    self.logger.info(f"缩略图下载成功: 共 {len(thumbnail_paths)} 张")
+                    
+                    # 将缩略图设置到 person_gallery 中
+                    # 如果有 person_name，使用 person_name；否则使用 "搜索结果" 作为 key
+                    gallery_key = person_name if person_name else "搜索结果"
+                    
+                    # 获取该人物已有的照片（如果有）
+                    existing_photos = self.chat_service.get_person_gallery(gallery_key)
+                    
+                    # 合并新下载的照片（去重）
+                    all_photos = list(existing_photos) if existing_photos else []
+                    for photo_path in thumbnail_paths:
+                        if photo_path and photo_path not in all_photos:
+                            all_photos.append(photo_path)
+                    
+                    # 设置到 person_gallery
+                    self.chat_service.set_person_gallery(gallery_key, all_photos)
+                    self.logger.info(f"已将 {len(thumbnail_paths)} 张缩略图设置到 gallery: {gallery_key}, 总计 {len(all_photos)} 张")
+                else:
+                    self.logger.warning("没有成功下载任何缩略图")
+            except Exception as e:
+                import traceback
+                self.logger.error(f"批量下载缩略图时出错: {e}, traceback: {traceback.format_exc()}")
             finally:
                 loop.close()
         
