@@ -1,8 +1,8 @@
-
-- server tools of find immich images based on city, persion anme, date, embedding
-- demand resource storage
-- server tools of find demand and resurce 
-- active human detection in the espew device
-- active face detection and update to server logical: like face changed and 5minute passed
-- chat process for known friends
-- chat process for unknow friends
+- [x] 服务端工具：基于城市、人物姓名、日期、特征向量查找 immich 中的图片
+- [ ] Web 端 chat_page 中记录并保持最后一次识别到的人物（该人物信息来自服务端的人脸识别和声纹识别），可以在 gallery 组件下面显示姓名，然后设定一个阈值（如 20 秒内未更新人物，也没有其它新的查询请求），就根据当前人物，进入照片展示模式，https://docs.immichkiosk.app/， 开源项目地址如下：https://github.com/damongolding/immich-kiosk， 可以跳转到另外一个 page，使用 gradio.html iframe 组件，并将人物姓名通过 url 传入 immichkiosk 应用，就可以实现对应人物的轮播。 示例 url 如下：https://demo.immichkiosk.app/， 可以嵌入到 gradio 的一个单独 page 中， 然后当有新的对话消息过来后，再回到原来的聊天页面 chat_page
+- [ ] 需求与资源储存功能
+- [ ] 服务端工具：查找需求与资源
+- [ ] ESP32 设备中的主动人体检测
+- [ ] 主动人脸检测逻辑及上传到服务器：如检测到人脸变化且超过 5 分钟
+- [ ] 针对已知朋友的聊天流程
+- [ ] 针对未知朋友的聊天流程

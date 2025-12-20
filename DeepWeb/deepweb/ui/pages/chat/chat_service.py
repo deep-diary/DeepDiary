@@ -14,6 +14,7 @@ import tempfile
 import os
 import asyncio
 import threading
+import time
 from typing import List, Dict, Any, Optional
 from queue import Queue, Empty
 import logging
@@ -64,6 +65,12 @@ class ChatService:
         
         # 记录当前应该显示的人物相册（最新设置的）
         self.current_gallery_person: Optional[str] = None
+        
+        # 照片展示模式相关状态
+        self.last_person_name: Optional[str] = None  # 最后一次识别到的人物名称
+        self.last_person_id: Optional[str] = None    # 最后一次识别到的人物ID
+        self.last_message_time: float = 0.0          # 最后一次消息的时间戳
+        self.last_person_update_time: float = 0.0    # 最后一次人物更新的时间戳
         
         # LLM流式响应合并：存储当前正在接收的消息
         self.current_llm_message: Dict[str, Any] = {}
@@ -349,6 +356,11 @@ class ChatService:
         
         self.logger.info(f"收到 Immich 搜索结果: 共 {len(asset_ids)} 个资产, query={query}, person_name={person_name}")
         self.logger.info(f"资产ID列表: {asset_ids}")
+        
+        # 如果识别到人物，更新人物跟踪信息
+        if person_name:
+            # 异步获取人物ID（不阻塞当前流程）
+            asyncio.create_task(self._update_person_info(person_name))
         
         # 构建文本内容（使用空格分隔，避免换行符导致 Gradio 误判为文件路径）
         text_content = f"找到 {count} 张相关照片"
@@ -756,6 +768,92 @@ class ChatService:
         # 更新当前应该显示的人物（最新设置的）
         self.current_gallery_person = person_name
         self.logger.info(f"已设置人物 '{person_name}' 的照片相册，共 {len(image_data)} 张照片")
+    
+    async def _update_person_info(self, person_name: str):
+        """
+        更新人物信息（名称和ID）
+        
+        Args:
+            person_name: 人物名称
+        """
+        if not person_name:
+            return
+        
+        current_time = time.time()
+        
+        # 如果人物名称发生变化，需要重新获取ID
+        if person_name != self.last_person_name:
+            self.logger.info(f"检测到新人物: {person_name}")
+            
+            # 尝试获取人物ID
+            person_id = None
+            if self.immich_logic and self.immich_logic.api:
+                try:
+                    person_ids = await self.immich_logic.api.search_person(
+                        name=person_name,
+                        return_ids=True,
+                        timeout=5.0
+                    )
+                    if person_ids and len(person_ids) > 0:
+                        person_id = person_ids[0]  # 使用第一个匹配的人物ID
+                        self.logger.info(f"获取到人物ID: {person_name} -> {person_id}")
+                    else:
+                        self.logger.warning(f"未找到人物ID: {person_name}")
+                except Exception as e:
+                    self.logger.error(f"获取人物ID失败: {person_name}, 错误: {e}")
+            
+            # 更新人物信息
+            self.last_person_name = person_name
+            self.last_person_id = person_id
+            self.last_person_update_time = current_time
+        
+        # 更新最后消息时间
+        self.last_message_time = current_time
+    
+    def update_message_time(self):
+        """
+        更新最后消息时间（当收到新消息时调用）
+        """
+        self.last_message_time = time.time()
+    
+    def should_enter_slideshow(self, idle_threshold: float = 20.0) -> bool:
+        """
+        判断是否应该进入照片展示模式
+        
+        Args:
+            idle_threshold: 空闲阈值（秒），默认 20 秒
+            
+        Returns:
+            是否应该进入照片展示模式
+        """
+        if not self.last_person_name or not self.last_person_id:
+            return False
+        
+        current_time = time.time()
+        
+        # 计算空闲时间（从最后一次消息或人物更新开始）
+        idle_time = current_time - max(self.last_message_time, self.last_person_update_time)
+        
+        if idle_time >= idle_threshold:
+            self.logger.debug(
+                f"满足进入照片展示模式条件: person_name={self.last_person_name}, "
+                f"idle_time={idle_time:.1f}s >= {idle_threshold}s"
+            )
+            return True
+        
+        return False
+    
+    def get_last_person_info(self) -> Dict[str, Optional[str]]:
+        """
+        获取最后识别到的人物信息
+        
+        Returns:
+            包含 person_name 和 person_id 的字典
+        """
+        return {
+            "person_name": self.last_person_name,
+            "person_id": self.last_person_id
+        }
     
     def _cleanup_temp_files(self):
         """清理临时文件"""

@@ -10,9 +10,11 @@ Chat Page - 聊天页面主类
 
 import threading
 import asyncio
+import time
 from typing import List, Dict, Any, Optional
 from queue import Queue, Empty
 import logging
+import gradio as gr
 
 # 导入组件
 from deepweb.services.cloud_communication.websocket_client import WebSocketClient
@@ -55,40 +57,65 @@ class ChatPage:
         # 3. UI 组件层
         self.chat_ui = ChatUI(self.logger)
         
+        # 4. 照片展示页面
+        from deepweb.ui.pages.frame_page import FramePage
+        self.frame_page = FramePage(self.logger)
+        
         # UI 更新队列（用于异步更新）
         self.ui_update_queue = Queue(maxsize=100)
 
         # 连接状态
         self.connection_status = "未连接"
+        
+        # 照片展示模式配置
+        self.idle_threshold = 20.0  # 空闲阈值（秒）
+        self.check_interval = 1.0   # 检查间隔（秒）
+        self.current_view = "chat"  # 当前视图：chat 或 slideshow
 
     def build(self):
         """
-        构建 Gradio UI 界面
+        构建 Gradio UI 界面（包含聊天视图和照片展示视图）
         
         Returns:
             Gradio Column 组件
         """
-        # 构建 UI
-        chat_interface = self.chat_ui.build(
-            device_id=self.ws_client.device_id,
-            client_id=self.ws_client.client_id,
-            websocket_url=self.ws_client.websocket_url,
-            chat_history=self.chat_service.get_chat_history(),
-            memory_markdown=self.chat_service.get_memory_markdown()
-        )
-        
-        # 绑定事件
-        self.chat_ui.bind_events(
-            on_connect=self.connect_websocket,
-            on_disconnect=self.disconnect_websocket,
-            on_send_message=self.send_message,
-            on_clear_chat=self.clear_chat_history,
-            on_refresh_memory=self.refresh_memory,
-            on_clear_memory=self.clear_memory,
-            on_update_ui=self.update_ui
+        with gr.Column() as main_container:
+            # 聊天视图（默认显示）
+            with gr.Column(visible=True) as self.chat_view:
+                # 构建聊天界面
+                chat_interface = self.chat_ui.build(
+                    device_id=self.ws_client.device_id,
+                    client_id=self.ws_client.client_id,
+                    websocket_url=self.ws_client.websocket_url,
+                    chat_history=self.chat_service.get_chat_history(),
+                    memory_markdown=self.chat_service.get_memory_markdown()
+                )
+            
+            # 照片展示视图（默认隐藏）
+            with gr.Column(visible=False) as self.slideshow_view:
+                # 构建照片展示界面
+                self.frame_page_html = self.frame_page.build()
+            
+            # 绑定事件
+            self.chat_ui.bind_events(
+                on_connect=self.connect_websocket,
+                on_disconnect=self.disconnect_websocket,
+                on_send_message=self.send_message,
+                on_clear_chat=self.clear_chat_history,
+                on_refresh_memory=self.refresh_memory,
+                on_clear_memory=self.clear_memory,
+                on_update_ui=self.update_ui_with_slideshow_check
+            )
+            
+            # 添加空闲检测定时器（用于检查是否应该切换到照片展示模式）
+            self.idle_timer = gr.Timer(value=self.check_interval, active=True)
+            self.idle_timer.tick(
+                fn=self.check_and_switch_to_slideshow,
+                inputs=[],
+                outputs=[self.chat_view, self.slideshow_view, self.frame_page_html]
             )
 
-        return chat_interface
+        return main_container
 
     def connect_websocket(self, device_id: str, client_id: str, websocket_url: str) -> str:
         """
@@ -123,6 +150,13 @@ class ChatPage:
         if not message or not message.strip():
             return
 
+        # 更新消息时间（重置空闲定时器）
+        self.chat_service.update_message_time()
+        
+        # 如果当前在照片展示模式，切换回聊天页面
+        if self.current_view == "slideshow":
+            self.switch_to_chat_page()
+        
         success = self.ws_client.send_message(message)
         if not success:
             self.logger.warning("发送消息失败")
@@ -158,15 +192,15 @@ class ChatPage:
         self.chat_service.clear_memory()
         return self.chat_service.get_memory_markdown()
     
-    def update_ui(self) -> tuple:
+    def update_ui_with_slideshow_check(self) -> tuple:
         """
-        更新 UI 界面（定时调用）
+        更新 UI 界面（定时调用，包含照片展示模式检查）
         
         Returns:
             (chat_history, person_gallery, status_text) 的更新
         """
-        # 处理消息队列
-        updated = False
+        # 记录是否有新消息
+        has_new_message = False
         
         # 处理 WebSocket 消息
         while True:
@@ -180,7 +214,7 @@ class ChatPage:
                 
                 # 根据处理结果更新 UI
                 self._handle_service_result(result)
-                updated = True
+                has_new_message = True
                 
             except Empty:
                 break
@@ -190,10 +224,26 @@ class ChatPage:
             try:
                 update_data = self.ui_update_queue.get_nowait()
                 self._process_ui_update(update_data)
-                updated = True
             except Empty:
                 break
         
+        # 如果有新消息，更新消息时间并切换回聊天页面
+        if has_new_message:
+            self.chat_service.update_message_time()
+            if self.current_view == "slideshow":
+                self.current_view = "chat"
+                self.logger.info("收到新消息，切换回聊天页面")
+        
+        # 调用原有的 update_ui 逻辑
+        return self.update_ui()
+    
+    def update_ui(self) -> tuple:
+        """
+        更新 UI 界面（定时调用）
+        
+        Returns:
+            (chat_history, person_gallery, status_text) 的更新
+        """
         # 获取当前显示的人物照片（显示最新设置的人物）
         current_person_gallery = []
         person_galleries = getattr(self.chat_service, 'person_galleries', {})
@@ -219,6 +269,94 @@ class ChatPage:
             self.connection_status
         )
     
+    def check_and_switch_to_slideshow(self) -> tuple:
+        """
+        检查是否应该切换到照片展示模式或切换回聊天页面
+        
+        Returns:
+            (chat_view_update, slideshow_view_update, frame_page_html_update)
+        """
+        # 如果当前在照片展示模式，检查是否应该切换回聊天页面
+        if self.current_view == "slideshow":
+            # 检查是否有新消息（通过检查消息时间）
+            # 如果距离最后一次消息时间很短（小于阈值），说明有新消息，应该切换回聊天页面
+            current_time = time.time()
+            time_since_last_message = current_time - self.chat_service.last_message_time
+            
+            # 如果距离最后一次消息小于1秒，说明刚刚有新消息，切换回聊天页面
+            if time_since_last_message < 1.0:
+                self.logger.info("检测到新消息，切换回聊天页面")
+                return self.switch_to_chat_page()
+            
+            # 否则保持照片展示模式
+            return (
+                gr.update(),  # chat_view 不变
+                gr.update(),  # slideshow_view 不变
+                gr.update()   # frame_page_html 不变
+            )
+        
+        # 如果当前在聊天页面，检查是否应该切换到照片展示模式
+        if self.chat_service.should_enter_slideshow(self.idle_threshold):
+            person_info = self.chat_service.get_last_person_info()
+            person_id = person_info.get("person_id")
+            
+            if person_id:
+                self.logger.info(f"切换到照片展示模式: person_id={person_id}")
+                return self.switch_to_slideshow(person_id)
+            else:
+                self.logger.debug("满足切换条件，但人物ID为空，无法切换")
+        
+        return (
+            gr.update(),  # chat_view 不变
+            gr.update(),  # slideshow_view 不变
+            gr.update()   # frame_page_html 不变
+        )
+    
+    def switch_to_slideshow(self, person_id: str) -> tuple:
+        """
+        切换到照片展示模式
+        
+        Args:
+            person_id: 人物ID
+            
+        Returns:
+            (chat_view_update, slideshow_view_update, frame_page_html_update)
+        """
+        self.current_view = "slideshow"
+        self.logger.info(f"切换到照片展示模式: person_id={person_id}")
+        
+        # 更新 iframe HTML
+        html_update = self.frame_page.update_person(person_id)
+        
+        return (
+            gr.update(visible=False),  # 隐藏聊天视图
+            gr.update(visible=True),   # 显示照片展示视图
+            html_update                # 更新 iframe HTML
+        )
+    
+    def switch_to_chat_page(self) -> tuple:
+        """
+        切换回聊天页面
+        
+        Returns:
+            (chat_view_update, slideshow_view_update, frame_page_html_update)
+        """
+        if self.current_view == "chat":
+            return (
+                gr.update(),  # chat_view 不变
+                gr.update(),  # slideshow_view 不变
+                gr.update()   # frame_page_html 不变
+            )
+        
+        self.current_view = "chat"
+        self.logger.info("切换回聊天页面")
+        
+        return (
+            gr.update(visible=True),   # 显示聊天视图
+            gr.update(visible=False),  # 隐藏照片展示视图
+            gr.update()                # frame_page_html 不变
+        )
+    
     def _on_websocket_message(self, message: Dict[str, Any]):
         """
         WebSocket 消息接收回调
@@ -228,6 +366,15 @@ class ChatPage:
         """
         # 消息会通过 get_message() 方法处理，这里可以记录日志
         self.logger.debug(f"收到 WebSocket 消息: type={message.get('type')}")
+        
+        # 更新消息时间（重置空闲定时器）
+        self.chat_service.update_message_time()
+        
+        # 如果当前在照片展示模式，切换回聊天页面
+        if self.current_view == "slideshow":
+            # 注意：这里不能直接调用 switch_to_chat_page，因为需要返回更新
+            # 实际的切换会在 update_ui 中处理
+            pass
     
     def _on_status_change(self, status: str):
         """
@@ -248,6 +395,15 @@ class ChatPage:
         """
         result_type = result.get("type")
         data = result.get("data")
+        
+        # 更新消息时间（重置空闲定时器）
+        self.chat_service.update_message_time()
+        
+        # 如果当前在照片展示模式，切换回聊天页面
+        if self.current_view == "slideshow":
+            # 注意：这里不能直接调用 switch_to_chat_page，因为需要返回更新
+            # 实际的切换会在 update_ui 中处理
+            pass
         
         if result_type == "user_message":
             # 用户消息
