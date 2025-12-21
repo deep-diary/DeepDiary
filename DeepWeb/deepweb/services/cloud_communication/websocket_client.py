@@ -43,7 +43,7 @@ class WebSocketClient:
         self.is_connected = False
         
         # 设备配置
-        self.device_id = "web_chat_client"
+        self.device_id = "b4:3a:45:a8:dc:e0"
         self.client_id = "gradio-client"
         
         # 监听线程

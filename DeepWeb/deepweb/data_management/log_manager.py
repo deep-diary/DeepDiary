@@ -6,6 +6,13 @@ import os
 from datetime import datetime
 import sys
 
+# 尝试导入 colorlog，如果失败则使用标准 logging
+try:
+    import colorlog
+    COLORLOG_AVAILABLE = True
+except ImportError:
+    COLORLOG_AVAILABLE = False
+
 class LogManager:
     """
     统一的日志管理类。
@@ -43,7 +50,7 @@ class LogManager:
 
         # 避免重复添加 handlers
         if not self.root_logger.handlers:
-            # 文件处理器 - 记录INFO及以上级别
+            # 文件处理器 - 记录INFO及以上级别（文件不使用颜色）
             file_handler = logging.FileHandler(self.log_file_path, encoding='utf-8')
             file_handler.setLevel(file_level)
             file_formatter = logging.Formatter(
@@ -55,9 +62,32 @@ class LogManager:
             # 控制台处理器 - 默认WARNING级别，减少控制台输出
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(console_level)
-            console_formatter = logging.Formatter(
-                '%(levelname)s - %(filename)s:%(funcName)s - %(message)s'
-            )
+            
+            # 如果 colorlog 可用，使用带颜色的格式化器
+            # 参考服务器端格式：时间[模块名]-级别-消息
+            if COLORLOG_AVAILABLE:
+                console_formatter = colorlog.ColoredFormatter(
+                    '%(green)s%(asctime)s%(reset)s[%(cyan)s%(name)s%(reset)s]-'
+                    '%(log_color)s%(levelname)s%(reset)s-'
+                    '%(message)s',
+                    datefmt='%y%m%d %H:%M:%S',  # 与服务器端格式一致：YYMMDD HH:mm:ss
+                    reset=True,
+                    log_colors={
+                        'DEBUG': 'cyan',
+                        'INFO': 'green',
+                        'WARNING': 'yellow',
+                        'ERROR': 'red',
+                        'CRITICAL': 'red,bg_white',
+                    },
+                    secondary_log_colors={},
+                    style='%'
+                )
+            else:
+                # 回退到标准格式化器
+                console_formatter = logging.Formatter(
+                    '%(levelname)s - %(filename)s:%(funcName)s - %(message)s'
+                )
+            
             console_handler.setFormatter(console_formatter)
             self.root_logger.addHandler(console_handler)
 

@@ -11,6 +11,7 @@ Chat UI - 聊天界面组件
 import gradio as gr
 from typing import List, Dict, Any, Optional, Tuple
 import logging
+from deepweb.ui.pages.chat.kiosk_iframe import KioskIframe
 
 
 class ChatUI:
@@ -43,16 +44,19 @@ class ChatUI:
         self.msg_input: Optional[gr.Textbox] = None
         self.send_btn: Optional[gr.Button] = None
         self.clear_btn: Optional[gr.Button] = None
-        self.person_gallery: Optional[gr.Gallery] = None
+        self.kiosk_iframe_component: Optional[KioskIframe] = None  # Kiosk iframe 组件实例
+        self.kiosk_iframe: Optional[gr.HTML] = None  # Immich Kiosk iframe（用于聊天模式）
+        self.search_gallery: Optional[gr.Gallery] = None  # 搜索结果 Gallery（用于自然语言搜索模式）
         self.timer: Optional[gr.Timer] = None
     
     def build(
         self,
-        device_id: str = "web_chat_client",
+        device_id: str = "connect_websocket",
         client_id: str = "gradio-client",
         websocket_url: str = "ws://localhost:8000/xiaozhi/v1/",
         chat_history: List[Dict[str, str]] = None,
-        memory_markdown: str = "# 记忆显示区\n\n待开发功能..."
+        memory_markdown: str = "# 记忆显示区\n\n待开发功能...",
+        kiosk_base_url: str = "http://192.168.31.25:3000"
     ) -> gr.Column:
         """
         构建 Gradio UI 界面
@@ -79,7 +83,7 @@ class ChatUI:
                     self.device_id_input = gr.Textbox(
                         label="设备ID (Device ID)",
                         value=device_id,
-                        placeholder="web_chat_client",
+                        placeholder="设备ID",
                         interactive=True
                     )
                     self.client_id_input = gr.Textbox(
@@ -135,23 +139,23 @@ class ChatUI:
                     with gr.Row():
                         self.clear_btn = gr.Button("🗑️ 清除聊天记录", size="sm")
                 
-                # 右侧：人物相册
-                with gr.Column(scale=1):
-                    # 标题
-                    gr.Markdown("### 🎥 人物相册")
-                    # 人物相册（直接显示，无标题和Tab）
-                    self.person_gallery = gr.Gallery(
-                        label="人物照片",
+                # 右侧：显示区域（根据模式切换显示内容）
+                with gr.Column(scale=1) as right_panel:
+                    # 模式 A: Immich Kiosk iframe（默认显示，用于聊天模式）
+                    # 使用 KioskIframe 组件，高度 800px（聊天模式）
+                    self.kiosk_iframe_component = KioskIframe(self.logger, kiosk_base_url=kiosk_base_url)
+                    self.kiosk_iframe = self.kiosk_iframe_component.build(height=800)
+                    
+                    # 模式 C: 搜索结果 Gallery（默认隐藏，用于自然语言搜索模式）
+                    self.search_gallery = gr.Gallery(
+                        label="搜索结果",
                         show_label=False,
                         height=800,
                         columns=3,
                         rows=2,
                         value=[],
+                        visible=False,
                         allow_preview=True
-                    )
-                    gr.Markdown(
-                        value="*识别到人物后，会自动加载该人物的照片相册*",
-                        show_label=False
                     )
             
             # 定时更新聊天记录和记忆显示（每秒更新一次）
@@ -252,10 +256,10 @@ class ChatUI:
         #     outputs=[self.memory_display]
         # )
         
-        # 定时更新（移除memory_display，因为已经删除）
+        # 定时更新（包含所有需要更新的组件）
         self.timer.tick(
             fn=on_update_ui,
             inputs=[],
-            outputs=[self.chatbot, self.person_gallery, self.status_text]
+            outputs=[self.chatbot, self.status_text, self.kiosk_iframe, self.search_gallery]
         )
 

@@ -30,15 +30,16 @@
       "ip_address": "192.168.1.100"
     }
   },
-  "immich_bk": {
-    "api_url": "http://127.0.0.1:2283/api",
-    "api_key": "ZbQpVHwESQC4chEUJyVYoIyP6pVUFJvpRh1llIOYbw",
+  "immich": {
+    "kiosk_url": "http://192.168.31.25:3000",
+    "api_url": "http://192.168.31.25:2283/api",
+    "api_key": "JNDoe07jXAEH2qObQeme8hHNbOs3bflGWhOGdOWoGFc",
     "user": "Blue",
     "email": "deep-diary@qq.com",
     "password": "deep-diary666",
     "timeout": 30
   },
-  "immich": {
+  "immich_demo": {
     "api_url": "https://demo.immich.app/api",
     "api_key": "rEA8au0oAY4D8P7wrZyukfweImIngbIJD6QmkGqrGI",
     "user": "demo",

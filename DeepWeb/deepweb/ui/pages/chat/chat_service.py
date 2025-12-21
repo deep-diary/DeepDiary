@@ -60,17 +60,22 @@ class ChatService:
         # 记忆内容
         self.memory_markdown = "# 记忆显示区\n\n待开发功能..."
         
-        # 人物照片相册：存储每个人物的照片列表 {person_name: [image_paths]}
+        # 注意：person_galleries 和 current_gallery_person 已废弃
+        # 人物照片现在通过 Kiosk URL 在 iframe 中显示，不再使用 gallery
+        # 保留这些属性以避免可能的引用错误，但不再使用
         self.person_galleries: Dict[str, List[str]] = {}
-        
-        # 记录当前应该显示的人物相册（最新设置的）
         self.current_gallery_person: Optional[str] = None
         
         # 照片展示模式相关状态
+        self.current_mode: str = "chat"  # 当前模式：chat/slideshow/search
         self.last_person_name: Optional[str] = None  # 最后一次识别到的人物名称
         self.last_person_id: Optional[str] = None    # 最后一次识别到的人物ID
+        self.last_kiosk_url: Optional[str] = None     # 最后一次收到的 Kiosk URL
         self.last_message_time: float = 0.0          # 最后一次消息的时间戳
         self.last_person_update_time: float = 0.0    # 最后一次人物更新的时间戳
+        self.idle_threshold: float = 20.0            # 空闲阈值（秒）
+        self.search_mode_enter_time: float = 0.0     # 进入搜索模式的时间戳
+        self.search_mode_protection_period: float = 10.0  # 搜索模式保护期（秒），在此期间内忽略人物识别
         
         # LLM流式响应合并：存储当前正在接收的消息
         self.current_llm_message: Dict[str, Any] = {}
@@ -158,6 +163,10 @@ class ChatService:
             elif message_type == "immich_search_result":
                 # Immich 搜索结果
                 return self._process_immich_search_result_message(message)
+            
+            elif message_type == "immich_kiosk_url":
+                # Immich Kiosk URL 消息
+                return self._process_immich_kiosk_url_message(message)
             
             else:
                 # 其他类型的消息（如 llm 流式片段，不处理）
@@ -354,8 +363,8 @@ class ChatService:
             self.logger.warning("Immich 搜索结果中没有找到 asset_id")
             return {"type": "ignored", "data": None}
         
-        self.logger.info(f"收到 Immich 搜索结果: 共 {len(asset_ids)} 个资产, query={query}, person_name={person_name}")
-        self.logger.info(f"资产ID列表: {asset_ids}")
+        self.logger.debug(f"收到 Immich 搜索结果: 共 {len(asset_ids)} 个资产, query={query}, person_name={person_name}")
+        self.logger.debug(f"资产ID列表: {asset_ids}")
         
         # 如果识别到人物，更新人物跟踪信息
         if person_name:
@@ -366,7 +375,7 @@ class ChatService:
         text_content = f"找到 {count} 张相关照片"
         if person_name:
             text_content += f"（{person_name}）"
-        if query and query != "voiceprint_triggered":
+        if query:
             text_content += f" | 查询关键词: {query}"
         
         # 返回需要下载缩略图的消息类型
@@ -393,7 +402,7 @@ class ChatService:
         Returns:
             下载的图片文件路径，如果下载失败返回 None
         """
-        self.logger.info(f"开始下载 Immich 图片: asset_id={asset_id}")
+        self.logger.debug(f"开始下载 Immich 图片: asset_id={asset_id}")
         
         if not self.immich_logic or not self.immich_logic.api.enabled:
             self.logger.warning("Immich logic 未初始化或未启用")
@@ -417,7 +426,7 @@ class ChatService:
                 if os.path.exists(image_path):
                     file_size = os.path.getsize(image_path)
                     self.temp_files.append(image_path)
-                    self.logger.info(f"成功从 Immich 下载图片: asset_id={asset_id}, path={image_path}, size={file_size} bytes")
+                    self.logger.debug(f"成功从 Immich 下载图片: asset_id={asset_id}, path={image_path}, size={file_size} bytes")
                     return image_path
                 else:
                     self.logger.warning(f"保存图片文件失败: asset_id={asset_id}")
@@ -445,7 +454,7 @@ class ChatService:
             - return_base64=True: base64 data URI 列表
             - 否则: 文件路径列表
         """
-        self.logger.info(f"开始批量下载 Immich 缩略图: 共 {len(asset_ids)} 个资产, return_pil={return_pil}, return_base64={return_base64}")
+        self.logger.debug(f"开始批量下载 Immich 缩略图: 共 {len(asset_ids)} 个资产, return_pil={return_pil}, return_base64={return_base64}")
         
         if not self.immich_logic or not self.immich_logic.api.enabled:
             self.logger.warning("Immich logic 未初始化或未启用")
@@ -460,7 +469,7 @@ class ChatService:
                 self.logger.error("AssetMediaSize 未导入，无法下载缩略图")
                 return []
             
-            self.logger.info(f"调用 immich_logic.batch_download_thumbnails: asset_ids={asset_ids}, return_pil={return_pil}, return_base64={return_base64}")
+            self.logger.debug(f"调用 immich_logic.batch_download_thumbnails: asset_ids={asset_ids}, return_pil={return_pil}, return_base64={return_base64}")
             result = await self.immich_logic.batch_download_thumbnails(
                 asset_ids=asset_ids,
                 save_dir=self.temp_dir if not return_base64 and not return_pil else None,  # 如果返回 base64 或 PIL，不需要保存目录
@@ -469,30 +478,30 @@ class ChatService:
                 return_pil=return_pil
             )
             
-            self.logger.info(f"batch_download_thumbnails 返回结果: success={result.get('success')}, downloaded={result.get('downloaded')}, failed={result.get('failed')}")
+            self.logger.debug(f"batch_download_thumbnails 返回结果: success={result.get('success')}, downloaded={result.get('downloaded')}, failed={result.get('failed')}")
             
             if result.get("success"):
                 if return_pil:
                     # 返回 PIL Image 对象列表（性能最优）
                     pil_images = result.get("pil_images", [])
-                    self.logger.info(f"获取到 {len(pil_images)} 个 PIL Image 对象（性能最优：内存占用最小，无需编码/解码）")
+                    self.logger.debug(f"获取到 {len(pil_images)} 个 PIL Image 对象（性能最优：内存占用最小，无需编码/解码）")
                     return pil_images
                 elif return_base64:
                     # 返回 base64 data URI 列表
                     base64_data_uris = result.get("base64_data_uris", [])
-                    self.logger.info(f"获取到 {len(base64_data_uris)} 个 base64 data URI（未保存文件，避免文件 I/O）")
+                    self.logger.debug(f"获取到 {len(base64_data_uris)} 个 base64 data URI（未保存文件，避免文件 I/O）")
                     return base64_data_uris
                 else:
                     # 返回文件路径列表
                     thumbnail_paths = result.get("saved_files", [])
-                    self.logger.info(f"获取到 {len(thumbnail_paths)} 个文件路径: {thumbnail_paths}")
+                    self.logger.debug(f"获取到 {len(thumbnail_paths)} 个文件路径: {thumbnail_paths}")
                     
                     # 记录临时文件，用于后续清理
                     for path in thumbnail_paths:
                         if path and path not in self.temp_files:
                             self.temp_files.append(path)
                     
-                    self.logger.info(f"批量下载完成: 成功 {len(thumbnail_paths)}/{len(asset_ids)} 张缩略图")
+                    self.logger.debug(f"批量下载完成: 成功 {len(thumbnail_paths)}/{len(asset_ids)} 张缩略图")
                     return thumbnail_paths
             else:
                 errors = result.get("errors", [])
@@ -514,7 +523,7 @@ class ChatService:
         Returns:
             缩略图文件路径列表
         """
-        self.logger.info(f"开始获取人物照片: person_name={person_name}, limit={limit}")
+        self.logger.debug(f"开始获取人物照片: person_name={person_name}, limit={limit}")
         
         if not self.immich_logic or not self.immich_logic.api.enabled:
             self.logger.warning("Immich logic 未初始化或未启用")
@@ -553,7 +562,7 @@ class ChatService:
                     if path and path not in self.temp_files:
                         self.temp_files.append(path)
                 
-                self.logger.info(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_name={person_name}")
+                self.logger.debug(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_name={person_name}")
                 return thumbnail_paths
             else:
                 self.logger.warning(f"下载人物照片失败: {result.get('errors', [])}")
@@ -574,7 +583,7 @@ class ChatService:
         Returns:
             缩略图文件路径列表
         """
-        self.logger.info(f"开始获取人物照片: person_id={person_id}, limit={limit}")
+        self.logger.debug(f"开始获取人物照片: person_id={person_id}, limit={limit}")
         
         if not self.immich_logic or not self.immich_logic.api.enabled:
             self.logger.warning("Immich logic 未初始化或未启用")
@@ -616,7 +625,7 @@ class ChatService:
                     if path and path not in self.temp_files:
                         self.temp_files.append(path)
                 
-                self.logger.info(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_id={person_id}")
+                self.logger.debug(f"成功获取 {len(thumbnail_paths)} 张人物照片: person_id={person_id}")
                 return thumbnail_paths
             else:
                 self.logger.warning(f"下载人物照片失败: {result.get('errors', [])}")
@@ -726,6 +735,7 @@ class ChatService:
         """清除聊天记录"""
         self.chat_history = []
         self.current_llm_message = {}
+        # 注意：person_galleries 已废弃，但保留清理逻辑以避免错误
         self.person_galleries = {}
         self.current_gallery_person = None
         self._cleanup_temp_files()
@@ -746,28 +756,31 @@ class ChatService:
     
     def get_person_gallery(self, person_name: str) -> List[str]:
         """
-        获取指定人物的照片列表
+        获取指定人物的照片列表（已废弃）
+        
+        注意：此方法已废弃，人物照片现在通过 Kiosk URL 在 iframe 中显示
         
         Args:
             person_name: 人物名称
             
         Returns:
-            照片路径列表
+            照片路径列表（始终返回空列表）
         """
-        return self.person_galleries.get(person_name, [])
+        # 返回空列表，因为不再使用 gallery
+        return []
     
     def set_person_gallery(self, person_name: str, image_data: List[str]):
         """
-        设置指定人物的照片列表
+        设置指定人物的照片列表（已废弃）
+        
+        注意：此方法已废弃，人物照片现在通过 Kiosk URL 在 iframe 中显示
         
         Args:
             person_name: 人物名称
-            image_data: 照片数据列表，可以是文件路径或 base64 data URI
+            image_data: 照片数据列表（不再使用）
         """
-        self.person_galleries[person_name] = image_data
-        # 更新当前应该显示的人物（最新设置的）
-        self.current_gallery_person = person_name
-        self.logger.info(f"已设置人物 '{person_name}' 的照片相册，共 {len(image_data)} 张照片")
+        # 不再执行任何操作，仅记录日志
+        self.logger.debug(f"set_person_gallery 被调用但已废弃: person_name={person_name}, count={len(image_data) if image_data else 0}")
     
     async def _update_person_info(self, person_name: str):
         """
@@ -816,29 +829,100 @@ class ChatService:
         """
         self.last_message_time = time.time()
     
-    def should_enter_slideshow(self, idle_threshold: float = 20.0) -> bool:
+    def _process_immich_kiosk_url_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """
-        判断是否应该进入照片展示模式
+        处理 Immich Kiosk URL 消息
         
         Args:
-            idle_threshold: 空闲阈值（秒），默认 20 秒
+            message: WebSocket 消息字典，格式：
+                {
+                    "type": "immich_kiosk_url",
+                    "data": {
+                        "kiosk_url": "...",
+                        "person_name": "...",
+                        "person_id": "...",
+                        "device_id": "..."
+                    },
+                    "device_id": "..."
+                }
+        
+        Returns:
+            处理后的业务数据字典
+        """
+        data = message.get("data", {})
+        kiosk_url = data.get("kiosk_url", "")
+        person_name = data.get("person_name")
+        person_id = data.get("person_id")
+        session_id = message.get("device_id", "")  # 使用 device_id 作为 session_id
+        
+        if not kiosk_url:
+            self.logger.warning("Immich Kiosk URL 消息中没有找到 kiosk_url")
+            return {"type": "ignored", "data": None}
+        
+        # 更新人物信息和 Kiosk URL
+        current_time = time.time()
+        if person_name:
+            self.last_person_name = person_name
+            self.last_person_id = person_id
+            self.last_person_update_time = current_time
+            self.logger.info(f"更新人物信息: person_name={person_name}, person_id={person_id}")
+        
+        self.last_kiosk_url = kiosk_url
+        self.last_message_time = current_time
+        
+        self.logger.info(f"收到 Immich Kiosk URL: {kiosk_url}, person_name={person_name}, person_id={person_id}")
+        
+        return {
+            "type": "immich_kiosk_url_message",
+            "data": {
+                "kiosk_url": kiosk_url,
+                "person_name": person_name,
+                "person_id": person_id,
+                "session_id": session_id
+            }
+        }
+    
+    def should_enter_slideshow(self, idle_threshold: Optional[float] = None) -> bool:
+        """
+        判断是否应该进入全屏轮播模式
+        
+        Args:
+            idle_threshold: 空闲阈值（秒），如果为 None 则使用 self.idle_threshold
             
         Returns:
-            是否应该进入照片展示模式
+            是否应该进入全屏轮播模式
         """
-        if not self.last_person_name or not self.last_person_id:
-            return False
+        if idle_threshold is None:
+            idle_threshold = self.idle_threshold
         
         current_time = time.time()
         
         # 计算空闲时间（从最后一次消息或人物更新开始）
         idle_time = current_time - max(self.last_message_time, self.last_person_update_time)
         
+        # 无论是否有识别到人物，只要空闲时间达到阈值，就进入全屏轮播模式
         if idle_time >= idle_threshold:
             self.logger.debug(
-                f"满足进入照片展示模式条件: person_name={self.last_person_name}, "
-                f"idle_time={idle_time:.1f}s >= {idle_threshold}s"
+                f"满足进入全屏轮播模式条件: idle_time={idle_time:.1f}s >= {idle_threshold}s, "
+                f"person_name={self.last_person_name}, has_kiosk_url={bool(self.last_kiosk_url)}"
             )
+            return True
+        
+        return False
+    
+    def should_exit_slideshow(self) -> bool:
+        """
+        判断是否应该退出全屏轮播模式（有新消息时）
+        
+        Returns:
+            是否应该退出全屏轮播模式
+        """
+        # 如果距离最后一次消息时间很短（小于1秒），说明刚刚有新消息
+        current_time = time.time()
+        time_since_last_message = current_time - self.last_message_time
+        
+        if time_since_last_message < 1.0:
+            self.logger.debug(f"检测到新消息，应该退出全屏轮播模式: time_since_last_message={time_since_last_message:.1f}s")
             return True
         
         return False
@@ -854,6 +938,104 @@ class ChatService:
             "person_name": self.last_person_name,
             "person_id": self.last_person_id
         }
+    
+    def update_person_info(self, person_name: Optional[str] = None, person_id: Optional[str] = None, kiosk_url: Optional[str] = None):
+        """
+        更新人物信息
+        
+        Args:
+            person_name: 人物名称
+            person_id: 人物 ID
+            kiosk_url: Kiosk URL
+        """
+        current_time = time.time()
+        
+        if person_name:
+            self.last_person_name = person_name
+            self.last_person_update_time = current_time
+        
+        if person_id:
+            self.last_person_id = person_id
+        
+        if kiosk_url:
+            self.last_kiosk_url = kiosk_url
+        
+        self.last_message_time = current_time
+    
+    def set_current_mode(self, mode: str, reset_protection: bool = False):
+        """
+        设置当前模式
+        
+        Args:
+            mode: 模式名称（chat/slideshow/search）
+            reset_protection: 是否重置保护期（用于在 search 模式下收到新的搜索请求时）
+        """
+        if mode in ["chat", "slideshow", "search"]:
+            old_mode = self.current_mode
+            self.current_mode = mode
+            
+            # 如果切换到 search 模式，记录进入时间（用于保护期）
+            # 注意：每次切换到 search 模式都重置保护期（包括已经在 search 模式时）
+            if mode == "search":
+                # 如果已经在 search 模式且需要重置保护期，或者从其他模式切换到 search
+                if reset_protection or old_mode != "search":
+                    self.search_mode_enter_time = time.time()
+                    if old_mode != "search":
+                        self.logger.info(f"切换到模式: {mode}，保护期开始（{self.search_mode_protection_period}秒）")
+                    else:
+                        # 已经在 search 模式，收到新的搜索请求，重置保护期
+                        self.logger.info(f"收到新的搜索请求，重置保护期（{self.search_mode_protection_period}秒）")
+                # 如果已经在 search 模式且不需要重置，保持原有保护期
+            elif mode != "search" and old_mode == "search":
+                # 退出 search 模式，清除保护期
+                self.search_mode_enter_time = 0.0
+                self.logger.info(f"退出搜索模式，切换到: {mode}")
+            else:
+                self.logger.info(f"切换到模式: {mode}")
+        else:
+            self.logger.warning(f"无效的模式: {mode}")
+    
+    def get_current_mode(self) -> str:
+        """
+        获取当前模式
+        
+        Returns:
+            当前模式名称
+        """
+        return self.current_mode
+    
+    def is_search_mode_protected(self) -> bool:
+        """
+        检查搜索模式是否在保护期内
+        
+        Returns:
+            如果在保护期内返回 True，否则返回 False
+        """
+        if self.current_mode != "search":
+            return False
+        
+        if self.search_mode_enter_time == 0.0:
+            return False
+        
+        current_time = time.time()
+        elapsed_time = current_time - self.search_mode_enter_time
+        
+        is_protected = elapsed_time < self.search_mode_protection_period
+        if is_protected:
+            self.logger.debug(
+                f"搜索模式保护期内: 已过 {elapsed_time:.1f}s / {self.search_mode_protection_period}s"
+            )
+        
+        return is_protected
+    
+    def get_last_kiosk_url(self) -> Optional[str]:
+        """
+        获取最后收到的 Kiosk URL
+        
+        Returns:
+            Kiosk URL，如果没有则返回 None
+        """
+        return self.last_kiosk_url
     
     def _cleanup_temp_files(self):
         """清理临时文件"""

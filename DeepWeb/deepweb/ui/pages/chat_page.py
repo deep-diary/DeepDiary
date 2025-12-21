@@ -20,6 +20,7 @@ import gradio as gr
 from deepweb.services.cloud_communication.websocket_client import WebSocketClient
 from deepweb.ui.pages.chat.chat_service import ChatService
 from deepweb.ui.pages.chat.chat_ui import ChatUI
+from deepweb.ui.pages.chat.kiosk_iframe import KioskIframe
 
 
 class ChatPage:
@@ -57,12 +58,35 @@ class ChatPage:
         # 3. UI 组件层
         self.chat_ui = ChatUI(self.logger)
         
-        # 4. 照片展示页面
-        from deepweb.ui.pages.frame_page import FramePage
-        self.frame_page = FramePage(self.logger)
+        # 4. Kiosk iframe 组件
+        # 从配置中读取 Kiosk URL（如果有）
+        if config_manager:
+            all_config = config_manager.get_config()
+            immich_config = all_config.get("immich", {})
+            kiosk_base_url = immich_config.get("kiosk_url", "http://192.168.31.25:3000")
+        else:
+            kiosk_base_url = "http://192.168.31.25:3000"  # 默认值
+        
+        self.kiosk_base_url = kiosk_base_url
+        self.logger.info(f"[ChatPage] 从配置读取kiosk_base_url: {self.kiosk_base_url}")
+        
+        # 初始化 KioskIframe 组件，传递 kiosk_base_url
+        self.logger.info(f"[ChatPage] 初始化KioskIframe组件，kiosk_base_url={self.kiosk_base_url}")
+        self.kiosk_iframe = KioskIframe(self.logger, kiosk_base_url=self.kiosk_base_url)
         
         # UI 更新队列（用于异步更新）
         self.ui_update_queue = Queue(maxsize=100)
+        
+        # 待更新的 search_gallery 数据（用于自然语言搜索模式）
+        self._pending_search_gallery: Optional[List] = None
+        
+        # 缓存最后使用的 iframe URL，避免频繁更新导致闪烁
+        self._last_iframe_url: Optional[str] = None
+        self._last_iframe_html: Optional[str] = None  # 缓存 HTML 内容，用于避免 translucent 类
+        
+        # 缓存最后更新的模式，避免频繁更新导致闪烁
+        self._last_search_mode_update: Optional[str] = None
+        self._last_search_gallery_visible: bool = False
 
         # 连接状态
         self.connection_status = "未连接"
@@ -70,7 +94,7 @@ class ChatPage:
         # 照片展示模式配置
         self.idle_threshold = 20.0  # 空闲阈值（秒）
         self.check_interval = 1.0   # 检查间隔（秒）
-        self.current_view = "chat"  # 当前视图：chat 或 slideshow
+        self.current_view = "chat"  # 当前视图：chat 或 slideshow（兼容旧代码）
 
     def build(self):
         """
@@ -80,21 +104,31 @@ class ChatPage:
             Gradio Column 组件
         """
         with gr.Column() as main_container:
-            # 聊天视图（默认显示）
-            with gr.Column(visible=True) as self.chat_view:
+            # 聊天视图（默认显示，正常使用模式）
+            with gr.Column(visible=True) as self.chat_view:  # 默认显示聊天模式
                 # 构建聊天界面
                 chat_interface = self.chat_ui.build(
                     device_id=self.ws_client.device_id,
                     client_id=self.ws_client.client_id,
                     websocket_url=self.ws_client.websocket_url,
                     chat_history=self.chat_service.get_chat_history(),
-                    memory_markdown=self.chat_service.get_memory_markdown()
+                    memory_markdown=self.chat_service.get_memory_markdown(),
+                    kiosk_base_url=self.kiosk_base_url
                 )
             
-            # 照片展示视图（默认隐藏）
-            with gr.Column(visible=False) as self.slideshow_view:
-                # 构建照片展示界面
-                self.frame_page_html = self.frame_page.build()
+            # 照片展示视图（默认隐藏，全屏显示模式）
+            with gr.Column(
+                visible=False,  # 默认隐藏，进入全屏模式时显示
+                elem_classes=["slideshow-view"],
+                scale=1
+            ) as self.slideshow_view:
+                # 构建照片展示界面（全屏显示，高度1080px）
+                self.kiosk_iframe_html = self.kiosk_iframe.build(height=1080)
+                
+                # 初始化时设置为聊天模式
+                self.chat_service.set_current_mode("chat")
+                self.current_view = "chat"
+                self.logger.info("[初始化] 默认进入聊天模式")
             
             # 绑定事件
             self.chat_ui.bind_events(
@@ -107,12 +141,19 @@ class ChatPage:
                 on_update_ui=self.update_ui_with_slideshow_check
             )
             
-            # 添加空闲检测定时器（用于检查是否应该切换到照片展示模式）
+            # 添加空闲检测定时器（用于检查是否应该切换到全屏轮播模式）
+            # 注意：在全屏模式下，定时器仍然运行，但会返回空的更新以避免闪烁
             self.idle_timer = gr.Timer(value=self.check_interval, active=True)
             self.idle_timer.tick(
                 fn=self.check_and_switch_to_slideshow,
                 inputs=[],
-                outputs=[self.chat_view, self.slideshow_view, self.frame_page_html]
+                outputs=[
+                    self.chat_view,
+                    self.slideshow_view,
+                    self.kiosk_iframe_html,
+                    self.chat_ui.kiosk_iframe,
+                    self.chat_ui.search_gallery
+                ]
             )
 
         return main_container
@@ -153,9 +194,12 @@ class ChatPage:
         # 更新消息时间（重置空闲定时器）
         self.chat_service.update_message_time()
         
-        # 如果当前在照片展示模式，切换回聊天页面
-        if self.current_view == "slideshow":
-            self.switch_to_chat_page()
+        # 如果当前在全屏轮播模式，切换回聊天模式
+        current_mode = self.chat_service.get_current_mode()
+        if current_mode == "slideshow":
+            self.switch_to_chat_mode()
+        # 注意：搜索模式下，用户发送新消息时不自动切换模式
+        # 只有识别到新人物时才切换回聊天模式
         
         success = self.ws_client.send_message(message)
         if not success:
@@ -235,127 +279,342 @@ class ChatPage:
                 self.logger.info("收到新消息，切换回聊天页面")
         
         # 调用原有的 update_ui 逻辑
-        return self.update_ui()
+        chat_history, status_text, kiosk_iframe_update, search_gallery_update = self.update_ui()
+        
+        return (chat_history, status_text, kiosk_iframe_update, search_gallery_update)
     
     def update_ui(self) -> tuple:
         """
         更新 UI 界面（定时调用）
         
         Returns:
-            (chat_history, person_gallery, status_text) 的更新
+            (chat_history, status_text, kiosk_iframe_update, search_gallery_update) 的更新
         """
-        # 获取当前显示的人物照片（显示最新设置的人物）
-        current_person_gallery = []
-        person_galleries = getattr(self.chat_service, 'person_galleries', {})
-        current_gallery_person = getattr(self.chat_service, 'current_gallery_person', None)
+        current_mode = self.chat_service.get_current_mode()
         
-        if current_gallery_person and current_gallery_person in person_galleries:
-            # 显示最新设置的人物相册
-            current_person_gallery = person_galleries[current_gallery_person]
-            self.logger.debug(f"显示人物相册: {current_gallery_person}, 共 {len(current_person_gallery)} 张照片")
-        elif person_galleries:
-            # 如果没有记录当前人物，显示最后一个设置的人物（Python 3.7+ 字典保持插入顺序）
-            # 或者显示第一个有照片的人物
-            for person_name, photos in person_galleries.items():
-                if photos:
-                    current_person_gallery = photos
-                    self.logger.debug(f"显示第一个找到的人物相册: {person_name}, 共 {len(photos)} 张照片")
-                    break
+        # 根据当前模式控制组件的可见性和内容
+        kiosk_iframe_update = gr.update()  # 默认不更新
+        search_gallery_update = gr.update()  # 默认不更新
         
-        # 返回当前状态（移除了memory_markdown）
+        # 全屏轮播模式：不更新任何内容，避免刷新导致闪屏
+        if current_mode == "slideshow":
+            self.logger.debug(f"[update_ui] 当前为全屏轮播模式，不更新任何组件（避免刷新）")
+            return (
+                self.chat_service.get_chat_history(),
+                self.connection_status,
+                kiosk_iframe_update,  # 不更新
+                search_gallery_update  # 不更新
+            )
+        
+        if current_mode == "chat":
+            # 聊天模式：显示 kiosk_iframe，隐藏 search_gallery
+            kiosk_url = self.chat_service.get_last_kiosk_url()
+            # 如果没有保存的 URL，使用默认 URL（不带人物参数，轮播所有照片）
+            if not kiosk_url:
+                kiosk_url = self.kiosk_base_url
+            
+            # 检查 URL 是否变化（避免频繁更新导致闪烁）
+            if not hasattr(self, '_last_iframe_url'):
+                self._last_iframe_url = None
+            
+            # 检查模式是否变化
+            if not hasattr(self, '_last_search_mode_update'):
+                self._last_search_mode_update = None
+            
+            # 只在 URL 变化或模式切换时才更新（避免闪烁和 translucent 类）
+            if kiosk_url != self._last_iframe_url or self._last_search_mode_update != "chat":
+                # 从 URL 中提取 person_id（如果有）
+                person_id = None
+                if "?person=" in kiosk_url:
+                    try:
+                        person_id = kiosk_url.split("?person=")[1].split("&")[0]
+                    except:
+                        pass
+                
+                # 使用 KioskIframe 组件更新（高度800px，聊天模式）
+                kiosk_iframe_update_base = self.chat_ui.kiosk_iframe_component.update_person(person_id, height=800)
+                # 合并 visible 属性（gr.update 返回的是字典，需要合并）
+                kiosk_iframe_update = gr.update(
+                    value=kiosk_iframe_update_base.get("value"),
+                    visible=True
+                )
+                self._last_iframe_url = kiosk_url
+                self._last_search_mode_update = "chat"
+                self._last_search_gallery_visible = False  # 重置 gallery 可见性标记
+            else:
+                # URL 和模式都没变化，不更新 value（避免闪烁和 translucent 类）
+                # 只返回空的 gr.update()，不包含 value，这样 Gradio 就不会更新内容，也就不会添加 translucent 类
+                kiosk_iframe_update = gr.update()
+            
+            # 确保 search_gallery 隐藏（只在模式切换时更新）
+            if self._last_search_mode_update != "chat":
+                search_gallery_update = gr.update(visible=False)
+            else:
+                search_gallery_update = gr.update()  # 不更新，避免闪烁
+            
+        elif current_mode == "search":
+            # 搜索模式：隐藏 kiosk_iframe，显示 search_gallery
+            # 在搜索模式下，iframe 必须始终隐藏（包括保护期内）
+            # 检查是否在保护期内，如果在保护期内，强制隐藏 iframe
+            is_protected = self.chat_service.is_search_mode_protected()
+            
+            # 如果模式刚切换，或者当前模式标记不是 search，强制更新可见性
+            if not hasattr(self, '_last_search_mode_update') or self._last_search_mode_update != "search":
+                kiosk_iframe_update = gr.update(visible=False)
+                self._last_search_mode_update = "search"
+            elif is_protected:
+                # 在保护期内，确保 iframe 始终隐藏（防止同时显示）
+                kiosk_iframe_update = gr.update(visible=False)
+            else:
+                # 已经更新过可见性且不在保护期，不重复更新（避免闪烁）
+                kiosk_iframe_update = gr.update()
+            
+            # 更新 search_gallery（如果有待更新的数据）
+            if self._pending_search_gallery is not None:
+                search_gallery_update = gr.update(
+                    value=self._pending_search_gallery,
+                    visible=True
+                )
+                self._pending_search_gallery = None  # 清除待更新数据
+                self._last_search_gallery_visible = True
+            else:
+                # 没有新数据，但确保可见性正确（只在第一次切换时更新）
+                if not hasattr(self, '_last_search_gallery_visible') or not self._last_search_gallery_visible:
+                    search_gallery_update = gr.update(visible=True)
+                    self._last_search_gallery_visible = True
+                else:
+                    search_gallery_update = gr.update()  # 不更新，避免闪烁
+        
+        # 返回当前状态
         return (
             self.chat_service.get_chat_history(),
-            current_person_gallery,
-            self.connection_status
+            self.connection_status,
+            kiosk_iframe_update,
+            search_gallery_update
         )
     
     def check_and_switch_to_slideshow(self) -> tuple:
         """
-        检查是否应该切换到照片展示模式或切换回聊天页面
+        检查是否应该切换模式
         
         Returns:
-            (chat_view_update, slideshow_view_update, frame_page_html_update)
+            (chat_view_update, slideshow_view_update, kiosk_iframe_html_update, kiosk_iframe_update, search_gallery_update)
         """
-        # 如果当前在照片展示模式，检查是否应该切换回聊天页面
-        if self.current_view == "slideshow":
-            # 检查是否有新消息（通过检查消息时间）
-            # 如果距离最后一次消息时间很短（小于阈值），说明有新消息，应该切换回聊天页面
-            current_time = time.time()
-            time_since_last_message = current_time - self.chat_service.last_message_time
-            
-            # 如果距离最后一次消息小于1秒，说明刚刚有新消息，切换回聊天页面
-            if time_since_last_message < 1.0:
-                self.logger.info("检测到新消息，切换回聊天页面")
-                return self.switch_to_chat_page()
-            
-            # 否则保持照片展示模式
-            return (
-                gr.update(),  # chat_view 不变
-                gr.update(),  # slideshow_view 不变
-                gr.update()   # frame_page_html 不变
-            )
+        current_mode = self.chat_service.get_current_mode()
         
-        # 如果当前在聊天页面，检查是否应该切换到照片展示模式
+        # 如果当前在全屏轮播模式，检查是否应该切换回聊天模式
+        if current_mode == "slideshow":
+            if self.chat_service.should_exit_slideshow():
+                self.logger.info("检测到新消息，切换回聊天模式")
+                return self.switch_to_chat_mode()
+            # 否则保持全屏轮播模式，不更新任何组件（避免闪屏）
+            self.logger.debug(f"[check_and_switch_to_slideshow] 全屏轮播模式，保持当前状态，不刷新组件")
+            return self._no_change()
+        
+        # 无论当前在什么模式（chat 或 search），如果空闲20秒，都切换到全屏轮播模式
         if self.chat_service.should_enter_slideshow(self.idle_threshold):
-            person_info = self.chat_service.get_last_person_info()
-            person_id = person_info.get("person_id")
-            
-            if person_id:
-                self.logger.info(f"切换到照片展示模式: person_id={person_id}")
-                return self.switch_to_slideshow(person_id)
-            else:
-                self.logger.debug("满足切换条件，但人物ID为空，无法切换")
+            self.logger.info("满足进入全屏轮播模式条件，切换到全屏轮播模式")
+            return self.switch_to_slideshow_mode()
         
+        # 否则保持当前模式
+        return self._no_change()
+    
+    def _no_change(self) -> tuple:
+        """返回不改变的更新（全屏模式下使用，避免刷新）"""
+        current_mode = self.chat_service.get_current_mode()
+        if current_mode == "slideshow":
+            # 在全屏模式下，完全不更新任何组件，避免闪烁
+            # 使用 gr.skip() 跳过更新（如果 Gradio 支持），否则返回 None 让调用者处理
+            self.logger.debug(f"[_no_change] 全屏轮播模式，不更新任何组件（避免闪屏）")
+            # 注意：Gradio 的 tick 方法必须返回更新对象，所以这里返回空的 gr.update()
+            # 但通过不包含任何属性，尽量减少重新渲染
+            return (
+                gr.update(),  # chat_view - 不更新
+                gr.update(),  # slideshow_view - 不更新（关键：避免闪烁）
+                gr.update(),  # kiosk_iframe_html - 不更新
+                gr.update(),  # kiosk_iframe - 不更新
+                gr.update()   # search_gallery - 不更新
+            )
         return (
-            gr.update(),  # chat_view 不变
-            gr.update(),  # slideshow_view 不变
-            gr.update()   # frame_page_html 不变
+            gr.update(),  # chat_view
+            gr.update(),  # slideshow_view
+            gr.update(),  # kiosk_iframe_html
+            gr.update(),  # kiosk_iframe
+            gr.update()   # search_gallery
         )
     
-    def switch_to_slideshow(self, person_id: str) -> tuple:
+    def _build_iframe_html(self, kiosk_url: Optional[str] = None, height: str = "800px") -> str:
         """
-        切换到照片展示模式
+        构建 iframe HTML 内容
         
         Args:
-            person_id: 人物ID
+            kiosk_url: Kiosk URL（可选，如果为 None 则使用默认 URL）
+            height: iframe 高度，默认 800px（聊天模式），全屏模式使用 100vh
             
         Returns:
-            (chat_view_update, slideshow_view_update, frame_page_html_update)
+            HTML 字符串
         """
-        self.current_view = "slideshow"
-        self.logger.info(f"切换到照片展示模式: person_id={person_id}")
+        if not kiosk_url:
+            kiosk_url = self.kiosk_base_url
         
-        # 更新 iframe HTML
-        html_update = self.frame_page.update_person(person_id)
+        # 注意：size 参数应该在调用此方法前已经添加到 URL 中
+        # 这里不再重复添加，避免重复参数
+        
+        # 如果高度是 100vh，使用 JavaScript 动态计算（避免 100vh 的问题）
+        if height == "100vh":
+            # 使用 JavaScript 动态计算视口高度
+            container_id = f"iframe-container-{abs(hash(kiosk_url))}"
+            iframe_id = f"iframe-{abs(hash(kiosk_url))}"
+            html_content = f"""
+            <div id="{container_id}" style="width: 100%; margin: 0; padding: 0; overflow: hidden;">
+                <iframe 
+                    id="{iframe_id}"
+                    src="{kiosk_url}" 
+                    width="100%" 
+                    frameborder="0"
+                    style="border: none; margin: 0; padding: 0; display: block; width: 100%;"
+                    allowfullscreen
+                ></iframe>
+                <script>
+                    (function() {{
+                        function setHeight() {{
+                            var container = document.getElementById('{container_id}');
+                            var iframe = document.getElementById('{iframe_id}');
+                            if (container && iframe) {{
+                                var height = window.innerHeight;
+                                container.style.height = height + 'px';
+                                iframe.style.height = height + 'px';
+                            }}
+                        }}
+                        setHeight();
+                        window.addEventListener('resize', setHeight);
+                    }})();
+                </script>
+            </div>
+            """
+        else:
+            # 使用固定高度（聊天模式）
+            html_content = f"""
+            <div style="width: 100%; height: {height}; margin: 0; padding: 0; overflow: hidden;">
+                <iframe 
+                    src="{kiosk_url}" 
+                    width="100%" 
+                    height="{height}" 
+                    frameborder="0"
+                    style="border: none; margin: 0; padding: 0; display: block;"
+                    allowfullscreen
+                ></iframe>
+            </div>
+            """
+        return html_content
+    
+    def switch_to_chat_mode(self, kiosk_url: Optional[str] = None) -> tuple:
+        """
+        切换到聊天模式（模式 A）
+        
+        Args:
+            kiosk_url: Kiosk URL（可选，如果提供则更新 iframe）
+            
+        Returns:
+            所有组件的更新
+        """
+        self.chat_service.set_current_mode("chat")
+        self.current_view = "chat"
+        self.logger.info("切换到聊天模式")
+        
+        # 如果没有提供 kiosk_url，使用最后保存的，如果没有则使用默认 URL
+        if not kiosk_url:
+            kiosk_url = self.chat_service.get_last_kiosk_url()
+            if not kiosk_url:
+                kiosk_url = self.kiosk_base_url
+        
+        # 从 URL 中提取 person_id（如果有）
+        person_id = None
+        if "?person=" in kiosk_url:
+            try:
+                person_id = kiosk_url.split("?person=")[1].split("&")[0]
+            except:
+                pass
+        
+        # 使用 KioskIframe 组件更新（高度800px，聊天模式）
+        kiosk_iframe_update_base = self.chat_ui.kiosk_iframe_component.update_person(person_id, height=800)
+        # 合并 visible 属性（gr.update 返回的是字典，需要合并）
+        kiosk_iframe_update = gr.update(
+            value=kiosk_iframe_update_base.get("value"),
+            visible=True
+        )
+        
+        # 更新缓存的 URL
+        self._last_iframe_url = kiosk_url
         
         return (
-            gr.update(visible=False),  # 隐藏聊天视图
-            gr.update(visible=True),   # 显示照片展示视图
-            html_update                # 更新 iframe HTML
+            gr.update(visible=True),   # chat_view
+            gr.update(visible=False),  # slideshow_view
+            gr.update(),                # kiosk_iframe_html (不变)
+            kiosk_iframe_update,        # kiosk_iframe
+            gr.update(visible=False)   # search_gallery
+        )
+    
+    def switch_to_slideshow_mode(self) -> tuple:
+        """
+        切换到全屏轮播模式（模式 B）
+        
+        Returns:
+            所有组件的更新
+        """
+        self.chat_service.set_current_mode("slideshow")
+        self.current_view = "slideshow"
+        
+        # 使用最后保存的 person_id，如果没有则使用 None（显示所有照片）
+        person_info = self.chat_service.get_last_person_info()
+        person_id = person_info.get("person_id")
+        
+        # 打印切换到全屏模式的信息
+        self.logger.info(f"[全屏模式] 切换到全屏轮播模式: person_id={person_id}, height=1080px")
+        
+        # 使用 KioskIframe 组件更新（高度1080px）
+        kiosk_iframe_html_update = self.kiosk_iframe.update_person(person_id, height=1080)
+        
+        return (
+            gr.update(visible=False),  # chat_view
+            gr.update(visible=True),   # slideshow_view
+            kiosk_iframe_html_update,  # kiosk_iframe_html
+            gr.update(),                # kiosk_iframe (不变)
+            gr.update()                 # search_gallery (不变)
+        )
+    
+    def switch_to_search_mode(self, assets: List[Dict]) -> tuple:
+        """
+        切换到自然语言搜索模式（模式 C）
+        
+        Args:
+            assets: 搜索结果资产列表（最多6张）
+            
+        Returns:
+            所有组件的更新
+        """
+        self.chat_service.set_current_mode("search")
+        self.logger.info(f"切换到自然语言搜索模式: 共 {len(assets)} 张图片")
+        
+        # 注意：assets 会在 _download_and_update_thumbnails 中处理
+        # 这里只是切换模式，实际的 Gallery 更新会在下载完成后进行
+        
+        return (
+            gr.update(visible=True),   # chat_view
+            gr.update(visible=False),  # slideshow_view
+            gr.update(),                # kiosk_iframe_html (不变)
+            gr.update(visible=False),  # kiosk_iframe
+            gr.update(visible=True)    # search_gallery
         )
     
     def switch_to_chat_page(self) -> tuple:
         """
-        切换回聊天页面
+        切换回聊天页面（兼容旧代码）
         
         Returns:
-            (chat_view_update, slideshow_view_update, frame_page_html_update)
+            所有组件的更新
         """
-        if self.current_view == "chat":
-            return (
-                gr.update(),  # chat_view 不变
-                gr.update(),  # slideshow_view 不变
-                gr.update()   # frame_page_html 不变
-            )
-        
-        self.current_view = "chat"
-        self.logger.info("切换回聊天页面")
-        
-        return (
-            gr.update(visible=True),   # 显示聊天视图
-            gr.update(visible=False),  # 隐藏照片展示视图
-            gr.update()                # frame_page_html 不变
-        )
+        return self.switch_to_chat_mode()
     
     def _on_websocket_message(self, message: Dict[str, Any]):
         """
@@ -416,13 +675,7 @@ class ChatPage:
         elif result_type == "vision_message":
             # 视觉识别消息（已包含图片）
             self.chat_service.add_chat_message(data)
-            # 如果有识别到人物，加载人物照片（优先使用 people_ids）
-            people_ids = data.get("people_ids", [])
-            people = data.get("people", [])
-            if people_ids:
-                self._load_people_photos_by_ids(people_ids, people)
-            elif people:
-                self._load_people_photos(people)
+            # 注意：不再加载人物照片到 gallery，人物照片通过 Kiosk URL 在 iframe 中显示
             
         elif result_type == "vision_message_with_asset":
             # 视觉识别消息（需要下载图片）
@@ -442,13 +695,7 @@ class ChatPage:
                 expected_index=current_index
             )
             
-            # 如果有识别到人物，加载人物照片（优先使用 people_ids）
-            people_ids = data.get("people_ids", [])
-            people = data.get("people", [])
-            if people_ids:
-                self._load_people_photos_by_ids(people_ids, people)
-            elif people:
-                self._load_people_photos(people)
+            # 注意：不再加载人物照片到 gallery，人物照片通过 Kiosk URL 在 iframe 中显示
             
         elif result_type == "memory_update":
             # 更新记忆
@@ -458,6 +705,48 @@ class ChatPage:
             # 追加记忆
             self.chat_service.append_memory(data["content"])
             
+        elif result_type == "immich_kiosk_url_message":
+            # Immich Kiosk URL 消息
+            kiosk_url = data.get("kiosk_url")
+            person_name = data.get("person_name")
+            person_id = data.get("person_id")
+            
+            # 更新人物信息
+            self.chat_service.update_person_info(
+                person_name=person_name,
+                person_id=person_id,
+                kiosk_url=kiosk_url
+            )
+            
+            # 如果当前在搜索模式，检查是否在保护期内
+            # 如果不在搜索模式，更新 iframe URL
+            current_mode = self.chat_service.get_current_mode()
+            if current_mode == "search":
+                # 检查是否在保护期内
+                if self.chat_service.is_search_mode_protected():
+                    # 在保护期内，忽略人物识别，保持搜索模式
+                    self.logger.info(
+                        f"搜索模式保护期内，忽略人物识别 {person_name}，保持搜索模式"
+                    )
+                else:
+                    # 保护期已过，识别到新人物，切换到聊天模式
+                    # 这是退出搜索模式的唯一条件（除了空闲超时）
+                    self.chat_service.set_current_mode("chat")
+                    # 清除缓存的 URL，强制更新 iframe
+                    if hasattr(self, '_last_iframe_url'):
+                        self._last_iframe_url = None
+                    self.logger.info(
+                        f"保护期已过，识别到新人物 {person_name}，从搜索模式切换到聊天模式: {kiosk_url}"
+                    )
+            else:
+                # 更新 iframe URL（聊天模式或全屏轮播模式）
+                # 注意：这里不能直接更新，需要通过定时器更新
+                # 先保存到服务中，定时器会读取并更新
+                # 清除缓存的 URL，强制更新 iframe
+                if hasattr(self, '_last_iframe_url'):
+                    self._last_iframe_url = None
+                self.logger.info(f"收到 Kiosk URL，将在下次更新时刷新 iframe: {kiosk_url}")
+        
         elif result_type == "immich_search_result_message":
             # Immich 搜索结果消息（需要批量下载缩略图）
             import time
@@ -471,6 +760,16 @@ class ChatPage:
                 "session_id": data["session_id"]
             })
             
+            # 判断是否为自然语言搜索（有 query 参数且不为空）
+            query = data.get("query", "")
+            if query:
+                # 自然语言搜索：切换到搜索模式，并重置保护期
+                # reset_protection=True 确保每次收到新的搜索请求都重置保护期
+                self.chat_service.set_current_mode("search", reset_protection=True)
+                self.logger.info(f"收到自然语言搜索请求，切换到搜索模式: query={query}")
+                # 注意：切换到搜索模式后，只有识别到新人物时才切换回聊天模式
+                # 或者空闲时间超过阈值时切换到全屏轮播模式
+            
             self.logger.info(f"[性能统计] 收到 Immich 搜索结果，开始下载: asset_ids={data['asset_ids']}, 开始时间={start_time:.3f}")
             
             # 异步批量下载缩略图并更新消息
@@ -479,7 +778,7 @@ class ChatPage:
                 text_content=data["content"],
                 expected_index=current_index,
                 person_name=data.get("person_name"),
-                query=data.get("query"),
+                query=query,
                 count=data.get("count", 0),
                 start_time=start_time  # 传递开始时间
             )
@@ -637,34 +936,40 @@ class ChatPage:
                 self.logger.info(f"[性能统计] download_immich_thumbnails_batch 完成: 返回 {len(thumbnail_images)} 个 PIL Image 对象, 下载耗时: {download_duration:.2f}ms, 总耗时: {total_duration:.2f}ms")
                 
                 if thumbnail_images:
-                    # 将缩略图设置到 person_gallery 中（直接使用 PIL Image 对象，性能最优）
-                    # 如果有 person_name，使用 person_name；否则使用 "搜索结果" 作为 key
-                    gallery_key = person_name if person_name else "搜索结果"
+                    # 根据当前模式决定如何处理下载的缩略图
+                    current_mode = self.chat_service.get_current_mode()
                     
-                    # 获取该人物已有的照片（如果有）
-                    existing_photos = self.chat_service.get_person_gallery(gallery_key)
-                    
-                    # 合并新下载的照片（去重）
-                    all_photos = list(existing_photos) if existing_photos else []
-                    for photo_image in thumbnail_images:
-                        if photo_image and photo_image not in all_photos:
-                            all_photos.append(photo_image)
-                    
-                    # 设置到 person_gallery（直接使用 PIL Image 对象）
                     gallery_set_time = time.time()
-                    self.chat_service.set_person_gallery(gallery_key, all_photos)
+                    
+                    if current_mode == "search":
+                        # 自然语言搜索模式：设置到 search_gallery（最多6张）
+                        search_photos = thumbnail_images[:6]  # 固定显示最多6张
+                        # 注意：这里需要更新 search_gallery，但需要通过定时器更新
+                        # 先保存到临时变量，定时器会读取
+                        self._pending_search_gallery = search_photos
+                        # 强制清除 iframe URL 缓存，确保下次更新时隐藏 iframe
+                        if hasattr(self, '_last_iframe_url'):
+                            self._last_iframe_url = None
+                        # 重置模式标记，强制更新可见性
+                        if hasattr(self, '_last_search_mode_update'):
+                            self._last_search_mode_update = None
+                        self.logger.info(f"[性能统计] 已将 {len(search_photos)} 张缩略图准备设置到 search_gallery（自然语言搜索模式）")
+                    else:
+                        # 其他模式（聊天模式）：不使用 gallery，使用 iframe 显示
+                        # 人物照片通过 Kiosk URL 在 iframe 中轮播，不需要下载缩略图
+                        # 这里只记录日志，不设置 gallery
+                        self.logger.info(f"[性能统计] 下载了 {len(thumbnail_images)} 张缩略图，但当前为 {current_mode} 模式，使用 iframe 显示，不设置 gallery")
                     
                     gallery_set_end_time = time.time()
                     gallery_set_duration = (gallery_set_end_time - gallery_set_time) * 1000
                     total_duration_final = (gallery_set_end_time - start_time) * 1000
                     
-                    self.logger.info(f"[性能统计] 已将 {len(thumbnail_images)} 张缩略图设置到 gallery: {gallery_key}, 总计 {len(all_photos)} 张（使用 PIL Image 对象，性能最优：内存占用最小，无需编码/解码）")
                     self.logger.info(f"[性能统计] 完整流程耗时统计:")
                     self.logger.info(f"  - 收到消息到线程启动: {(thread_start_time - start_time) * 1000:.2f}ms")
                     self.logger.info(f"  - 线程启动到开始下载: {(download_start_time - thread_start_time) * 1000:.2f}ms")
                     self.logger.info(f"  - 下载耗时: {download_duration:.2f}ms (平均每张: {download_duration / len(thumbnail_images):.2f}ms)")
-                    self.logger.info(f"  - 设置 gallery 耗时: {gallery_set_duration:.2f}ms")
-                    self.logger.info(f"  - 总耗时: {total_duration_final:.2f}ms (从收到消息到显示到相册，使用 PIL Image 对象，性能最优）")
+                    self.logger.info(f"  - 处理 gallery 耗时: {gallery_set_duration:.2f}ms")
+                    self.logger.info(f"  - 总耗时: {total_duration_final:.2f}ms")
                 else:
                     self.logger.warning("没有成功下载任何缩略图")
             except Exception as e:
@@ -694,114 +999,6 @@ class ChatPage:
         else:
             self.logger.debug(f"未处理的 UI 更新类型: {update_type}")
     
-    def _load_people_photos(self, people: List[str]):
-        """
-        异步加载人物照片（通过人物名称）
-        
-        Args:
-            people: 人物名称列表
-        """
-        def load_photos():
-            """在后台线程中加载人物照片"""
-            for person_name in people:
-                try:
-                    # 检查是否已经加载过
-                    if person_name in self.chat_service.person_galleries:
-                        self.logger.debug(f"人物 '{person_name}' 的照片已存在，跳过加载")
-                        continue
-                    
-                    self.logger.info(f"开始加载人物照片: {person_name}")
-                    
-                    # 创建新的事件循环（因为在线程中）
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    
-                    # 获取人物照片
-                    photo_paths = loop.run_until_complete(
-                        self.chat_service.get_person_photos(person_name, limit=50)
-                    )
-                    
-                    if photo_paths:
-                        # 保存到相册
-                        self.chat_service.set_person_gallery(person_name, photo_paths)
-                        self.logger.info(f"成功加载人物 '{person_name}' 的照片，共 {len(photo_paths)} 张")
-                    else:
-                        self.logger.warning(f"未找到人物 '{person_name}' 的照片")
-                    
-                    loop.close()
-                    
-                except Exception as e:
-                    import traceback
-                    self.logger.error(f"加载人物 '{person_name}' 照片时出错: {e}, traceback: {traceback.format_exc()}")
-        
-        # 在后台线程中执行加载
-        load_thread = threading.Thread(target=load_photos, daemon=True)
-        load_thread.start()
-    
-    def _load_people_photos_by_ids(self, people_ids: List[str], people_names: List[str] = None):
-        """
-        异步加载人物照片（通过人物 ID，优先使用）
-        
-        Args:
-            people_ids: 人物 ID 列表
-            people_names: 人物名称列表（可选，用于显示和存储）
-        """
-        def load_photos():
-            """在后台线程中加载人物照片"""
-            # 创建新的事件循环（因为在线程中）
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            try:
-                # 合并所有人物照片
-                all_photo_paths = []
-                
-                for idx, person_id in enumerate(people_ids):
-                    try:
-                        if not person_id:
-                            continue
-                        
-                        # 获取人物名称（如果有）
-                        person_name = people_names[idx] if people_names and idx < len(people_names) else f"Person_{person_id[:8]}"
-                        
-                        # 检查是否已经加载过（通过名称检查）
-                        if person_name in self.chat_service.person_galleries:
-                            self.logger.debug(f"人物 '{person_name}' 的照片已存在，跳过加载")
-                            # 将已存在的照片添加到合并列表
-                            existing_photos = self.chat_service.get_person_gallery(person_name)
-                            all_photo_paths.extend(existing_photos)
-                            continue
-                        
-                        self.logger.info(f"开始加载人物照片: person_id={person_id}, person_name={person_name}")
-                        
-                        # 通过 ID 获取人物照片
-                        photo_paths = loop.run_until_complete(
-                            self.chat_service.get_person_photos_by_id(person_id, limit=50)
-                        )
-                        
-                        if photo_paths:
-                            # 保存到相册（使用人物名称作为 key）
-                            self.chat_service.set_person_gallery(person_name, photo_paths)
-                            all_photo_paths.extend(photo_paths)
-                            self.logger.info(f"成功加载人物 '{person_name}' 的照片，共 {len(photo_paths)} 张")
-                        else:
-                            self.logger.warning(f"未找到人物 ID '{person_id}' 的照片")
-                        
-                    except Exception as e:
-                        import traceback
-                        person_name = people_names[idx] if people_names and idx < len(people_names) else f"Person_{person_id[:8]}"
-                        self.logger.error(f"加载人物 ID '{person_id}' ({person_name}) 照片时出错: {e}, traceback: {traceback.format_exc()}")
-                
-                # 如果有多个人物，将所有照片合并到一个相册中显示
-                if len(people_ids) > 1 and all_photo_paths:
-                    # 使用第一个有名称的人物作为 key，或者使用 "Multiple_People"
-                    display_name = people_names[0] if people_names and people_names[0] else "Multiple_People"
-                    self.chat_service.set_person_gallery(display_name, all_photo_paths)
-                    self.logger.info(f"合并了 {len(people_ids)} 个人物的照片，共 {len(all_photo_paths)} 张")
-                
-            finally:
-                loop.close()
-        
-        # 在后台线程中执行加载
-        load_thread = threading.Thread(target=load_photos, daemon=True)
-        load_thread.start()
+    # 注意：以下方法已废弃，不再使用
+    # 人物照片现在通过 Kiosk URL 在 iframe 中显示，不需要加载到 gallery
+    # 保留这些方法定义以避免可能的引用错误，但不会被执行

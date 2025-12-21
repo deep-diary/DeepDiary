@@ -76,7 +76,7 @@ class UIManager:
         if self._demo is not None:
             return
 
-        # 添加CSS样式，去掉左右留白
+        # 添加CSS样式，去掉左右留白，并确保slideshow-view容器有足够高度
         custom_css = """
         .gradio-container {
             max-width: 100% !important;
@@ -101,6 +101,44 @@ class UIManager:
             max-width: 100% !important;
             padding-left: 0 !important;
             padding-right: 0 !important;
+        }
+        .slideshow-view {
+            min-height: 1080px !important;
+            height: 1080px !important;
+            width: 100% !important;
+            background: #ffff00 !important;  /* 黄色背景，便于调试 */
+            position: relative !important;
+            overflow: hidden !important;
+        }
+        .kiosk-iframe-component {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        #kiosk-container {
+            /* 高度由内联样式动态设置，这里不固定 */
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            background: #ff0000 !important;
+            z-index: 1 !important;
+        }
+        #kiosk-inner {
+            position: relative !important;
+            width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #00ff00 !important;
+        }
+        #kiosk-iframe {
+            border: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            display: block !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: #0000ff !important;
         }
         """
         
