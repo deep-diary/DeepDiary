@@ -70,9 +70,10 @@ class ChatPage:
         self.kiosk_base_url = kiosk_base_url
         self.logger.info(f"[ChatPage] 从配置读取kiosk_base_url: {self.kiosk_base_url}")
         
-        # 初始化 KioskIframe 组件，传递 kiosk_base_url
-        self.logger.info(f"[ChatPage] 初始化KioskIframe组件，kiosk_base_url={self.kiosk_base_url}")
-        self.kiosk_iframe = KioskIframe(self.logger, kiosk_base_url=self.kiosk_base_url)
+        # 优化：不再单独创建全屏模式的iframe实例
+        # 全屏模式和聊天模式共用同一个iframe实例（在 chat_ui 中创建）
+        # 通过切换高度和可见性来适应不同模式
+        self.logger.info(f"[ChatPage] 优化：全屏模式和聊天模式共用iframe实例，kiosk_base_url={self.kiosk_base_url}")
         
         # UI 更新队列（用于异步更新）
         self.ui_update_queue = Queue(maxsize=100)
@@ -93,8 +94,12 @@ class ChatPage:
         
         # 照片展示模式配置
         self.idle_threshold = 20.0  # 空闲阈值（秒）
-        self.check_interval = 1.0   # 检查间隔（秒）
+        self.check_interval = 1.0   # 检查间隔（秒）- 改为5秒，减少闪烁
         self.current_view = "chat"  # 当前视图：chat 或 slideshow（兼容旧代码）
+        
+        # 事件驱动模式切换：待切换的模式标志位（None 表示不需要切换）
+        self._pending_mode_switch: Optional[str] = None
+        self._last_mode_check_time: float = 0.0  # 上次模式检查时间（用于防抖）
 
     def build(self):
         """
@@ -117,18 +122,28 @@ class ChatPage:
                 )
             
             # 照片展示视图（默认隐藏，全屏显示模式）
+            # 全屏模式下使用独立的 iframe 实例，避免在隐藏的 chat_view 中显示
             with gr.Column(
                 visible=False,  # 默认隐藏，进入全屏模式时显示
                 elem_classes=["slideshow-view"],
                 scale=1
             ) as self.slideshow_view:
-                # 构建照片展示界面（全屏显示，高度1080px）
-                self.kiosk_iframe_html = self.kiosk_iframe.build(height=1080)
+                # 全屏模式专用的 iframe 实例（高度 1080px）
+                self.slideshow_iframe_component = KioskIframe(self.logger, kiosk_base_url=self.kiosk_base_url)
+                self.slideshow_iframe = self.slideshow_iframe_component.build(height=1080)
                 
                 # 初始化时设置为聊天模式
                 self.chat_service.set_current_mode("chat")
                 self.current_view = "chat"
                 self.logger.info("[初始化] 默认进入聊天模式")
+            
+            # 添加调试按钮（用于手动切换模式，方便测试）
+            with gr.Row(visible=True) as self.debug_buttons_row:  # 临时显示，调试结束后可以隐藏
+                gr.Markdown("### 🧪 调试按钮（测试用）")
+            with gr.Row(visible=True):  # 临时显示，调试结束后可以隐藏
+                self.debug_btn_chat = gr.Button("切换到聊天模式", variant="primary", size="sm")
+                self.debug_btn_slideshow = gr.Button("切换到全屏轮播模式", variant="secondary", size="sm")
+                self.debug_btn_search = gr.Button("切换到搜索模式", variant="secondary", size="sm")
             
             # 绑定事件
             self.chat_ui.bind_events(
@@ -138,21 +153,62 @@ class ChatPage:
                 on_clear_chat=self.clear_chat_history,
                 on_refresh_memory=self.refresh_memory,
                 on_clear_memory=self.clear_memory,
-                on_update_ui=self.update_ui_with_slideshow_check
+                on_update_ui=self.update_ui_with_slideshow_check,
+                on_update_iframe=self.update_ui  # 专门用于 iframe 更新的函数
             )
             
             # 添加空闲检测定时器（用于检查是否应该切换到全屏轮播模式）
-            # 注意：在全屏模式下，定时器仍然运行，但会返回空的更新以避免闪烁
+            # 优化方案：直接调用切换函数（类似调试按钮），但 iframe 不包含在输出中
+            # iframe 由状态组件单独更新（2秒间隔），避免闪烁
+            # 这样可以确保模式切换可靠执行，同时避免 iframe 闪烁
             self.idle_timer = gr.Timer(value=self.check_interval, active=True)
             self.idle_timer.tick(
-                fn=self.check_and_switch_to_slideshow,
+                fn=self._check_idle_condition_and_apply_switch,  # 检查条件并直接执行切换
                 inputs=[],
                 outputs=[
                     self.chat_view,
                     self.slideshow_view,
-                    self.kiosk_iframe_html,
+                    # 注意：不包含 iframe，iframe 由状态组件单独更新（避免闪烁）
+                    self.chat_ui.search_gallery,
+                    self.chat_ui.timer          # 控制聊天定时器的 active 状态
+                ]
+            )
+            
+            # 绑定调试按钮事件（用于手动切换模式，方便测试）
+            self.debug_btn_chat.click(
+                fn=self._debug_switch_to_chat,
+                inputs=[],
+                outputs=[
+                    self.chat_view,
+                    self.slideshow_view,
                     self.chat_ui.kiosk_iframe,
-                    self.chat_ui.search_gallery
+                    self.slideshow_iframe,
+                    self.chat_ui.search_gallery,
+                    self.chat_ui.timer
+                ]
+            )
+            self.debug_btn_slideshow.click(
+                fn=self._debug_switch_to_slideshow,
+                inputs=[],
+                outputs=[
+                    self.chat_view,
+                    self.slideshow_view,
+                    self.chat_ui.kiosk_iframe,
+                    self.slideshow_iframe,
+                    self.chat_ui.search_gallery,
+                    self.chat_ui.timer
+                ]
+            )
+            self.debug_btn_search.click(
+                fn=self._debug_switch_to_search,
+                inputs=[],
+                outputs=[
+                    self.chat_view,
+                    self.slideshow_view,
+                    self.chat_ui.kiosk_iframe,
+                    self.slideshow_iframe,
+                    self.chat_ui.search_gallery,
+                    self.chat_ui.timer
                 ]
             )
 
@@ -194,10 +250,13 @@ class ChatPage:
         # 更新消息时间（重置空闲定时器）
         self.chat_service.update_message_time()
         
-        # 如果当前在全屏轮播模式，切换回聊天模式
+        # 事件驱动：如果当前在全屏轮播模式，立即切换回聊天模式
         current_mode = self.chat_service.get_current_mode()
         if current_mode == "slideshow":
-            self.switch_to_chat_mode()
+            self.logger.info("[事件驱动] 用户发送消息，设置切换到聊天模式标志")
+            self._pending_mode_switch = "chat"
+            # 注意：这里不直接调用 switch_to_chat_mode()，因为需要返回更新对象
+            # 模式切换会在 update_ui 中处理
         # 注意：搜索模式下，用户发送新消息时不自动切换模式
         # 只有识别到新人物时才切换回聊天模式
         
@@ -239,9 +298,10 @@ class ChatPage:
     def update_ui_with_slideshow_check(self) -> tuple:
         """
         更新 UI 界面（定时调用，包含照片展示模式检查）
+        优化：事件驱动模式切换，只在真正需要时更新组件
         
         Returns:
-            (chat_history, person_gallery, status_text) 的更新
+            (chat_history, status_text, kiosk_iframe_update, search_gallery_update) 的更新
         """
         # 记录是否有新消息
         has_new_message = False
@@ -271,17 +331,24 @@ class ChatPage:
             except Empty:
                 break
         
-        # 如果有新消息，更新消息时间并切换回聊天页面
+        # 如果有新消息，更新消息时间并检查是否需要切换模式（事件驱动）
         if has_new_message:
             self.chat_service.update_message_time()
-            if self.current_view == "slideshow":
+            # 事件驱动：收到新消息时，如果在全屏模式，立即切换
+            current_mode = self.chat_service.get_current_mode()
+            if current_mode == "slideshow":
+                self.logger.info("[事件驱动] 收到新消息，设置切换到聊天模式标志")
+                self._pending_mode_switch = "chat"
                 self.current_view = "chat"
-                self.logger.info("收到新消息，切换回聊天页面")
+        
+        # 注意：模式切换的更新由 mode_switch_timer 单独处理
+        # 这里不需要检查模式切换，因为模式切换是异步的，由专门的定时器处理
         
         # 调用原有的 update_ui 逻辑
-        chat_history, status_text, kiosk_iframe_update, search_gallery_update = self.update_ui()
+        # 注意：iframe 更新由状态组件单独处理，这里不返回 iframe 更新
+        chat_history, status_text, _, search_gallery_update = self.update_ui()
         
-        return (chat_history, status_text, kiosk_iframe_update, search_gallery_update)
+        return (chat_history, status_text, search_gallery_update)
     
     def update_ui(self) -> tuple:
         """
@@ -298,12 +365,19 @@ class ChatPage:
         
         # 全屏轮播模式：不更新任何内容，避免刷新导致闪屏
         if current_mode == "slideshow":
+            # 优化：在全屏模式下，完全不更新任何组件，减少闪烁
+            # 注意：即使返回 gr.update()，Gradio 仍可能触发检查
+            # 但这是 Gradio 的限制，我们只能尽量减少更新频率
+            # 通过返回相同的值（chat_history 和 connection_status），减少重新渲染
             self.logger.debug(f"[update_ui] 当前为全屏轮播模式，不更新任何组件（避免刷新）")
+            # 返回当前值，不触发更新
+            current_chat_history = self.chat_service.get_chat_history()
+            current_status = self.connection_status
             return (
-                self.chat_service.get_chat_history(),
-                self.connection_status,
-                kiosk_iframe_update,  # 不更新
-                search_gallery_update  # 不更新
+                current_chat_history,  # 返回当前值，不触发更新
+                current_status,        # 返回当前值，不触发更新
+                gr.update(),           # kiosk_iframe - 不更新（共用实例）
+                gr.update()            # search_gallery - 不更新
             )
         
         if current_mode == "chat":
@@ -393,54 +467,125 @@ class ChatPage:
             search_gallery_update
         )
     
-    def check_and_switch_to_slideshow(self) -> tuple:
+    def _check_idle_condition_and_apply_switch(self) -> tuple:
         """
-        检查是否应该切换模式
+        检查空闲条件并直接执行模式切换（定时器调用）
+        优化方案：直接调用切换函数（类似调试按钮），但 iframe 不包含在输出中
+        iframe 由状态组件单独更新（2秒间隔），避免闪烁
         
         Returns:
-            (chat_view_update, slideshow_view_update, kiosk_iframe_html_update, kiosk_iframe_update, search_gallery_update)
+            组件的更新（4个值：chat_view, slideshow_view, search_gallery, timer）
+            不包含 iframe，iframe 由状态组件单独更新
         """
+        import time
+        current_time = time.time()
         current_mode = self.chat_service.get_current_mode()
+        
+        # 防抖：如果距离上次检查时间太短（<0.5秒），跳过检查
+        if current_time - self._last_mode_check_time < 0.5:
+            return self._no_change_without_iframe()
+        
+        self._last_mode_check_time = current_time
         
         # 如果当前在全屏轮播模式，检查是否应该切换回聊天模式
         if current_mode == "slideshow":
             if self.chat_service.should_exit_slideshow():
-                self.logger.info("检测到新消息，切换回聊天模式")
-                return self.switch_to_chat_mode()
-            # 否则保持全屏轮播模式，不更新任何组件（避免闪屏）
-            self.logger.debug(f"[check_and_switch_to_slideshow] 全屏轮播模式，保持当前状态，不刷新组件")
-            return self._no_change()
+                self.logger.info("[定时器] 检测到新消息，直接切换到聊天模式")
+                result = self.switch_to_chat_mode()
+                # 返回不包含 iframe 的更新（iframe 由状态组件单独更新）
+                return (result[0], result[1], result[4], result[5])  # chat_view, slideshow_view, search_gallery, timer
+            # 否则保持全屏轮播模式，不更新
+            return self._no_change_without_iframe()
         
         # 无论当前在什么模式（chat 或 search），如果空闲20秒，都切换到全屏轮播模式
-        if self.chat_service.should_enter_slideshow(self.idle_threshold):
-            self.logger.info("满足进入全屏轮播模式条件，切换到全屏轮播模式")
-            return self.switch_to_slideshow_mode()
+        should_enter = self.chat_service.should_enter_slideshow(self.idle_threshold)
+        if should_enter:
+            # 检查是否已经在全屏模式（避免重复切换）
+            if current_mode == "slideshow":
+                self.logger.debug(f"[定时器] 已经在全屏轮播模式，跳过")
+                return self._no_change_without_iframe()
+            
+            self.logger.info(f"[定时器] 满足进入全屏轮播模式条件，直接执行切换 (idle_threshold={self.idle_threshold}s)")
+            result = self.switch_to_slideshow_mode()
+            # 返回不包含 iframe 的更新（iframe 由状态组件单独更新）
+            return (result[0], result[1], result[4], result[5])  # chat_view, slideshow_view, search_gallery, timer
+        else:
+            # 记录当前空闲时间，用于调试
+            current_time = time.time()
+            last_message_time = self.chat_service.last_message_time
+            last_person_update_time = self.chat_service.last_person_update_time
+            idle_time = current_time - max(last_message_time, last_person_update_time)
+            self.logger.debug(f"[定时器] 未满足进入全屏轮播模式条件: idle_time={idle_time:.1f}s < {self.idle_threshold}s")
         
-        # 否则保持当前模式
-        return self._no_change()
+        # 否则保持当前模式，不更新
+        return self._no_change_without_iframe()
+    
+    def _no_change_without_iframe(self) -> tuple:
+        """返回不改变的更新（不包含 iframe）"""
+        return (
+            gr.update(),  # chat_view - 不更新
+            gr.update(),  # slideshow_view - 不更新
+            gr.update(),  # search_gallery - 不更新
+            gr.update()   # timer - 不更新（保持当前状态）
+        )
+    
+    def _debug_switch_to_chat(self) -> tuple:
+        """调试用：手动切换到聊天模式"""
+        self.logger.info("[调试] 手动切换到聊天模式")
+        # 直接调用切换函数，不使用标志位
+        return self.switch_to_chat_mode()
+    
+    def _debug_switch_to_slideshow(self) -> tuple:
+        """调试用：手动切换到全屏轮播模式"""
+        self.logger.info("[调试] 手动切换到全屏轮播模式")
+        # 直接调用切换函数，不使用标志位
+        return self.switch_to_slideshow_mode()
+    
+    def _debug_switch_to_search(self) -> tuple:
+        """调试用：手动切换到搜索模式"""
+        self.logger.info("[调试] 手动切换到搜索模式")
+        # 搜索模式需要 assets，这里使用空列表
+        # 直接调用切换函数，不使用标志位
+        return self.switch_to_search_mode([])
+    
+    def check_and_switch_to_slideshow(self) -> Optional[tuple]:
+        """
+        检查并执行模式切换（由 update_ui 调用，事件驱动）
+        注意：这个方法现在主要用于检查，实际切换由 _apply_mode_switch_from_state 执行
+        通过状态组件的变化触发（事件驱动）
+        
+        Returns:
+            如果有待切换的模式，返回切换结果；否则返回 None
+        """
+        # 检查是否有待切换的模式
+        if hasattr(self, '_pending_mode_switch') and self._pending_mode_switch is not None:
+            # 有待切换的模式，但实际切换由 _apply_mode_switch_from_state 执行
+            # 通过状态组件的变化触发（事件驱动）
+            # 这里只返回 None，让调用者知道有待切换的模式
+            return None
+        
+        return None
     
     def _no_change(self) -> tuple:
-        """返回不改变的更新（全屏模式下使用，避免刷新）"""
+        """
+        返回不改变的更新（避免刷新）
+        
+        注意：gr.update() 不带参数表示"不更新组件"，但 Gradio 仍会检查这个更新对象，
+        可能触发内部检查，导致轻微的重新渲染。这是 Gradio 的限制。
+        """
         current_mode = self.chat_service.get_current_mode()
         if current_mode == "slideshow":
-            # 在全屏模式下，完全不更新任何组件，避免闪烁
-            # 使用 gr.skip() 跳过更新（如果 Gradio 支持），否则返回 None 让调用者处理
+            # 全屏模式下记录日志（用于调试）
             self.logger.debug(f"[_no_change] 全屏轮播模式，不更新任何组件（避免闪屏）")
-            # 注意：Gradio 的 tick 方法必须返回更新对象，所以这里返回空的 gr.update()
-            # 但通过不包含任何属性，尽量减少重新渲染
-            return (
-                gr.update(),  # chat_view - 不更新
-                gr.update(),  # slideshow_view - 不更新（关键：避免闪烁）
-                gr.update(),  # kiosk_iframe_html - 不更新
-                gr.update(),  # kiosk_iframe - 不更新
-                gr.update()   # search_gallery - 不更新
-            )
+        
+        # 统一返回：不更新任何组件（两个分支返回完全相同，合并为一个）
         return (
-            gr.update(),  # chat_view
-            gr.update(),  # slideshow_view
-            gr.update(),  # kiosk_iframe_html
-            gr.update(),  # kiosk_iframe
-            gr.update()   # search_gallery
+            gr.update(),  # chat_view - 不更新
+            gr.update(),  # slideshow_view - 不更新
+            gr.update(),  # chat_iframe - 不更新
+            gr.update(),  # slideshow_iframe - 不更新
+            gr.update(),  # search_gallery - 不更新
+            gr.update()   # timer - 不更新（保持当前状态）
         )
     
     def _build_iframe_html(self, kiosk_url: Optional[str] = None, height: str = "800px") -> str:
@@ -550,9 +695,10 @@ class ChatPage:
         return (
             gr.update(visible=True),   # chat_view
             gr.update(visible=False),  # slideshow_view
-            gr.update(),                # kiosk_iframe_html (不变)
-            kiosk_iframe_update,        # kiosk_iframe
-            gr.update(visible=False)   # search_gallery
+            kiosk_iframe_update,        # chat_iframe (聊天模式 iframe，更新高度为800px)
+            gr.update(visible=False),  # slideshow_iframe (全屏模式 iframe，隐藏)
+            gr.update(visible=False),  # search_gallery
+            gr.update(active=True)     # timer - 启用聊天定时器
         )
     
     def switch_to_slideshow_mode(self) -> tuple:
@@ -572,15 +718,22 @@ class ChatPage:
         # 打印切换到全屏模式的信息
         self.logger.info(f"[全屏模式] 切换到全屏轮播模式: person_id={person_id}, height=1080px")
         
-        # 使用 KioskIframe 组件更新（高度1080px）
-        kiosk_iframe_html_update = self.kiosk_iframe.update_person(person_id, height=1080)
+        # 全屏模式下使用独立的 iframe 实例（在 slideshow_view 中）
+        # 使用全屏模式的 iframe 组件更新（高度1080px）
+        slideshow_iframe_update_base = self.slideshow_iframe_component.update_person(person_id, height=1080)
+        # 合并 visible 属性
+        slideshow_iframe_update = gr.update(
+            value=slideshow_iframe_update_base.get("value"),
+            visible=True  # 全屏模式下 iframe 可见
+        )
         
         return (
             gr.update(visible=False),  # chat_view
             gr.update(visible=True),   # slideshow_view
-            kiosk_iframe_html_update,  # kiosk_iframe_html
-            gr.update(),                # kiosk_iframe (不变)
-            gr.update()                 # search_gallery (不变)
+            gr.update(visible=False),  # chat_iframe (聊天模式 iframe，隐藏)
+            slideshow_iframe_update,    # slideshow_iframe (全屏模式 iframe，更新高度为1080px)
+            gr.update(),                # search_gallery (不变)
+            gr.update(active=False)     # timer - 禁用聊天定时器，避免闪烁
         )
     
     def switch_to_search_mode(self, assets: List[Dict]) -> tuple:
@@ -602,9 +755,10 @@ class ChatPage:
         return (
             gr.update(visible=True),   # chat_view
             gr.update(visible=False),  # slideshow_view
-            gr.update(),                # kiosk_iframe_html (不变)
-            gr.update(visible=False),  # kiosk_iframe
-            gr.update(visible=True)    # search_gallery
+            gr.update(visible=False),  # chat_iframe (聊天模式 iframe，隐藏)
+            gr.update(visible=False),  # slideshow_iframe (全屏模式 iframe，隐藏)
+            gr.update(visible=True),   # search_gallery
+            gr.update(active=True)     # timer - 保持启用聊天定时器（搜索模式需要实时更新）
         )
     
     def switch_to_chat_page(self) -> tuple:
@@ -629,11 +783,12 @@ class ChatPage:
         # 更新消息时间（重置空闲定时器）
         self.chat_service.update_message_time()
         
-        # 如果当前在照片展示模式，切换回聊天页面
-        if self.current_view == "slideshow":
-            # 注意：这里不能直接调用 switch_to_chat_page，因为需要返回更新
-            # 实际的切换会在 update_ui 中处理
-            pass
+        # 事件驱动：如果当前在照片展示模式，设置切换到聊天模式标志
+        current_mode = self.chat_service.get_current_mode()
+        if current_mode == "slideshow":
+            self.logger.info("[事件驱动] 收到WebSocket消息，设置切换到聊天模式标志")
+            self._pending_mode_switch = "chat"
+            self.current_view = "chat"
     
     def _on_status_change(self, status: str):
         """
@@ -658,11 +813,12 @@ class ChatPage:
         # 更新消息时间（重置空闲定时器）
         self.chat_service.update_message_time()
         
-        # 如果当前在照片展示模式，切换回聊天页面
-        if self.current_view == "slideshow":
-            # 注意：这里不能直接调用 switch_to_chat_page，因为需要返回更新
-            # 实际的切换会在 update_ui 中处理
-            pass
+        # 事件驱动：如果当前在照片展示模式，设置切换到聊天模式标志
+        current_mode = self.chat_service.get_current_mode()
+        if current_mode == "slideshow":
+            self.logger.info("[事件驱动] 收到WebSocket消息，设置切换到聊天模式标志")
+            self._pending_mode_switch = "chat"
+            self.current_view = "chat"
         
         if result_type == "user_message":
             # 用户消息

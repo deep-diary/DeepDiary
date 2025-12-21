@@ -27,13 +27,15 @@ class LogManager:
         return cls._instance
 
     def __init__(self, log_dir="logs", log_file_name="deepweb", console_level=logging.WARNING, file_level=logging.INFO):
-        # 如果已经初始化，只更新日志级别（如果提供了新的级别）
+        # 如果已经初始化，更新日志级别和格式化器（如果提供了新的级别）
         if self._initialized:
             # 更新控制台日志级别（如果提供了新的级别且与默认值不同）
             if console_level != logging.WARNING:
                 self.set_console_level(console_level)
             if file_level != logging.INFO:
                 self.set_file_level(file_level)
+            # 更新控制台格式化器（确保使用最新的颜色格式）
+            self._update_console_formatter()
             return
 
         self.log_dir = log_dir
@@ -135,3 +137,40 @@ class LogManager:
         """
         self.set_console_level(console_level)
         self.set_file_level(file_level)
+    
+    def _update_console_formatter(self):
+        """
+        更新控制台格式化器，确保使用最新的颜色格式
+        用于在应用运行时更新格式化器（例如安装 colorlog 后）
+        """
+        for handler in self.root_logger.handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+                # 重新检查 colorlog 是否可用（可能在运行时安装）
+                try:
+                    import colorlog
+                    # 使用带颜色的格式化器
+                    console_formatter = colorlog.ColoredFormatter(
+                        '%(green)s%(asctime)s%(reset)s[%(cyan)s%(name)s%(reset)s]-'
+                        '%(log_color)s%(levelname)s%(reset)s-'
+                        '%(message)s',
+                        datefmt='%y%m%d %H:%M:%S',  # 与服务器端格式一致：YYMMDD HH:mm:ss
+                        reset=True,
+                        log_colors={
+                            'DEBUG': 'cyan',
+                            'INFO': 'green',
+                            'WARNING': 'yellow',
+                            'ERROR': 'red',
+                            'CRITICAL': 'red,bg_white',
+                        },
+                        secondary_log_colors={},
+                        style='%'
+                    )
+                    handler.setFormatter(console_formatter)
+                except ImportError:
+                    # colorlog 不可用，使用标准格式化器（带时间戳）
+                    console_formatter = logging.Formatter(
+                        '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(funcName)s - %(message)s',
+                        datefmt='%y%m%d %H:%M:%S'
+                    )
+                    handler.setFormatter(console_formatter)
+                break

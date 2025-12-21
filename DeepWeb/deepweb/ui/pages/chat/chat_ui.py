@@ -11,6 +11,7 @@ Chat UI - 聊天界面组件
 import gradio as gr
 from typing import List, Dict, Any, Optional, Tuple
 import logging
+import time
 from deepweb.ui.pages.chat.kiosk_iframe import KioskIframe
 
 
@@ -158,8 +159,15 @@ class ChatUI:
                         allow_preview=True
                     )
             
-            # 定时更新聊天记录和记忆显示（每秒更新一次）
+            # 混合方案：iframe 使用状态组件更新（避免闪烁），其他组件使用定时器直接更新
+            # 1. 定时器直接更新 chatbot 和 status_text（需要实时更新，1秒间隔）
             self.timer = gr.Timer(1.0)
+            
+            # 2. 创建 iframe 更新触发状态组件（用于避免 iframe 闪烁）
+            self.iframe_update_trigger = gr.State(value=0)
+            
+            # 3. iframe 专用定时器（2秒更新一次，减少闪烁）
+            self.iframe_timer = gr.Timer(2.0)
         
         return chat_interface
     
@@ -171,7 +179,8 @@ class ChatUI:
         on_clear_chat,
         on_update_ui,
         on_refresh_memory=None,  # 保留参数以保持兼容性，但不再使用
-        on_clear_memory=None     # 保留参数以保持兼容性，但不再使用
+        on_clear_memory=None,    # 保留参数以保持兼容性，但不再使用
+        on_update_iframe=None    # 专门用于 iframe 更新的函数（返回4个值）
     ):
         """
         绑定事件处理函数
@@ -256,10 +265,41 @@ class ChatUI:
         #     outputs=[self.memory_display]
         # )
         
-        # 定时更新（包含所有需要更新的组件）
+        # 混合方案：iframe 使用状态组件更新（避免闪烁），其他组件使用定时器直接更新
+        # 1. 定时器直接更新 chatbot、status_text 和 search_gallery（需要实时更新，1秒间隔）
         self.timer.tick(
-            fn=on_update_ui,
+            fn=on_update_ui,  # 直接更新 chatbot、status_text 和 search_gallery
             inputs=[],
-            outputs=[self.chatbot, self.status_text, self.kiosk_iframe, self.search_gallery]
+            outputs=[self.chatbot, self.status_text, self.search_gallery]  # 不包含 iframe，iframe 用状态组件更新
+        )
+        
+        # 2. iframe 使用状态组件触发更新（避免闪烁）
+        def update_iframe_trigger():
+            """更新 iframe 状态组件，触发 change 事件"""
+            trigger_value = time.time()
+            return gr.update(value=trigger_value)
+        
+        # iframe 定时器更新状态组件（2秒间隔，减少闪烁）
+        self.iframe_timer.tick(
+            fn=update_iframe_trigger,
+            inputs=[],
+            outputs=[self.iframe_update_trigger]
+        )
+        
+        # 3. iframe 状态组件变化时触发 iframe 更新
+        def on_iframe_trigger_update():
+            """iframe 状态组件变化时触发 iframe 更新"""
+            # 使用专门的 iframe 更新函数，返回4个值（包含 iframe 更新）
+            if on_update_iframe:
+                _, _, kiosk_iframe_update, _ = on_update_iframe()
+                return kiosk_iframe_update
+            else:
+                # 如果没有提供专门的函数，返回不更新
+                return gr.update()
+        
+        self.iframe_update_trigger.change(
+            fn=on_iframe_trigger_update,
+            inputs=[],  # 不使用 inputs，避免参数传递问题
+            outputs=[self.kiosk_iframe]
         )
 

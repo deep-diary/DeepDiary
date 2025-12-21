@@ -845,7 +845,7 @@ class ChatService:
                     },
                     "device_id": "..."
                 }
-        
+            
         Returns:
             处理后的业务数据字典
         """
