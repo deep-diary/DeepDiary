@@ -44,7 +44,6 @@ class ChatUI:
         self.chatbot: Optional[gr.Chatbot] = None
         self.msg_input: Optional[gr.Textbox] = None
         self.send_btn: Optional[gr.Button] = None
-        self.clear_btn: Optional[gr.Button] = None
         self.kiosk_iframe_component: Optional[KioskIframe] = None  # Kiosk iframe 组件实例
         self.kiosk_iframe: Optional[gr.HTML] = None  # Immich Kiosk iframe（用于聊天模式）
         self.search_gallery: Optional[gr.Gallery] = None  # 搜索结果 Gallery（用于自然语言搜索模式）
@@ -129,33 +128,30 @@ class ChatUI:
                     # 消息输入区域
                     with gr.Row():
                         self.msg_input = gr.Textbox(
-                            # label="输入消息",
+                            label="",  # 空 label，不显示
                             placeholder="输入消息与深记对话...",
                             scale=4,
-                            interactive=True
+                            interactive=True,
+                            show_label=False  # 完全隐藏 label 区域
                         )
                         self.send_btn = gr.Button("发送", scale=1, variant="primary")
-                    
-                    # 清除聊天记录按钮（与发送按钮同一行）
-                    with gr.Row():
-                        self.clear_btn = gr.Button("🗑️ 清除聊天记录", size="sm")
                 
                 # 右侧：显示区域（根据模式切换显示内容）
                 with gr.Column(scale=1) as right_panel:
                     # 模式 A: Immich Kiosk iframe（默认显示，用于聊天模式）
-                    # 使用 KioskIframe 组件，高度 800px（聊天模式）
+                    # 使用 KioskIframe 组件，高度 500px（与 gallery 同时显示）
                     self.kiosk_iframe_component = KioskIframe(self.logger, kiosk_base_url=kiosk_base_url)
-                    self.kiosk_iframe = self.kiosk_iframe_component.build(height=800)
+                    self.kiosk_iframe = self.kiosk_iframe_component.build(height=500)
                     
-                    # 模式 C: 搜索结果 Gallery（默认隐藏，用于自然语言搜索模式）
+                    # 模式 C: 搜索结果 Gallery（默认显示，与 iframe 同时显示）
                     self.search_gallery = gr.Gallery(
                         label="搜索结果",
                         show_label=False,
-                        height=800,
+                        height=500,
                         columns=3,
                         rows=2,
                         value=[],
-                        visible=False,
+                        visible=True,  # 默认显示，与 iframe 同时显示
                         allow_preview=True
                     )
             
@@ -176,7 +172,6 @@ class ChatUI:
         on_connect,
         on_disconnect,
         on_send_message,
-        on_clear_chat,
         on_update_ui,
         on_refresh_memory=None,  # 保留参数以保持兼容性，但不再使用
         on_clear_memory=None,    # 保留参数以保持兼容性，但不再使用
@@ -189,7 +184,6 @@ class ChatUI:
             on_connect: 连接按钮点击处理函数
             on_disconnect: 断开连接按钮点击处理函数
             on_send_message: 发送消息处理函数
-            on_clear_chat: 清除聊天记录处理函数
             on_update_ui: UI 更新处理函数（定时调用）
             on_refresh_memory: 刷新记忆处理函数（已废弃，不再使用）
             on_clear_memory: 清除记忆处理函数（已废弃，不再使用）
@@ -244,13 +238,6 @@ class ChatUI:
             outputs=[self.msg_input]
         )
         
-        # 聊天记录操作
-        self.clear_btn.click(
-            fn=on_clear_chat,
-            inputs=[],
-            outputs=[self.chatbot]
-        )
-        
         # 记忆操作（按钮已隐藏，不绑定事件）
         # 由于 memory_display 已删除，这些按钮的事件绑定已移除
         # self.refresh_memory_btn.click(
@@ -286,7 +273,10 @@ class ChatUI:
             outputs=[self.iframe_update_trigger]
         )
         
-        # 3. iframe 状态组件变化时触发 iframe 更新
+        # 3. 创建立即更新触发状态组件（用于立即触发 iframe 更新，不等待定时器）
+        self.iframe_immediate_trigger = gr.State(value=0)
+        
+        # 4. iframe 状态组件变化时触发 iframe 更新
         def on_iframe_trigger_update():
             """iframe 状态组件变化时触发 iframe 更新"""
             # 使用专门的 iframe 更新函数，返回4个值（包含 iframe 更新）
@@ -297,9 +287,17 @@ class ChatUI:
                 # 如果没有提供专门的函数，返回不更新
                 return gr.update()
         
+        # 定时器触发的更新
         self.iframe_update_trigger.change(
             fn=on_iframe_trigger_update,
             inputs=[],  # 不使用 inputs，避免参数传递问题
+            outputs=[self.kiosk_iframe]
+        )
+        
+        # 立即触发更新（用于模式切换时立即更新 iframe）
+        self.iframe_immediate_trigger.change(
+            fn=on_iframe_trigger_update,
+            inputs=[],
             outputs=[self.kiosk_iframe]
         )
 

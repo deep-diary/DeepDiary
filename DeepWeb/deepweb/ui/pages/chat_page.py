@@ -21,6 +21,7 @@ from deepweb.services.cloud_communication.websocket_client import WebSocketClien
 from deepweb.ui.pages.chat.chat_service import ChatService
 from deepweb.ui.pages.chat.chat_ui import ChatUI
 from deepweb.ui.pages.chat.kiosk_iframe import KioskIframe
+from deepweb.ui.pages.chat.display_mode_state_machine import DisplayModeStateMachine, DisplayMode
 
 
 class ChatPage:
@@ -80,26 +81,19 @@ class ChatPage:
         
         # 待更新的 search_gallery 数据（用于自然语言搜索模式）
         self._pending_search_gallery: Optional[List] = None
-        
-        # 缓存最后使用的 iframe URL，避免频繁更新导致闪烁
-        self._last_iframe_url: Optional[str] = None
-        self._last_iframe_html: Optional[str] = None  # 缓存 HTML 内容，用于避免 translucent 类
-        
-        # 缓存最后更新的模式，避免频繁更新导致闪烁
-        self._last_search_mode_update: Optional[str] = None
-        self._last_search_gallery_visible: bool = False
 
         # 连接状态
         self.connection_status = "未连接"
         
         # 照片展示模式配置
         self.idle_threshold = 20.0  # 空闲阈值（秒）
-        self.check_interval = 1.0   # 检查间隔（秒）- 改为5秒，减少闪烁
+        self.check_interval = 1.0   # 检查间隔（秒）
         self.current_view = "chat"  # 当前视图：chat 或 slideshow（兼容旧代码）
         
-        # 事件驱动模式切换：待切换的模式标志位（None 表示不需要切换）
-        self._pending_mode_switch: Optional[str] = None
+        # 状态机（在 build 方法中初始化，因为需要访问组件）
+        self.state_machine: Optional[DisplayModeStateMachine] = None
         self._last_mode_check_time: float = 0.0  # 上次模式检查时间（用于防抖）
+        self._pending_mode_switch_result: Optional[tuple] = None  # 待应用的模式切换结果
 
     def build(self):
         """
@@ -137,20 +131,23 @@ class ChatPage:
                 self.current_view = "chat"
                 self.logger.info("[初始化] 默认进入聊天模式")
             
+            # 初始化状态机（在组件创建之后）
+            self.state_machine = DisplayModeStateMachine(self)
+            self.logger.info("[ChatPage] 状态机已初始化")
+            
             # 添加调试按钮（用于手动切换模式，方便测试）
             with gr.Row(visible=True) as self.debug_buttons_row:  # 临时显示，调试结束后可以隐藏
                 gr.Markdown("### 🧪 调试按钮（测试用）")
             with gr.Row(visible=True):  # 临时显示，调试结束后可以隐藏
                 self.debug_btn_chat = gr.Button("切换到聊天模式", variant="primary", size="sm")
-                self.debug_btn_slideshow = gr.Button("切换到全屏轮播模式", variant="secondary", size="sm")
-                self.debug_btn_search = gr.Button("切换到搜索模式", variant="secondary", size="sm")
+                self.debug_btn_slideshow = gr.Button("切换到全屏轮播模式", variant="primary", size="sm")
+                self.debug_btn_search = gr.Button("切换到搜索模式", variant="primary", size="sm")
             
             # 绑定事件
             self.chat_ui.bind_events(
                 on_connect=self.connect_websocket,
                 on_disconnect=self.disconnect_websocket,
                 on_send_message=self.send_message,
-                on_clear_chat=self.clear_chat_history,
                 on_refresh_memory=self.refresh_memory,
                 on_clear_memory=self.clear_memory,
                 on_update_ui=self.update_ui_with_slideshow_check,
@@ -163,14 +160,14 @@ class ChatPage:
             # 这样可以确保模式切换可靠执行，同时避免 iframe 闪烁
             self.idle_timer = gr.Timer(value=self.check_interval, active=True)
             self.idle_timer.tick(
-                fn=self._check_idle_condition_and_apply_switch,  # 检查条件并直接执行切换
+                fn=self._check_idle_condition_and_apply_switch,
                 inputs=[],
                 outputs=[
                     self.chat_view,
                     self.slideshow_view,
-                    # 注意：不包含 iframe，iframe 由状态组件单独更新（避免闪烁）
                     self.chat_ui.search_gallery,
-                    self.chat_ui.timer          # 控制聊天定时器的 active 状态
+                    self.chat_ui.timer,
+                    self.chat_ui.iframe_immediate_trigger  # 用于立即触发 iframe 更新
                 ]
             )
             
@@ -251,12 +248,10 @@ class ChatPage:
         self.chat_service.update_message_time()
         
         # 事件驱动：如果当前在全屏轮播模式，立即切换回聊天模式
-        current_mode = self.chat_service.get_current_mode()
-        if current_mode == "slideshow":
-            self.logger.info("[事件驱动] 用户发送消息，设置切换到聊天模式标志")
-            self._pending_mode_switch = "chat"
-            # 注意：这里不直接调用 switch_to_chat_mode()，因为需要返回更新对象
-            # 模式切换会在 update_ui 中处理
+        if self.state_machine and self.state_machine.get_current_mode() == DisplayMode.SLIDESHOW:
+            self.logger.info("[事件驱动] 用户发送消息，切换到聊天模式")
+            # 注意：这里不直接调用状态机切换，因为需要返回更新对象
+            # 模式切换会在定时器中处理
         # 注意：搜索模式下，用户发送新消息时不自动切换模式
         # 只有识别到新人物时才切换回聊天模式
         
@@ -335,20 +330,22 @@ class ChatPage:
         if has_new_message:
             self.chat_service.update_message_time()
             # 事件驱动：收到新消息时，如果在全屏模式，立即切换
-            current_mode = self.chat_service.get_current_mode()
-            if current_mode == "slideshow":
-                self.logger.info("[事件驱动] 收到新消息，设置切换到聊天模式标志")
-                self._pending_mode_switch = "chat"
+            if self.state_machine and self.state_machine.get_current_mode() == DisplayMode.SLIDESHOW:
+                self.logger.info("[事件驱动] 收到新消息，将在定时器中切换到聊天模式")
                 self.current_view = "chat"
         
-        # 注意：模式切换的更新由 mode_switch_timer 单独处理
-        # 这里不需要检查模式切换，因为模式切换是异步的，由专门的定时器处理
-        
-        # 调用原有的 update_ui 逻辑
-        # 注意：iframe 更新由状态组件单独处理，这里不返回 iframe 更新
-        chat_history, status_text, _, search_gallery_update = self.update_ui()
-        
-        return (chat_history, status_text, search_gallery_update)
+        # 使用状态机获取 UI 更新
+        if self.state_machine:
+            chat_history, status_text, _, search_gallery_update = self.state_machine.get_ui_updates()
+            return (chat_history, status_text, search_gallery_update)
+        else:
+            # 状态机未初始化，返回默认值
+            return (
+                self.chat_service.get_chat_history(),
+                self.connection_status,
+                gr.update(),
+                gr.update()
+            )
     
     def update_ui(self) -> tuple:
         """
@@ -357,158 +354,76 @@ class ChatPage:
         Returns:
             (chat_history, status_text, kiosk_iframe_update, search_gallery_update) 的更新
         """
-        current_mode = self.chat_service.get_current_mode()
-        
-        # 根据当前模式控制组件的可见性和内容
-        kiosk_iframe_update = gr.update()  # 默认不更新
-        search_gallery_update = gr.update()  # 默认不更新
-        
-        # 全屏轮播模式：不更新任何内容，避免刷新导致闪屏
-        if current_mode == "slideshow":
-            # 优化：在全屏模式下，完全不更新任何组件，减少闪烁
-            # 注意：即使返回 gr.update()，Gradio 仍可能触发检查
-            # 但这是 Gradio 的限制，我们只能尽量减少更新频率
-            # 通过返回相同的值（chat_history 和 connection_status），减少重新渲染
-            self.logger.debug(f"[update_ui] 当前为全屏轮播模式，不更新任何组件（避免刷新）")
-            # 返回当前值，不触发更新
-            current_chat_history = self.chat_service.get_chat_history()
-            current_status = self.connection_status
+        # 使用状态机获取 UI 更新
+        if self.state_machine:
+            return self.state_machine.get_ui_updates()
+        else:
+            # 状态机未初始化，返回默认值
             return (
-                current_chat_history,  # 返回当前值，不触发更新
-                current_status,        # 返回当前值，不触发更新
-                gr.update(),           # kiosk_iframe - 不更新（共用实例）
-                gr.update()            # search_gallery - 不更新
+                self.chat_service.get_chat_history(),
+                self.connection_status,
+                gr.update(),
+                gr.update()
             )
-        
-        if current_mode == "chat":
-            # 聊天模式：显示 kiosk_iframe，隐藏 search_gallery
-            kiosk_url = self.chat_service.get_last_kiosk_url()
-            # 如果没有保存的 URL，使用默认 URL（不带人物参数，轮播所有照片）
-            if not kiosk_url:
-                kiosk_url = self.kiosk_base_url
-            
-            # 检查 URL 是否变化（避免频繁更新导致闪烁）
-            if not hasattr(self, '_last_iframe_url'):
-                self._last_iframe_url = None
-            
-            # 检查模式是否变化
-            if not hasattr(self, '_last_search_mode_update'):
-                self._last_search_mode_update = None
-            
-            # 只在 URL 变化或模式切换时才更新（避免闪烁和 translucent 类）
-            if kiosk_url != self._last_iframe_url or self._last_search_mode_update != "chat":
-                # 从 URL 中提取 person_id（如果有）
-                person_id = None
-                if "?person=" in kiosk_url:
-                    try:
-                        person_id = kiosk_url.split("?person=")[1].split("&")[0]
-                    except:
-                        pass
-                
-                # 使用 KioskIframe 组件更新（高度800px，聊天模式）
-                kiosk_iframe_update_base = self.chat_ui.kiosk_iframe_component.update_person(person_id, height=800)
-                # 合并 visible 属性（gr.update 返回的是字典，需要合并）
-                kiosk_iframe_update = gr.update(
-                    value=kiosk_iframe_update_base.get("value"),
-                    visible=True
-                )
-                self._last_iframe_url = kiosk_url
-                self._last_search_mode_update = "chat"
-                self._last_search_gallery_visible = False  # 重置 gallery 可见性标记
-            else:
-                # URL 和模式都没变化，不更新 value（避免闪烁和 translucent 类）
-                # 只返回空的 gr.update()，不包含 value，这样 Gradio 就不会更新内容，也就不会添加 translucent 类
-                kiosk_iframe_update = gr.update()
-            
-            # 确保 search_gallery 隐藏（只在模式切换时更新）
-            if self._last_search_mode_update != "chat":
-                search_gallery_update = gr.update(visible=False)
-            else:
-                search_gallery_update = gr.update()  # 不更新，避免闪烁
-            
-        elif current_mode == "search":
-            # 搜索模式：隐藏 kiosk_iframe，显示 search_gallery
-            # 在搜索模式下，iframe 必须始终隐藏（包括保护期内）
-            # 检查是否在保护期内，如果在保护期内，强制隐藏 iframe
-            is_protected = self.chat_service.is_search_mode_protected()
-            
-            # 如果模式刚切换，或者当前模式标记不是 search，强制更新可见性
-            if not hasattr(self, '_last_search_mode_update') or self._last_search_mode_update != "search":
-                kiosk_iframe_update = gr.update(visible=False)
-                self._last_search_mode_update = "search"
-            elif is_protected:
-                # 在保护期内，确保 iframe 始终隐藏（防止同时显示）
-                kiosk_iframe_update = gr.update(visible=False)
-            else:
-                # 已经更新过可见性且不在保护期，不重复更新（避免闪烁）
-                kiosk_iframe_update = gr.update()
-            
-            # 更新 search_gallery（如果有待更新的数据）
-            if self._pending_search_gallery is not None:
-                search_gallery_update = gr.update(
-                    value=self._pending_search_gallery,
-                    visible=True
-                )
-                self._pending_search_gallery = None  # 清除待更新数据
-                self._last_search_gallery_visible = True
-            else:
-                # 没有新数据，但确保可见性正确（只在第一次切换时更新）
-                if not hasattr(self, '_last_search_gallery_visible') or not self._last_search_gallery_visible:
-                    search_gallery_update = gr.update(visible=True)
-                    self._last_search_gallery_visible = True
-                else:
-                    search_gallery_update = gr.update()  # 不更新，避免闪烁
-        
-        # 返回当前状态
-        return (
-            self.chat_service.get_chat_history(),
-            self.connection_status,
-            kiosk_iframe_update,
-            search_gallery_update
-        )
     
     def _check_idle_condition_and_apply_switch(self) -> tuple:
         """
         检查空闲条件并直接执行模式切换（定时器调用）
-        优化方案：直接调用切换函数（类似调试按钮），但 iframe 不包含在输出中
-        iframe 由状态组件单独更新（2秒间隔），避免闪烁
         
         Returns:
-            组件的更新（4个值：chat_view, slideshow_view, search_gallery, timer）
-            不包含 iframe，iframe 由状态组件单独更新
+            组件的更新（5个值：chat_view, slideshow_view, search_gallery, timer, iframe_immediate_trigger）
         """
         import time
         current_time = time.time()
-        current_mode = self.chat_service.get_current_mode()
         
-        # 防抖：如果距离上次检查时间太短（<0.5秒），跳过检查
+        if not self.state_machine:
+            return self._no_change_with_trigger(gr.update())
+        
+        # 检查是否有待应用的模式切换结果（用于立即应用模式切换）
+        if hasattr(self, '_pending_mode_switch_result') and self._pending_mode_switch_result is not None:
+            result = self._pending_mode_switch_result
+            self._pending_mode_switch_result = None  # 清除待应用的结果
+            # 返回完整的模式切换更新（chat_view, slideshow_view, kiosk_iframe, slideshow_iframe, search_gallery, timer）
+            # 但定时器只需要返回 (chat_view, slideshow_view, search_gallery, timer, iframe_immediate_trigger)
+            trigger_update = gr.update(value=time.time())  # 立即触发 iframe 更新
+            self.logger.info("[定时器] 应用待处理的模式切换更新")
+            return (result[0], result[1], result[4], result[5], trigger_update)
+        
+        current_mode = self.state_machine.get_current_mode()
+        
+        # 检查是否需要立即更新 iframe（用于模式切换时立即隐藏 iframe）
+        need_immediate_update = getattr(self, '_need_immediate_iframe_update', False)
+        if need_immediate_update:
+            self._need_immediate_iframe_update = False  # 清除标志
+            # 立即触发 iframe 更新
+            trigger_update = gr.update(value=time.time())
+        else:
+            trigger_update = gr.update()  # 不更新
+        
+        # 防抖：如果距离上次检查时间太短（<0.5秒），跳过检查（但仍返回 trigger_update）
         if current_time - self._last_mode_check_time < 0.5:
-            return self._no_change_without_iframe()
+            return self._no_change_with_trigger(trigger_update)
         
         self._last_mode_check_time = current_time
         
         # 如果当前在全屏轮播模式，检查是否应该切换回聊天模式
-        if current_mode == "slideshow":
+        if current_mode == DisplayMode.SLIDESHOW:
             if self.chat_service.should_exit_slideshow():
                 self.logger.info("[定时器] 检测到新消息，直接切换到聊天模式")
                 result = self.switch_to_chat_mode()
-                # 返回不包含 iframe 的更新（iframe 由状态组件单独更新）
-                return (result[0], result[1], result[4], result[5])  # chat_view, slideshow_view, search_gallery, timer
-            # 否则保持全屏轮播模式，不更新
-            return self._no_change_without_iframe()
+                return (result[0], result[1], result[4], result[5], trigger_update)
+            return self._no_change_with_trigger(trigger_update)
         
         # 无论当前在什么模式（chat 或 search），如果空闲20秒，都切换到全屏轮播模式
         should_enter = self.chat_service.should_enter_slideshow(self.idle_threshold)
         if should_enter:
-            # 检查是否已经在全屏模式（避免重复切换）
-            if current_mode == "slideshow":
+            if current_mode == DisplayMode.SLIDESHOW:
                 self.logger.debug(f"[定时器] 已经在全屏轮播模式，跳过")
-                return self._no_change_without_iframe()
+                return self._no_change_with_trigger(trigger_update)
             
             self.logger.info(f"[定时器] 满足进入全屏轮播模式条件，直接执行切换 (idle_threshold={self.idle_threshold}s)")
             result = self.switch_to_slideshow_mode()
-            # 返回不包含 iframe 的更新（iframe 由状态组件单独更新）
-            return (result[0], result[1], result[4], result[5])  # chat_view, slideshow_view, search_gallery, timer
+            return (result[0], result[1], result[4], result[5], trigger_update)
         else:
             # 记录当前空闲时间，用于调试
             current_time = time.time()
@@ -517,53 +432,47 @@ class ChatPage:
             idle_time = current_time - max(last_message_time, last_person_update_time)
             self.logger.debug(f"[定时器] 未满足进入全屏轮播模式条件: idle_time={idle_time:.1f}s < {self.idle_threshold}s")
         
-        # 否则保持当前模式，不更新
-        return self._no_change_without_iframe()
+        return self._no_change_with_trigger(trigger_update)
     
-    def _no_change_without_iframe(self) -> tuple:
-        """返回不改变的更新（不包含 iframe）"""
+    def _no_change_with_trigger(self, trigger_update=None) -> tuple:
+        """返回不改变的更新（包含 iframe_immediate_trigger）"""
+        if trigger_update is None:
+            trigger_update = gr.update()
         return (
             gr.update(),  # chat_view - 不更新
             gr.update(),  # slideshow_view - 不更新
             gr.update(),  # search_gallery - 不更新
-            gr.update()   # timer - 不更新（保持当前状态）
+            gr.update(),  # timer - 不更新
+            trigger_update  # iframe_immediate_trigger - 根据标志决定是否更新
         )
     
     def _debug_switch_to_chat(self) -> tuple:
         """调试用：手动切换到聊天模式"""
         self.logger.info("[调试] 手动切换到聊天模式")
-        # 直接调用切换函数，不使用标志位
+        # 直接调用 switch_to_chat_mode，状态机内部已处理所有逻辑（包括 update_message_time）
         return self.switch_to_chat_mode()
     
     def _debug_switch_to_slideshow(self) -> tuple:
         """调试用：手动切换到全屏轮播模式"""
         self.logger.info("[调试] 手动切换到全屏轮播模式")
-        # 直接调用切换函数，不使用标志位
+        # 直接调用 switch_to_slideshow_mode，状态机内部已处理所有逻辑
         return self.switch_to_slideshow_mode()
     
     def _debug_switch_to_search(self) -> tuple:
         """调试用：手动切换到搜索模式"""
         self.logger.info("[调试] 手动切换到搜索模式")
-        # 搜索模式需要 assets，这里使用空列表
-        # 直接调用切换函数，不使用标志位
+        # 直接调用 switch_to_search_mode，状态机内部已处理所有逻辑
         return self.switch_to_search_mode([])
     
     def check_and_switch_to_slideshow(self) -> Optional[tuple]:
         """
         检查并执行模式切换（由 update_ui 调用，事件驱动）
-        注意：这个方法现在主要用于检查，实际切换由 _apply_mode_switch_from_state 执行
-        通过状态组件的变化触发（事件驱动）
+        注意：这个方法已废弃，模式切换现在由状态机统一管理
         
         Returns:
-            如果有待切换的模式，返回切换结果；否则返回 None
+            None（已废弃）
         """
-        # 检查是否有待切换的模式
-        if hasattr(self, '_pending_mode_switch') and self._pending_mode_switch is not None:
-            # 有待切换的模式，但实际切换由 _apply_mode_switch_from_state 执行
-            # 通过状态组件的变化触发（事件驱动）
-            # 这里只返回 None，让调用者知道有待切换的模式
-            return None
-        
+        # 已废弃，模式切换由状态机统一管理
         return None
     
     def _no_change(self) -> tuple:
@@ -663,9 +572,8 @@ class ChatPage:
         Returns:
             所有组件的更新
         """
-        self.chat_service.set_current_mode("chat")
-        self.current_view = "chat"
-        self.logger.info("切换到聊天模式")
+        if not self.state_machine:
+            return self._no_change()
         
         # 如果没有提供 kiosk_url，使用最后保存的，如果没有则使用默认 URL
         if not kiosk_url:
@@ -673,33 +581,8 @@ class ChatPage:
             if not kiosk_url:
                 kiosk_url = self.kiosk_base_url
         
-        # 从 URL 中提取 person_id（如果有）
-        person_id = None
-        if "?person=" in kiosk_url:
-            try:
-                person_id = kiosk_url.split("?person=")[1].split("&")[0]
-            except:
-                pass
-        
-        # 使用 KioskIframe 组件更新（高度800px，聊天模式）
-        kiosk_iframe_update_base = self.chat_ui.kiosk_iframe_component.update_person(person_id, height=800)
-        # 合并 visible 属性（gr.update 返回的是字典，需要合并）
-        kiosk_iframe_update = gr.update(
-            value=kiosk_iframe_update_base.get("value"),
-            visible=True
-        )
-        
-        # 更新缓存的 URL
-        self._last_iframe_url = kiosk_url
-        
-        return (
-            gr.update(visible=True),   # chat_view
-            gr.update(visible=False),  # slideshow_view
-            kiosk_iframe_update,        # chat_iframe (聊天模式 iframe，更新高度为800px)
-            gr.update(visible=False),  # slideshow_iframe (全屏模式 iframe，隐藏)
-            gr.update(visible=False),  # search_gallery
-            gr.update(active=True)     # timer - 启用聊天定时器
-        )
+        # 使用状态机切换模式
+        return self.state_machine.enter_chat_mode(kiosk_url)
     
     def switch_to_slideshow_mode(self) -> tuple:
         """
@@ -708,33 +591,18 @@ class ChatPage:
         Returns:
             所有组件的更新
         """
-        self.chat_service.set_current_mode("slideshow")
-        self.current_view = "slideshow"
+        if not self.state_machine:
+            return self._no_change()
         
         # 使用最后保存的 person_id，如果没有则使用 None（显示所有照片）
         person_info = self.chat_service.get_last_person_info()
         person_id = person_info.get("person_id")
         
-        # 打印切换到全屏模式的信息
-        self.logger.info(f"[全屏模式] 切换到全屏轮播模式: person_id={person_id}, height=1080px")
-        
-        # 全屏模式下使用独立的 iframe 实例（在 slideshow_view 中）
-        # 使用全屏模式的 iframe 组件更新（高度1080px）
-        slideshow_iframe_update_base = self.slideshow_iframe_component.update_person(person_id, height=1080)
-        # 合并 visible 属性
-        slideshow_iframe_update = gr.update(
-            value=slideshow_iframe_update_base.get("value"),
-            visible=True  # 全屏模式下 iframe 可见
-        )
-        
-        return (
-            gr.update(visible=False),  # chat_view
-            gr.update(visible=True),   # slideshow_view
-            gr.update(visible=False),  # chat_iframe (聊天模式 iframe，隐藏)
-            slideshow_iframe_update,    # slideshow_iframe (全屏模式 iframe，更新高度为1080px)
-            gr.update(),                # search_gallery (不变)
-            gr.update(active=False)     # timer - 禁用聊天定时器，避免闪烁
-        )
+        # 使用状态机切换模式
+        # 注意：状态机内部会确保 slideshow_iframe 的 value 被正确更新
+        result = self.state_machine.enter_slideshow_mode(person_id)
+        self.logger.info(f"[switch_to_slideshow_mode] 切换到全屏模式，person_id={person_id}")
+        return result
     
     def switch_to_search_mode(self, assets: List[Dict]) -> tuple:
         """
@@ -746,20 +614,15 @@ class ChatPage:
         Returns:
             所有组件的更新
         """
-        self.chat_service.set_current_mode("search")
+        if not self.state_machine:
+            return self._no_change()
+        
         self.logger.info(f"切换到自然语言搜索模式: 共 {len(assets)} 张图片")
         
+        # 使用状态机切换模式
         # 注意：assets 会在 _download_and_update_thumbnails 中处理
         # 这里只是切换模式，实际的 Gallery 更新会在下载完成后进行
-        
-        return (
-            gr.update(visible=True),   # chat_view
-            gr.update(visible=False),  # slideshow_view
-            gr.update(visible=False),  # chat_iframe (聊天模式 iframe，隐藏)
-            gr.update(visible=False),  # slideshow_iframe (全屏模式 iframe，隐藏)
-            gr.update(visible=True),   # search_gallery
-            gr.update(active=True)     # timer - 保持启用聊天定时器（搜索模式需要实时更新）
-        )
+        return self.state_machine.enter_search_mode(assets)
     
     def switch_to_chat_page(self) -> tuple:
         """
@@ -784,10 +647,8 @@ class ChatPage:
         self.chat_service.update_message_time()
         
         # 事件驱动：如果当前在照片展示模式，设置切换到聊天模式标志
-        current_mode = self.chat_service.get_current_mode()
-        if current_mode == "slideshow":
-            self.logger.info("[事件驱动] 收到WebSocket消息，设置切换到聊天模式标志")
-            self._pending_mode_switch = "chat"
+        if self.state_machine and self.state_machine.get_current_mode() == DisplayMode.SLIDESHOW:
+            self.logger.info("[事件驱动] 收到WebSocket消息，将在定时器中切换到聊天模式")
             self.current_view = "chat"
     
     def _on_status_change(self, status: str):
@@ -814,10 +675,8 @@ class ChatPage:
         self.chat_service.update_message_time()
         
         # 事件驱动：如果当前在照片展示模式，设置切换到聊天模式标志
-        current_mode = self.chat_service.get_current_mode()
-        if current_mode == "slideshow":
-            self.logger.info("[事件驱动] 收到WebSocket消息，设置切换到聊天模式标志")
-            self._pending_mode_switch = "chat"
+        if self.state_machine and self.state_machine.get_current_mode() == DisplayMode.SLIDESHOW:
+            self.logger.info("[事件驱动] 收到WebSocket消息，将在定时器中切换到聊天模式")
             self.current_view = "chat"
         
         if result_type == "user_message":
@@ -867,41 +726,54 @@ class ChatPage:
             person_name = data.get("person_name")
             person_id = data.get("person_id")
             
-            # 更新人物信息
-            self.chat_service.update_person_info(
-                person_name=person_name,
-                person_id=person_id,
-                kiosk_url=kiosk_url
-            )
-            
             # 如果当前在搜索模式，检查是否在保护期内
-            # 如果不在搜索模式，更新 iframe URL
-            current_mode = self.chat_service.get_current_mode()
-            if current_mode == "search":
-                # 检查是否在保护期内
-                if self.chat_service.is_search_mode_protected():
-                    # 在保护期内，忽略人物识别，保持搜索模式
-                    self.logger.info(
-                        f"搜索模式保护期内，忽略人物识别 {person_name}，保持搜索模式"
-                    )
+            if self.state_machine:
+                current_mode = self.state_machine.get_current_mode()
+                if current_mode == DisplayMode.SEARCH:
+                    # 检查是否在保护期内
+                    if self.chat_service.is_search_mode_protected():
+                        # 在保护期内，完全忽略人物识别，保持搜索模式
+                        # 注意：不更新人物信息，不更新 kiosk_url，不触发任何 iframe 相关操作
+                        # iframe 在 _get_search_mode_updates 中会始终返回 visible=False
+                        self.logger.info(
+                            f"搜索模式保护期内，忽略人物识别 {person_name}，保持搜索模式（不更新 iframe）"
+                        )
+                        # 不调用 update_person_info，避免影响保护期结束后的逻辑
+                        return  # 直接返回，不处理
+                    else:
+                        # 保护期已过，识别到新人物，切换到聊天模式
+                        # 这是退出搜索模式的唯一条件（除了空闲超时）
+                        self.logger.info(
+                            f"保护期已过，识别到新人物 {person_name}，从搜索模式切换到聊天模式: {kiosk_url}"
+                        )
+                        # 先更新人物信息，然后切换模式
+                        self.chat_service.update_person_info(
+                            person_name=person_name,
+                            person_id=person_id,
+                            kiosk_url=kiosk_url
+                        )
+                        # 使用状态机切换模式（会显示 iframe）
+                        self.state_machine.enter_chat_mode(kiosk_url)
+                        return  # 已处理，直接返回
                 else:
-                    # 保护期已过，识别到新人物，切换到聊天模式
-                    # 这是退出搜索模式的唯一条件（除了空闲超时）
-                    self.chat_service.set_current_mode("chat")
-                    # 清除缓存的 URL，强制更新 iframe
-                    if hasattr(self, '_last_iframe_url'):
-                        self._last_iframe_url = None
-                    self.logger.info(
-                        f"保护期已过，识别到新人物 {person_name}，从搜索模式切换到聊天模式: {kiosk_url}"
+                    # 不在搜索模式（聊天模式或全屏轮播模式）
+                    # 更新人物信息
+                    self.chat_service.update_person_info(
+                        person_name=person_name,
+                        person_id=person_id,
+                        kiosk_url=kiosk_url
                     )
+                    # 更新 iframe URL（聊天模式或全屏轮播模式）
+                    # 注意：这里不能直接更新，需要通过定时器更新
+                    # 先保存到服务中，定时器会读取并更新
+                    self.logger.info(f"收到 Kiosk URL，将在下次更新时刷新 iframe: {kiosk_url}")
             else:
-                # 更新 iframe URL（聊天模式或全屏轮播模式）
-                # 注意：这里不能直接更新，需要通过定时器更新
-                # 先保存到服务中，定时器会读取并更新
-                # 清除缓存的 URL，强制更新 iframe
-                if hasattr(self, '_last_iframe_url'):
-                    self._last_iframe_url = None
-                self.logger.info(f"收到 Kiosk URL，将在下次更新时刷新 iframe: {kiosk_url}")
+                # 状态机未初始化，只更新人物信息
+                self.chat_service.update_person_info(
+                    person_name=person_name,
+                    person_id=person_id,
+                    kiosk_url=kiosk_url
+                )
         
         elif result_type == "immich_search_result_message":
             # Immich 搜索结果消息（需要批量下载缩略图）
@@ -919,10 +791,22 @@ class ChatPage:
             # 判断是否为自然语言搜索（有 query 参数且不为空）
             query = data.get("query", "")
             if query:
-                # 自然语言搜索：切换到搜索模式，并重置保护期
-                # reset_protection=True 确保每次收到新的搜索请求都重置保护期
-                self.chat_service.set_current_mode("search", reset_protection=True)
-                self.logger.info(f"收到自然语言搜索请求，切换到搜索模式: query={query}")
+                # 自然语言搜索：立即切换到搜索模式，并更新 UI 组件（隐藏 iframe，显示 gallery）
+                self.logger.info(f"收到自然语言搜索请求，立即切换到搜索模式: query={query}")
+                # 使用状态机切换模式，并立即触发 UI 更新
+                if self.state_machine:
+                    # 先清除所有缓存，确保强制更新
+                    self.state_machine._last_iframe_url = None
+                    self.state_machine._last_search_mode_update = None
+                    # 切换模式，获取完整的更新元组
+                    switch_result = self.state_machine.enter_search_mode([])  # 先切换模式，assets 会在下载完成后更新
+                    # 保存待应用的模式切换结果，让定时器立即应用
+                    self._pending_mode_switch_result = switch_result
+                    # 同时设置标志，让定时器立即触发 iframe 更新
+                    if not hasattr(self, '_need_immediate_iframe_update'):
+                        self._need_immediate_iframe_update = False
+                    self._need_immediate_iframe_update = True
+                    self.logger.info("[模式切换] 已设置待应用的模式切换结果，将在下次定时器调用时应用")
                 # 注意：切换到搜索模式后，只有识别到新人物时才切换回聊天模式
                 # 或者空闲时间超过阈值时切换到全屏轮播模式
             
