@@ -10,3 +10,6 @@
 [submodule "DeepServer/voiceprint-api"]
 	path = DeepServer/voiceprint-api
 	url = git@github.com:deep-diary/voiceprint-api.git
+[submodule "py-xiaozhi"]
+	path = py-xiaozhi
+	url = git@github.com:deep-diary/py-xiaozhi.git
