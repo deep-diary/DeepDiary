@@ -14,6 +14,10 @@
 [submodule "DeepServer/xiaozhi-esp32-server"]
     path = DeepServer/xiaozhi-esp32-server
     url = git@github.com:deep-diary/xiaozhi-esp32-server.git
+
+[submodule "py-xiaozhi"]
+    path = py-xiaozhi
+    url = git@github.com:deep-diary/py-xiaozhi.git
 ```
 
 ### 项目结构
@@ -23,8 +27,10 @@ DeepDiary/
 ├── .gitmodules                    # 子模块配置文件
 ├── xiaozhi-esp32/                 # 子模块1
 │   └── .git/                      # 子模块的Git配置
+├── py-xiaozhi/                    # 子模块2
+│   └── .git/                      # 子模块的Git配置
 └── DeepServer/
-    └── xiaozhi-esp32-server/      # 子模块2
+    └── xiaozhi-esp32-server/      # 子模块3
         └── .git/                  # 子模块的Git配置
 ```
 
@@ -42,7 +48,7 @@ Git Submodule（子模块）允许你将一个 Git 仓库作为另一个 Git 仓
 ### 核心概念
 
 - **主项目（Super Project）**：包含子模块的项目（DeepDiary）
-- **子模块（Submodule）**：被包含的独立 Git 仓库（xiaozhi-esp32、xiaozhi-esp32-server）
+- **子模块（Submodule）**：被包含的独立 Git 仓库（xiaozhi-esp32、py-xiaozhi、xiaozhi-esp32-server）
 - **引用关系**：主项目只保存子模块的特定 commit 引用，不保存实际代码
 
 ### 工作原理
@@ -86,7 +92,8 @@ git submodule status
 
 # 输出示例：
 #  abc1234 xiaozhi-esp32 (v1.0.0)
-#  def5678 DeepServer/xiaozhi-esp32-server (v2.1.0)
+#  def5678 py-xiaozhi (dev)
+#  ghi9012 DeepServer/xiaozhi-esp32-server (v2.1.0)
 ```
 
 **状态前缀说明**：
@@ -115,6 +122,7 @@ git submodule update xiaozhi-esp32
 git submodule update --remote
 
 # 更新特定子模块
+git submodule update --remote py-xiaozhi
 git submodule update --remote DeepServer/xiaozhi-esp32-server
 ```
 
@@ -203,7 +211,33 @@ git commit -m "更新 xiaozhi-esp32 子模块"
 git push origin main
 ```
 
-### 4.3 修改 xiaozhi-esp32-server 子模块
+### 4.3 修改 py-xiaozhi 子模块
+
+```bash
+# 进入子模块
+cd py-xiaozhi
+
+# 切换到 dev 分支（如果还没有）
+git checkout dev
+
+# 进行修改
+vim some_file.py
+git add .
+git commit -m "修改 py-xiaozhi 代码"
+
+# 推送到远程（如果有权限）
+git push origin dev
+
+# 返回主项目
+cd ..
+
+# 更新主项目中的子模块引用
+git add py-xiaozhi
+git commit -m "更新 py-xiaozhi 子模块"
+git push origin main
+```
+
+### 4.4 修改 xiaozhi-esp32-server 子模块
 
 ```bash
 # 进入子模块
@@ -229,9 +263,45 @@ git commit -m "更新 xiaozhi-esp32-server 子模块"
 git push origin main
 ```
 
-### 4.4 同步上游更新（如果配置了 upstream）
+### 4.5 同步上游更新（如果配置了 upstream）
 
 如果子模块配置了上游仓库（upstream），可以同步上游更新：
+
+#### 同步 py-xiaozhi 上游更新
+
+```bash
+# 进入子模块
+cd py-xiaozhi
+
+# 检查是否配置了 upstream
+git remote -v
+
+# upstream 已配置为：git@github.com:huangjunsen0406/py-xiaozhi.git
+
+# 确保在 dev 分支
+git checkout dev
+
+# 获取上游更新
+git fetch upstream
+
+# 合并上游更新
+git merge upstream/main
+
+# 如果有冲突，解决后：
+# git add .
+# git commit -m "解决合并冲突"
+
+# 推送到你的仓库
+git push origin dev
+
+# 返回主项目并更新引用
+cd ..
+git add py-xiaozhi
+git commit -m "同步 py-xiaozhi 上游更新"
+git push origin main
+```
+
+#### 同步 xiaozhi-esp32 上游更新
 
 ```bash
 # 进入子模块
@@ -264,7 +334,7 @@ git commit -m "同步 xiaozhi-esp32 上游更新"
 git push origin main
 ```
 
-### 4.5 批量更新所有子模块
+### 4.6 批量更新所有子模块
 
 ```bash
 # 方式1：使用 foreach 命令
@@ -475,6 +545,11 @@ git submodule status
     path = xiaozhi-esp32
     url = git@github.com:deep-diary/xiaozhi-esp32.git
     branch = dev
+
+[submodule "py-xiaozhi"]
+    path = py-xiaozhi
+    url = git@github.com:deep-diary/py-xiaozhi.git
+    branch = dev
 ```
 
 然后使用：
@@ -506,14 +581,21 @@ git submodule update --remote
 ### Q6: 如何查看子模块的修改历史？
 
 ```bash
+# 查看 xiaozhi-esp32 的修改历史
 cd xiaozhi-esp32
 git log
 git diff origin/main..HEAD
+
+# 查看 py-xiaozhi 的修改历史
+cd py-xiaozhi
+git log
+git diff origin/dev..HEAD
 ```
 
 ### Q7: 如何删除子模块？
 
 ```bash
+# 示例：删除 xiaozhi-esp32 子模块
 # 1. 从 .gitmodules 中删除配置
 git submodule deinit -f xiaozhi-esp32
 
@@ -528,6 +610,16 @@ rm -rf xiaozhi-esp32
 
 # 5. 提交更改
 git commit -m "删除子模块 xiaozhi-esp32"
+```
+
+### Q8: py-xiaozhi 子模块的上游仓库是什么？
+
+**A**: py-xiaozhi 子模块已配置 upstream 为 `git@github.com:huangjunsen0406/py-xiaozhi.git`，默认开发分支为 `dev`。
+
+查看 upstream 配置：
+```bash
+cd py-xiaozhi
+git remote -v
 ```
 
 ## 九、工作流程示例
@@ -568,6 +660,47 @@ git fetch upstream  # 如果配置了 upstream
 git fetch origin
 
 
+#### 示例1：同步 py-xiaozhi 上游更新
+
+```bash
+# 1. 进入子模块目录
+cd py-xiaozhi
+
+# 2. 确保在 dev 分支
+git checkout dev
+
+# 3. 获取 upstream 的最新更新
+git fetch upstream
+
+# 4. 查看是否有新提交
+git log HEAD..upstream/main --oneline
+
+# 5. 如果有新提交，查看具体变化
+git diff --stat HEAD..upstream/main
+
+# 6. 查看详细的代码差异（可选）
+git diff HEAD..upstream/main
+
+# 7. 如果决定合并，执行合并
+git merge upstream/main
+
+# 8. 解决冲突（如果有）
+# git add .
+# git commit -m "解决冲突"
+
+# 9. 推送到你的仓库
+git push origin dev
+
+# 10. 更新主项目引用
+cd ..
+git add py-xiaozhi
+git commit -m "同步 py-xiaozhi 上游更新"
+git push origin main
+```
+
+#### 示例2：同步 xiaozhi-esp32-server 上游更新
+
+```bash
 # 1. 进入子模块目录
 cd DeepServer/xiaozhi-esp32-server
 
@@ -589,23 +722,19 @@ git diff HEAD..upstream/main
 # 7. 如果决定合并，执行合并
 git merge upstream/main
 
-# 3. 合并更新
-git merge upstream/main
-# 或
-git merge origin/main
-
-# 4. 解决冲突（如果有）
+# 8. 解决冲突（如果有）
 # git add .
 # git commit -m "解决冲突"
 
-# 5. 推送到你的仓库
+# 9. 推送到你的仓库
 git push origin dev
 
-# 6. 更新主项目引用
-cd ..
-git add xiaozhi-esp32
-git commit -m "同步上游更新"
+# 10. 更新主项目引用
+cd ../..
+git add DeepServer/xiaozhi-esp32-server
+git commit -m "同步 xiaozhi-esp32-server 上游更新"
 git push origin main
+```
 ```
 
 ## 十、总结
@@ -633,6 +762,7 @@ git push origin main
 ### 当前项目的子模块
 
 - `xiaozhi-esp32`：位于项目根目录
+- `py-xiaozhi`：位于项目根目录，默认分支为 `dev`，upstream 为 `git@github.com:huangjunsen0406/py-xiaozhi.git`
 - `DeepServer/xiaozhi-esp32-server`：位于 DeepServer 目录下
 
 ### 推荐操作流程
